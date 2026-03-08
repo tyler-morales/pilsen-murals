@@ -35,6 +35,13 @@ export function MapContent({ murals, collections }: MapContentProps) {
 
   useProximity(displayMurals);
   const currentNearby = useProximityStore((s) => s.currentNearby);
+  const isModalOpen = useMuralStore((s) => s.isModalOpen);
+  const activeMural = useMuralStore((s) => s.activeMural);
+  // Don't highlight the nearby marker when that mural is already open in the modal (avoids duplicate thumbnail + "You're near" on screen).
+  const nearbyMuralIdForMap =
+    currentNearby?.id != null && (!isModalOpen || activeMural?.id !== currentNearby.id)
+      ? currentNearby.id
+      : null;
 
   const routeCoordinates = useMemo(
     () =>
@@ -65,13 +72,15 @@ export function MapContent({ murals, collections }: MapContentProps) {
         murals={displayMurals}
         showTourNumbers={!!activeTour}
         routeCoordinates={routeCoordinates}
-        nearbyMuralId={currentNearby?.id ?? null}
+        nearbyMuralId={nearbyMuralIdForMap}
       />
       <MuralModal />
-      <NearbyMuralCard
-        activeTour={activeTour}
-        orderedMurals={displayMurals}
-      />
+      {!isModalOpen && (
+        <NearbyMuralCard
+          activeTour={activeTour}
+          orderedMurals={displayMurals}
+        />
+      )}
       <MuralList
         murals={displayMurals}
         isOpen={listOpen}
