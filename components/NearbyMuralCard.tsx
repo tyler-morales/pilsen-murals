@@ -88,6 +88,20 @@ export function NearbyMuralCard({
   };
 
   const handleDismiss = () => {
+    // #region agent log
+    fetch("http://127.0.0.1:7834/ingest/75c1fc41-3a14-4be5-8874-6f7c19a23dc4", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "2991a5" },
+      body: JSON.stringify({
+        sessionId: "2991a5",
+        location: "NearbyMuralCard.tsx:handleDismiss",
+        message: "handleDismiss called",
+        data: { currentNearbyId: currentNearby?.id, showIndex, queueLen: nearbyQueue.length },
+        timestamp: Date.now(),
+        hypothesisId: "H2",
+      }),
+    }).catch(() => {});
+    // #endregion
     if (currentNearby) markSeen(currentNearby.id);
     showNext();
   };
