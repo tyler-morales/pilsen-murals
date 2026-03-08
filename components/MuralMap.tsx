@@ -7,16 +7,24 @@ import { createRoot } from "react-dom/client";
 import Supercluster from "supercluster";
 import { MuralMarker } from "./MuralMarker";
 import { ClusterMarker } from "./ClusterMarker";
+import { FannedMuralCards } from "./FannedMuralCards";
+import { useLocationStore } from "@/store/locationStore";
 import { useMuralStore } from "@/store/muralStore";
+import { useMapStore } from "@/store/mapStore";
 import { useThemeStore } from "@/store/themeStore";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
+import { GEOFENCE_RADIUS_M, circlePolygon } from "@/lib/geo";
+import pilsenBoundary from "@/data/pilsen-boundary.json";
 import type { Mural } from "@/types/mural";
 import type { MapLightPreset } from "@/store/themeStore";
+import type { MapStyleKind } from "@/store/mapStore";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
 
-// Standard style: sky, sun-based lighting, 3D buildings; lightPreset synced to Pilsen time
-const MAP_STYLE = "mapbox://styles/mapbox/standard";
+const STYLE_URLS: Record<MapStyleKind, string> = {
+  standard: "mapbox://styles/mapbox/standard",
+  satellite: "mapbox://styles/mapbox/satellite-streets-v12",
+};
 
 const FLY_OPTIONS = {
   zoom: 17,
@@ -24,6 +32,9 @@ const FLY_OPTIONS = {
   duration: 2000,
   essential: true,
 } as const;
+
+/** Pitch when flying to user location (keep 3D perspective, not flat birds-eye). */
+const ZOOM_TO_USER_PITCH = 50;
 
 function applyLightPreset(
   map: import("mapbox-gl").Map,
@@ -38,6 +49,104 @@ function applyLightPreset(
 
 const REVEAL_STAGGER_MS = 28;
 const MARKER_CHUNK_SIZE = 8;
+
+/** Minimal fit-to-bounds icon (24×24 viewBox, 14px display). */
+const FIT_ICON_SVG =
+  '<svg class="mapboxgl-ctrl-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/></svg>';
+
+/**
+ * Custom Mapbox IControl: Fit map to murals (official icon, centered).
+ */
+function createFitMapControl(getCoords: () => [number, number][]) {
+  return class FitMapControl {
+    onAdd(_map: import("mapbox-gl").Map) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "mapboxgl-ctrl-toolbar-btn mapboxgl-ctrl-fit-map";
+      btn.setAttribute("aria-label", "Fit map to all murals");
+      btn.setAttribute("title", "Fit map");
+      btn.innerHTML = FIT_ICON_SVG;
+      btn.addEventListener("click", () => {
+        const coords = getCoords();
+        if (coords.length) useMapStore.getState().requestFitBounds(coords);
+      });
+      const container = document.createElement("div");
+      container.className = "mapboxgl-ctrl mapboxgl-ctrl-group";
+      container.appendChild(btn);
+      return container;
+    }
+    onRemove() {}
+  };
+}
+
+/** Minimal north compass icon (24×24 viewBox, 14px display). */
+const COMPASS_ICON_SVG =
+  '<svg class="mapboxgl-ctrl-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polygon points="12,2 10,12 14,12" fill="currentColor" stroke="none"/><line x1="12" y1="12" x2="12" y2="22"/></svg>';
+
+/** Custom control: compass / north. Calls requestCompassReset. */
+function createCompassControl() {
+  return class CompassControl {
+    onAdd(_map: import("mapbox-gl").Map) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "mapboxgl-ctrl-toolbar-btn mapboxgl-ctrl-compass-custom";
+      btn.setAttribute("aria-label", "Reset map to north");
+      btn.setAttribute("title", "North up");
+      btn.innerHTML = COMPASS_ICON_SVG;
+      btn.addEventListener("click", () => useMapStore.getState().requestCompassReset());
+      const container = document.createElement("div");
+      container.className = "mapboxgl-ctrl mapboxgl-ctrl-group";
+      container.appendChild(btn);
+      return container;
+    }
+    onRemove() {}
+  };
+}
+
+/** Minimal satellite/globe icon (24×24 viewBox, 14px display). */
+const SATELLITE_ICON_SVG =
+  '<svg class="mapboxgl-ctrl-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><ellipse cx="12" cy="12" rx="10" ry="4"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>';
+
+/** Custom control: satellite/standard style toggle. Button label and active state sync with store. */
+function createStyleControl() {
+  return class StyleControl {
+    private unsubscribe: (() => void) | null = null;
+
+    private updateButton(btn: HTMLButtonElement) {
+      const mapStyle = useMapStore.getState().mapStyle;
+      const isSatellite = mapStyle === "satellite";
+      btn.setAttribute(
+        "aria-label",
+        isSatellite ? "Switch to map view" : "Switch to satellite map"
+      );
+      btn.setAttribute("title", isSatellite ? "Map view" : "Satellite");
+      btn.setAttribute("aria-pressed", String(isSatellite));
+      btn.dataset.styleActive = isSatellite ? "satellite" : "";
+    }
+
+    onAdd(_map: import("mapbox-gl").Map) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "mapboxgl-ctrl-toolbar-btn mapboxgl-ctrl-style-custom";
+      btn.setAttribute("aria-pressed", "false");
+      btn.innerHTML = SATELLITE_ICON_SVG;
+      this.updateButton(btn);
+      btn.addEventListener("click", () => {
+        const { mapStyle, setMapStyle } = useMapStore.getState();
+        setMapStyle(mapStyle === "standard" ? "satellite" : "standard");
+      });
+      this.unsubscribe = useMapStore.subscribe(() => this.updateButton(btn));
+      const container = document.createElement("div");
+      container.className = "mapboxgl-ctrl mapboxgl-ctrl-group";
+      container.appendChild(btn);
+      return container;
+    }
+    onRemove() {
+      this.unsubscribe?.();
+      this.unsubscribe = null;
+    }
+  };
+}
 
 /** GeoJSON point feature for supercluster; properties.muralId links back to Mural. */
 function muralToPoint(mural: Mural): GeoJSON.Feature<GeoJSON.Point, { muralId: string }> {
@@ -55,6 +164,7 @@ interface AllMarkersProps {
   onClick: (mural: Mural) => void;
   prefersReducedMotion: boolean;
   showTourNumbers: boolean;
+  nearbyMuralId: string | null;
 }
 
 function AllMarkers({
@@ -64,6 +174,7 @@ function AllMarkers({
   onClick,
   prefersReducedMotion,
   showTourNumbers,
+  nearbyMuralId,
 }: AllMarkersProps) {
   return (
     <>
@@ -88,6 +199,7 @@ function AllMarkers({
             prefersReducedMotion={prefersReducedMotion}
             tourIndex={showTourNumbers ? i + 1 : undefined}
             tourRole={tourRole}
+            isNearby={mural.id === nearbyMuralId}
           />,
           wrapper,
           mural.id
@@ -103,6 +215,68 @@ interface MarkerInstance {
   mural: Mural;
 }
 
+interface PlacementInstance {
+  marker: import("mapbox-gl").Marker;
+  wrapperEl: HTMLDivElement;
+  murals: Mural[];
+}
+
+type LeafMarkerRef = MarkerInstance | PlacementInstance;
+
+interface PlacementMarkersProps {
+  wrappers: HTMLDivElement[];
+  placements: Placement[];
+  zoom: number;
+  onClick: (mural: Mural) => void;
+  prefersReducedMotion: boolean;
+  nearbyMuralId: string | null;
+}
+
+function PlacementMarkers({
+  wrappers,
+  placements,
+  zoom,
+  onClick,
+  prefersReducedMotion,
+  nearbyMuralId,
+}: PlacementMarkersProps) {
+  return (
+    <>
+      {placements.map((placement, i) => {
+        const wrapper = wrappers[i];
+        if (!wrapper) return null;
+        const { murals } = placement;
+        if (murals.length === 1) {
+          const revealDelay = (i % MARKER_CHUNK_SIZE) * REVEAL_STAGGER_MS;
+          return createPortal(
+            <MuralMarker
+              mural={murals[0]}
+              zoom={zoom}
+              onClick={onClick}
+              revealDelay={revealDelay}
+              prefersReducedMotion={prefersReducedMotion}
+              isNearby={murals[0].id === nearbyMuralId}
+            />,
+            wrapper,
+            murals[0].id
+          );
+        }
+        return createPortal(
+          <FannedMuralCards
+            murals={murals}
+            zoom={zoom}
+            onClick={onClick}
+            prefersReducedMotion={prefersReducedMotion}
+            nearbyMuralId={nearbyMuralId}
+          />,
+          wrapper,
+          `fan-${murals.map((m) => m.id).join("-")}`
+        );
+      })}
+    </>
+  );
+}
+
 interface ClusterInstance {
   marker: import("mapbox-gl").Marker;
   root: ReturnType<typeof createRoot>;
@@ -116,28 +290,206 @@ const CLUSTER_INDEX_OPTIONS = {
   minPoints: 2,
 };
 
+/** Pixel distance under which leaf markers are grouped into a fanned deck. */
+const OVERLAP_GROUP_PX = 50;
+
+interface Placement {
+  center: [number, number];
+  murals: Mural[];
+}
+
+/** Group leaves by screen proximity; each group becomes one placement (single marker or fanned deck). */
+function groupLeavesIntoPlacements(
+  leaves: { mural: Mural; coordinates: [number, number] }[],
+  project: (coords: [number, number]) => { x: number; y: number }
+): Placement[] {
+  if (leaves.length === 0) return [];
+  const points = leaves.map((l) => ({ ...l, point: project(l.coordinates) }));
+  const n = points.length;
+  const parent = Array.from({ length: n }, (_, i) => i);
+  function find(i: number): number {
+    if (parent[i] !== i) parent[i] = find(parent[i]);
+    return parent[i];
+  }
+  function union(i: number, j: number): void {
+    parent[find(i)] = find(j);
+  }
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const dx = points[i].point.x - points[j].point.x;
+      const dy = points[i].point.y - points[j].point.y;
+      if (dx * dx + dy * dy < OVERLAP_GROUP_PX * OVERLAP_GROUP_PX) union(i, j);
+    }
+  }
+  const byRoot = new Map<number, (typeof points)[0][]>();
+  for (let i = 0; i < n; i++) {
+    const r = find(i);
+    if (!byRoot.has(r)) byRoot.set(r, []);
+    byRoot.get(r)!.push(points[i]);
+  }
+  return Array.from(byRoot.values()).map((group) => {
+    const lngSum = group.reduce((s, p) => s + p.coordinates[0], 0);
+    const latSum = group.reduce((s, p) => s + p.coordinates[1], 0);
+    const center: [number, number] = [lngSum / group.length, latSum / group.length];
+    const murals = group.map((p) => p.mural);
+    return { center, murals };
+  });
+}
+
 const ROUTE_SOURCE_ID = "tour-route";
 const ROUTE_LAYER_ID = "tour-route-line";
+
+const USER_LOCATION_SOURCE_ID = "user-location";
+const USER_LOCATION_LAYER_ID = "user-location-dot";
+
+const GEOFENCE_SOURCE_ID = "geofence-radius";
+const GEOFENCE_FILL_LAYER_ID = "geofence-radius-fill";
+const GEOFENCE_LINE_LAYER_ID = "geofence-radius-line";
+
+const PILSEN_BOUNDARY_SOURCE_ID = "pilsen-boundary";
+const PILSEN_BOUNDARY_FILL_LAYER_ID = "pilsen-boundary-fill";
+const PILSEN_BOUNDARY_LINE_LAYER_ID = "pilsen-boundary-line";
+
+/** Re-apply custom sources and layers after map load or style change (e.g. Standard ↔ Satellite). */
+function addCustomSourcesAndLayers(
+  map: import("mapbox-gl").Map,
+  routeCoordinates: [number, number][] | null,
+  userCoords: [number, number] | null
+): void {
+  const emptyFC = { type: "FeatureCollection" as const, features: [] };
+  if (map.getSource(GEOFENCE_SOURCE_ID)) return;
+
+  map.addSource(PILSEN_BOUNDARY_SOURCE_ID, {
+    type: "geojson",
+    data: pilsenBoundary as GeoJSON.FeatureCollection,
+  });
+  map.addLayer({
+    id: PILSEN_BOUNDARY_FILL_LAYER_ID,
+    type: "fill",
+    source: PILSEN_BOUNDARY_SOURCE_ID,
+    paint: {
+      "fill-color": "#6366f1",
+      "fill-opacity": 0.08,
+    },
+  });
+  map.addLayer({
+    id: PILSEN_BOUNDARY_LINE_LAYER_ID,
+    type: "line",
+    source: PILSEN_BOUNDARY_SOURCE_ID,
+    paint: {
+      "line-color": "#4f46e5",
+      "line-width": 2,
+      "line-opacity": 0.7,
+    },
+  });
+
+  map.addSource(GEOFENCE_SOURCE_ID, {
+    type: "geojson",
+    data: { type: "FeatureCollection", features: [] },
+  });
+  map.addLayer({
+    id: GEOFENCE_FILL_LAYER_ID,
+    type: "fill",
+    source: GEOFENCE_SOURCE_ID,
+    paint: {
+      "fill-color": "#22c55e",
+      "fill-opacity": 0.18,
+    },
+  });
+  map.addLayer({
+    id: GEOFENCE_LINE_LAYER_ID,
+    type: "line",
+    source: GEOFENCE_SOURCE_ID,
+    paint: {
+      "line-color": "#16a34a",
+      "line-width": 1.5,
+      "line-opacity": 0.5,
+    },
+  });
+  map.addSource(USER_LOCATION_SOURCE_ID, {
+    type: "geojson",
+    data: userCoords
+      ? {
+          type: "Feature",
+          properties: {},
+          geometry: { type: "Point", coordinates: userCoords },
+        }
+      : emptyFC,
+  });
+  map.addLayer({
+    id: USER_LOCATION_LAYER_ID,
+    type: "circle",
+    source: USER_LOCATION_SOURCE_ID,
+    paint: {
+      "circle-radius": 8,
+      "circle-color": "#4285F4",
+      "circle-stroke-width": 2,
+      "circle-stroke-color": "#fff",
+    },
+  });
+  if (routeCoordinates && routeCoordinates.length >= 2) {
+    map.addSource(ROUTE_SOURCE_ID, {
+      type: "geojson",
+      data: {
+        type: "Feature",
+        properties: {},
+        geometry: { type: "LineString", coordinates: routeCoordinates },
+      },
+    });
+    map.addLayer({
+      id: ROUTE_LAYER_ID,
+      type: "line",
+      source: ROUTE_SOURCE_ID,
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint: {
+        "line-color": "#d97706",
+        "line-width": 4,
+        "line-opacity": 0.9,
+      },
+    });
+  }
+  const geofenceSource = map.getSource(GEOFENCE_SOURCE_ID) as import("mapbox-gl").GeoJSONSource | undefined;
+  if (geofenceSource && userCoords) {
+    geofenceSource.setData({
+      type: "Feature",
+      properties: {},
+      geometry: circlePolygon(userCoords, GEOFENCE_RADIUS_M),
+    });
+  }
+}
 
 export function MuralMap({
   murals,
   showTourNumbers = false,
   routeCoordinates = null,
+  nearbyMuralId = null,
 }: {
   murals: Mural[];
   showTourNumbers?: boolean;
   routeCoordinates?: [number, number][] | null;
+  nearbyMuralId?: string | null;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<import("mapbox-gl").Map | null>(null);
-  const markerRefsRef = useRef<MarkerInstance[]>([]);
+  const markerRefsRef = useRef<LeafMarkerRef[]>([]);
   const clusterRefsRef = useRef<ClusterInstance[]>([]);
   const clusterIndexRef = useRef<Supercluster | null>(null);
   const singleRootRef = useRef<ReturnType<typeof createRoot> | null>(null);
   const markersRootContainerRef = useRef<HTMLDivElement | null>(null);
   const unsubThemeRef = useRef<(() => void) | null>(null);
+  const nearbyMuralIdRef = useRef<string | null>(null);
+  const updateMarkersRef = useRef<(() => void) | null>(null);
+  const hasFlownToUserFromStoreRef = useRef(false);
+  const mapStyleRef = useRef<MapStyleKind>(useMapStore.getState().mapStyle);
+  const muralsCoordsRef = useRef<[number, number][]>([]);
   const [zoom, setZoom] = useState(INITIAL_ZOOM);
   const [mapReady, setMapReady] = useState(false);
+
+  useEffect(() => {
+    muralsCoordsRef.current = murals.map((m) => m.coordinates);
+  }, [murals]);
+  const mapStyle = useMapStore((s) => s.mapStyle);
+  const clearPendingCompassReset = useMapStore((s) => s.clearPendingCompassReset);
   const openModal = useMuralStore((s) => s.openModal);
   const pendingFlyTo = useMuralStore((s) => s.pendingFlyTo);
   const clearPendingFlyTo = useMuralStore((s) => s.clearPendingFlyTo);
@@ -178,9 +530,10 @@ export function MuralMap({
     // Dynamic import so Mapbox (window-dependent) only runs on client
     import("mapbox-gl").then((mapboxglModule) => {
       const mapboxgl = mapboxglModule.default;
+      const initialStyle = useMapStore.getState().mapStyle;
       const map = new mapboxgl.Map({
         container: containerRef.current!,
-        style: MAP_STYLE,
+        style: STYLE_URLS[initialStyle],
         center: [-87.657, 41.852],
         zoom: 14,
         pitch: 45,
@@ -189,44 +542,52 @@ export function MuralMap({
         antialias: true,
       });
 
-      map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }), "top-right");
+      map.addControl(
+        new mapboxgl.NavigationControl({ showZoom: true, showCompass: true, visualizePitch: true }),
+        "bottom-right"
+      );
+      map.addControl(new (createFitMapControl(() => muralsCoordsRef.current))(), "bottom-right");
+      map.addControl(new (createCompassControl())(), "bottom-right");
+      map.addControl(new (createStyleControl())(), "bottom-right");
+
+      // Merge into one toolbar. Mapbox inserts bottom-right controls with insertBefore, so DOM order is reverse of add order: [style, compass, fit, nav].
+      const bottomRight = containerRef.current?.querySelector(".mapboxgl-ctrl-bottom-right");
+      if (bottomRight) {
+        const groups = Array.from(bottomRight.querySelectorAll<HTMLElement>(":scope > .mapboxgl-ctrl-group"));
+        if (groups.length === 4) {
+          const [styleGroup, compassGroup, fitGroup, navGroup] = groups;
+          const fitBtn = fitGroup.querySelector("button");
+          const compassBtn = compassGroup.querySelector("button");
+          const styleBtn = styleGroup.querySelector("button");
+          if (fitBtn) navGroup.appendChild(fitBtn);
+          if (compassBtn) navGroup.appendChild(compassBtn);
+          if (styleBtn) navGroup.appendChild(styleBtn);
+          fitGroup.remove();
+          compassGroup.remove();
+          styleGroup.remove();
+        }
+      }
 
       map.on("load", () => {
         const preset = useThemeStore.getState().mapLightPreset;
         applyLightPreset(map, preset);
+        try {
+          map.setConfigProperty("basemap", "showPointOfInterestLabels", false);
+        } catch {
+          // Standard style may not support this config
+        }
         unsubThemeRef.current = useThemeStore.subscribe(() => {
           const next = useThemeStore.getState().mapLightPreset;
           applyLightPreset(map, next);
         });
 
         mapRef.current = map;
+        mapStyleRef.current = initialStyle;
         setZoom(map.getZoom());
         requestAnimationFrame(() => setMapReady(true));
 
-        if (routeCoordinates && routeCoordinates.length >= 2) {
-          map.addSource(ROUTE_SOURCE_ID, {
-            type: "geojson",
-            data: {
-              type: "Feature",
-              properties: {},
-              geometry: {
-                type: "LineString",
-                coordinates: routeCoordinates,
-              },
-            },
-          });
-          map.addLayer({
-            id: ROUTE_LAYER_ID,
-            type: "line",
-            source: ROUTE_SOURCE_ID,
-            layout: { "line-join": "round", "line-cap": "round" },
-            paint: {
-              "line-color": "#d97706",
-              "line-width": 4,
-              "line-opacity": 0.9,
-            },
-          });
-        }
+        const userCoords = useLocationStore.getState().userCoords;
+        addCustomSourcesAndLayers(map, routeCoordinates, userCoords);
 
         const rootContainer = document.createElement("div");
         rootContainer.className = "mural-markers-root";
@@ -247,13 +608,17 @@ export function MuralMap({
         }
 
         function updateMarkers() {
-          clusterRefsRef.current.forEach(({ marker, root }) => {
-            root.unmount();
-            marker.remove();
-          });
+          const clustersToTeardown = clusterRefsRef.current;
+          const markersToTeardown = markerRefsRef.current;
           clusterRefsRef.current = [];
-          markerRefsRef.current.forEach(({ marker }) => marker.remove());
           markerRefsRef.current = [];
+          queueMicrotask(() => {
+            clustersToTeardown.forEach(({ marker, root }) => {
+              root.unmount();
+              marker.remove();
+            });
+            markersToTeardown.forEach(({ marker }) => marker.remove());
+          });
 
           const z = map.getZoom();
           setZoom(z);
@@ -271,6 +636,11 @@ export function MuralMap({
                 .addTo(map);
               markerRefsRef.current.push({ marker, wrapperEl: leafWrappers[i], mural });
             });
+            const nearbyId = nearbyMuralIdRef.current;
+            leafWrappers.forEach((el, i) => {
+              (el as HTMLDivElement).style.zIndex =
+                leafMurals[i]?.id === nearbyId ? "1000" : "1";
+            });
             root.render(
               <AllMarkers
                 wrappers={leafWrappers}
@@ -279,8 +649,10 @@ export function MuralMap({
                 onClick={handleMarkerClick}
                 prefersReducedMotion={prefersReducedMotion}
                 showTourNumbers={showTourNumbers}
+                nearbyMuralId={nearbyMuralIdRef.current}
               />
             );
+            updateMarkersRef.current = updateMarkers;
             return;
           }
 
@@ -292,8 +664,7 @@ export function MuralMap({
           const clustersAndLeaves = idx.getClusters(bbox, zoomFloor);
 
           const muralById = new Map(murals.map((m) => [m.id, m]));
-          const leafMurals: Mural[] = [];
-          const leafWrappers: HTMLDivElement[] = [];
+          const leaves: { mural: Mural; coordinates: [number, number] }[] = [];
 
           for (const feature of clustersAndLeaves) {
             const props = feature.properties as { cluster?: boolean; point_count?: number; cluster_id?: number; muralId?: string };
@@ -324,27 +695,47 @@ export function MuralMap({
               const muralId = props.muralId;
               const mural = muralId ? muralById.get(muralId) : null;
               if (!mural) continue;
-              const el = document.createElement("div");
-              el.className = "mural-marker-wrapper";
-              const marker = new mapboxgl.Marker({ element: el })
-                .setLngLat(mural.coordinates)
-                .addTo(map);
-              markerRefsRef.current.push({ marker, wrapperEl: el, mural });
-              leafMurals.push(mural);
-              leafWrappers.push(el);
+              leaves.push({ mural, coordinates: mural.coordinates });
             }
           }
 
+          const placements = groupLeavesIntoPlacements(leaves, (coords) =>
+            map.project(coords)
+          );
+          const placementWrappers: HTMLDivElement[] = [];
+
+          for (const placement of placements) {
+            const el = document.createElement("div");
+            el.className = "mural-marker-wrapper";
+            const marker = new mapboxgl.Marker({ element: el })
+              .setLngLat(placement.center)
+              .addTo(map);
+            markerRefsRef.current.push({
+              marker,
+              wrapperEl: el,
+              murals: placement.murals,
+            });
+            placementWrappers.push(el);
+          }
+
+          const nearbyId = nearbyMuralIdRef.current;
+          placementWrappers.forEach((el, i) => {
+            const placementMurals = placements[i]?.murals ?? [];
+            const isNearby = placementMurals.some((m) => m.id === nearbyId);
+            el.style.zIndex = isNearby ? "1000" : "1";
+          });
+
           root.render(
-            <AllMarkers
-              wrappers={leafWrappers}
-              murals={leafMurals}
+            <PlacementMarkers
+              wrappers={placementWrappers}
+              placements={placements}
               zoom={z}
               onClick={handleMarkerClick}
               prefersReducedMotion={prefersReducedMotion}
-              showTourNumbers={showTourNumbers}
+              nearbyMuralId={nearbyMuralIdRef.current}
             />
           );
+          updateMarkersRef.current = updateMarkers;
         }
 
         updateMarkers();
@@ -390,6 +781,30 @@ export function MuralMap({
         if (map?.getSource(ROUTE_SOURCE_ID)) {
           map.removeSource(ROUTE_SOURCE_ID);
         }
+        if (map?.getLayer(USER_LOCATION_LAYER_ID)) {
+          map.removeLayer(USER_LOCATION_LAYER_ID);
+        }
+        if (map?.getSource(USER_LOCATION_SOURCE_ID)) {
+          map.removeSource(USER_LOCATION_SOURCE_ID);
+        }
+        if (map?.getLayer(GEOFENCE_LINE_LAYER_ID)) {
+          map.removeLayer(GEOFENCE_LINE_LAYER_ID);
+        }
+        if (map?.getLayer(GEOFENCE_FILL_LAYER_ID)) {
+          map.removeLayer(GEOFENCE_FILL_LAYER_ID);
+        }
+        if (map?.getSource(GEOFENCE_SOURCE_ID)) {
+          map.removeSource(GEOFENCE_SOURCE_ID);
+        }
+        if (map?.getLayer(PILSEN_BOUNDARY_LINE_LAYER_ID)) {
+          map.removeLayer(PILSEN_BOUNDARY_LINE_LAYER_ID);
+        }
+        if (map?.getLayer(PILSEN_BOUNDARY_FILL_LAYER_ID)) {
+          map.removeLayer(PILSEN_BOUNDARY_FILL_LAYER_ID);
+        }
+        if (map?.getSource(PILSEN_BOUNDARY_SOURCE_ID)) {
+          map.removeSource(PILSEN_BOUNDARY_SOURCE_ID);
+        }
         map?.remove();
       };
 
@@ -397,13 +812,62 @@ export function MuralMap({
     };
   }, [murals, handleMarkerClick, prefersReducedMotion, flyDuration, showTourNumbers, routeCoordinates]);
 
-  // When another part of the app requests a fly-to (e.g. Surprise me, list), run flyTo then open modal.
+  // Re-render markers when nearby mural changes (geofence) so the "You're near" styling updates
+  useEffect(() => {
+    nearbyMuralIdRef.current = nearbyMuralId;
+    updateMarkersRef.current?.();
+  }, [nearbyMuralId]);
+
+  // Sync user location dot and geofence radius circle from locationStore.
+  const userCoords = useLocationStore((s) => s.userCoords);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const userSource = map.getSource(USER_LOCATION_SOURCE_ID) as import("mapbox-gl").GeoJSONSource | undefined;
+    const geofenceSource = map.getSource(GEOFENCE_SOURCE_ID) as import("mapbox-gl").GeoJSONSource | undefined;
+    const empty = { type: "FeatureCollection" as const, features: [] };
+    if (userSource) {
+      userSource.setData(
+        userCoords
+          ? { type: "Feature", properties: {}, geometry: { type: "Point", coordinates: userCoords } }
+          : empty
+      );
+    }
+    if (geofenceSource) {
+      geofenceSource.setData(
+        userCoords
+          ? {
+              type: "Feature",
+              properties: {},
+              geometry: circlePolygon(userCoords, GEOFENCE_RADIUS_M),
+            }
+          : empty
+      );
+    }
+  }, [userCoords]);
+
+  // When user enables location (e.g. via LocationPrompt), zoom map to their position once so they see themselves and nearby thumbnail context
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !userCoords || hasFlownToUserFromStoreRef.current) return;
+    hasFlownToUserFromStoreRef.current = true;
+    map.flyTo({
+      center: userCoords,
+      zoom: 16,
+      pitch: ZOOM_TO_USER_PITCH,
+      bearing: map.getBearing(),
+      duration: prefersReducedMotion ? 0 : 1500,
+      essential: true,
+    });
+  }, [userCoords, mapReady, prefersReducedMotion]);
+
+  // When another part of the app requests a fly-to (e.g. Surprise me, list, nearby rotation), run flyTo; optionally open modal on moveend.
   useEffect(() => {
     if (!pendingFlyTo) return;
     const map = mapRef.current;
     if (!map) return;
 
-    const mural = pendingFlyTo;
+    const { mural, openModalAfterFly } = pendingFlyTo;
     const bearing = typeof mural.bearing === "number" ? mural.bearing : 0;
     map.flyTo({
       center: mural.coordinates,
@@ -416,7 +880,7 @@ export function MuralMap({
 
     const onMoveEnd = () => {
       map.setBearing(bearing);
-      openModal(mural, murals);
+      if (openModalAfterFly) openModal(mural, murals);
       clearPendingFlyTo();
     };
     map.once("moveend", onMoveEnd);
@@ -425,18 +889,77 @@ export function MuralMap({
     };
   }, [pendingFlyTo, openModal, clearPendingFlyTo, murals, flyDuration]);
 
+  // Fit map to bounds when requested from header (Fit map / Fit tour).
+  const pendingFitBounds = useMapStore((s) => s.pendingFitBounds);
+  const clearPendingFitBounds = useMapStore((s) => s.clearPendingFitBounds);
+  useEffect(() => {
+    if (!pendingFitBounds || pendingFitBounds.length === 0) return;
+    const map = mapRef.current;
+    if (!map) return;
+    import("mapbox-gl").then((mapboxglModule) => {
+      const mapboxgl = mapboxglModule.default;
+      const bounds = new mapboxgl.LngLatBounds();
+      pendingFitBounds.forEach((c) => bounds.extend(c));
+      map.fitBounds(bounds, { padding: 48, maxZoom: 16 });
+      clearPendingFitBounds();
+    });
+  }, [pendingFitBounds, clearPendingFitBounds]);
+
+  // Compass reset: north-up.
+  const pendingCompassReset = useMapStore((s) => s.pendingCompassReset);
+  useEffect(() => {
+    if (!pendingCompassReset) return;
+    const map = mapRef.current;
+    if (!map) return;
+    map.easeTo({ bearing: 0 });
+    clearPendingCompassReset();
+  }, [pendingCompassReset, clearPendingCompassReset]);
+
+  // When map style is toggled (Standard ↔ Satellite), setStyle and re-add custom layers.
+  useEffect(() => {
+    if (mapStyle === mapStyleRef.current) return;
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    unsubThemeRef.current?.();
+    unsubThemeRef.current = null;
+    map.setStyle(STYLE_URLS[mapStyle]);
+    map.once("idle", () => {
+      const userCoords = useLocationStore.getState().userCoords;
+      addCustomSourcesAndLayers(map, routeCoordinates, userCoords);
+      if (mapStyle === "standard") {
+        const preset = useThemeStore.getState().mapLightPreset;
+        applyLightPreset(map, preset);
+        try {
+          map.setConfigProperty("basemap", "showPointOfInterestLabels", false);
+        } catch {
+          // Standard style only
+        }
+        unsubThemeRef.current = useThemeStore.subscribe(() => {
+          const next = useThemeStore.getState().mapLightPreset;
+          applyLightPreset(map, next);
+        });
+      }
+      mapStyleRef.current = mapStyle;
+    });
+  }, [mapStyle, mapReady, routeCoordinates]);
+
   return (
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" aria-hidden />
       {/* Seamless loading overlay: soft placeholder that fades out when map is ready */}
       {MAPBOX_TOKEN && (
         <div
-          aria-hidden
-          className={`absolute inset-0 z-10 bg-dynamic transition-opacity duration-500 ease-out ${
-            mapReady ? "pointer-events-none opacity-0" : "opacity-100"
-          }`}
+          className={`absolute inset-0 z-10 bg-dynamic transition-opacity duration-500 ease-out ${mapReady ? "pointer-events-none opacity-0" : "opacity-100"
+            }`}
         >
-          <div className="loading-map-placeholder absolute inset-0" />
+          <div className="loading-map-placeholder absolute inset-0" aria-hidden />
+          <div
+            className="absolute inset-0 flex items-center justify-center pointer-events-none"
+            role="status"
+            aria-live="polite"
+          >
+            <p className="text-sm text-dynamic-muted">Loading map...</p>
+          </div>
         </div>
       )}
       {!MAPBOX_TOKEN && (

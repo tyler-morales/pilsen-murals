@@ -5,9 +5,11 @@
 :root {
   --glow: rgba(251, 191, 36, 0.4);
   /* Primary accent (amber) for buttons and CTAs; works on both day and night */
-  --color-accent: #f59e0b;
+  --color-accent: #e27ea6;
   --color-accent-hover: #d97706;
-  --color-accent-foreground: #1c1917;
+  --color-accent-foreground: #ffffff;
+  --color-enable: #16a34a;
+  --color-enable-hover: #15803d;
   /* Dynamic lighting: 0 = night, 1 = day; set by ThemeByPilsenTime every minute */
   --sun-brightness: 0.5;
   --sun-altitude-deg: 0;
@@ -23,6 +25,35 @@
   --color-day-border: #e4e4e7;
   --color-day-text: #18181b;
   --color-day-muted: #52525b;
+}
+
+/* Skip link: visually hidden until focused (keyboard a11y) */
+.skip-link {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+  z-index: 9999;
+}
+.skip-link:focus-visible {
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 0.75rem 1.25rem;
+  clip: auto;
+  top: 0.5rem;
+  left: 0.5rem;
+  background: var(--color-accent);
+  color: var(--color-accent-foreground);
+  font-weight: 600;
+  text-decoration: none;
+  border-radius: 0.5rem;
+  box-shadow: 0 0 0 3px currentColor;
 }
 
 html,
@@ -177,7 +208,7 @@ body {
   background: color-mix(
     in srgb,
     var(--color-night-bg) calc((1 - var(--sun-brightness)) * 100%),
-    var(--color-day-bg) calc(var(--sun-brightness) * 100%)
+    #ffffff calc(var(--sun-brightness) * 100%)
   );
   animation: loading-shimmer-soft 2.5s ease-in-out infinite;
 }
@@ -190,5 +221,63 @@ body {
 .mapboxgl-ctrl-attrib,
 .mapboxgl-ctrl-logo {
   opacity: 0.6;
+}
+
+/* Single stacked toolbar in bottom-right: Zoom+, Zoom-, Fit, Compass, Satellite */
+.mapboxgl-ctrl-bottom-right .mapboxgl-ctrl-group > button:first-child {
+  border-top: none;
+}
+
+/* Custom toolbar buttons (Fit, Compass, Satellite): minimal icons, subtle color */
+.mapboxgl-ctrl-toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 29px;
+  height: 29px;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+  outline: none;
+  color: #666;
+}
+.mapboxgl-ctrl-toolbar-btn:hover {
+  background-color: rgba(0, 0, 0, 0.04);
+  color: #333;
+}
+.mapboxgl-ctrl-toolbar-btn:focus-visible {
+  outline: 2px solid var(--color-accent, #e11d48);
+  outline-offset: -2px;
+}
+.mapboxgl-ctrl-toolbar-btn .mapboxgl-ctrl-icon {
+  display: block;
+  flex-shrink: 0;
+  color: inherit;
+}
+.mapboxgl-ctrl-toolbar-btn .mapboxgl-ctrl-icon path,
+.mapboxgl-ctrl-toolbar-btn .mapboxgl-ctrl-icon circle,
+.mapboxgl-ctrl-toolbar-btn .mapboxgl-ctrl-icon line,
+.mapboxgl-ctrl-toolbar-btn .mapboxgl-ctrl-icon polygon {
+  color: inherit;
+}
+/* Satellite toggle: active state when satellite view is on */
+.mapboxgl-ctrl-toolbar-btn[data-style-active="satellite"] {
+  background-color: rgba(0, 0, 0, 0.08);
+  color: #333;
+}
+
+/* Ensure user location dot and accuracy circle are visible above map layers */
+.mapboxgl-map .mapboxgl-user-location {
+  z-index: 2;
+}
+.mapboxgl-user-location-dot,
+.mapboxgl-user-location-dot::before,
+.mapboxgl-user-location-dot::after {
+  z-index: 2;
+}
+.mapboxgl-user-location-accuracy-circle {
+  z-index: 1;
 }
 

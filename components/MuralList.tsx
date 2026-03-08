@@ -4,6 +4,7 @@ import { useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { motion, AnimatePresence } from "framer-motion";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 import type { Mural } from "@/types/mural";
 
 const SHEET = {
@@ -39,8 +40,11 @@ export function MuralList({
   listTitle,
 }: MuralListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const variants = isDesktop ? SIDEBAR : SHEET;
+
+  useFocusTrap(dialogRef, isOpen);
 
   const virtualizer = useVirtualizer({
     count: murals.length,
@@ -70,6 +74,7 @@ export function MuralList({
             aria-hidden
           />
           <motion.div
+            ref={dialogRef}
             role="dialog"
             aria-modal="true"
             aria-label="Browse murals"
@@ -95,7 +100,7 @@ export function MuralList({
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-full p-2 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2"
+                className="rounded-full p-2 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
                 aria-label="Close mural list"
               >
                 <svg
@@ -152,7 +157,7 @@ export function MuralList({
                       <button
                         type="button"
                         onClick={() => handleSelect(mural)}
-                        className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-inset"
+                        className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-inset"
                         aria-label={ariaLabel}
                       >
                         <div

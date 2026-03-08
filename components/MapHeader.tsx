@@ -114,10 +114,10 @@ export function MapHeader({
   const mapLightPreset = useThemeStore((s) => s.mapLightPreset);
   const sunAltitudeDeg = useThemeStore((s) => s.sunAltitudeDeg);
   const sunAzimuthDeg = useThemeStore((s) => s.sunAzimuthDeg);
-  const pilsenTime = useThemeStore((s) => s.pilsenTimeString);
   const presetLabel =
     { dawn: "Dawn", day: "Day", dusk: "Dusk", night: "Night" }[mapLightPreset] ?? mapLightPreset;
   const requestFlyTo = useMuralStore((s) => s.requestFlyTo);
+  const activeMural = useMuralStore((s) => s.activeMural);
 
   const [animationAzimuth, setAnimationAzimuth] = useState<number | null>(null);
   const [burstOnly, setBurstOnly] = useState(false);
@@ -171,28 +171,52 @@ export function MapHeader({
   const isBrowseActive = isListOpen;
   const isToursActive = isTourListOpen;
 
+  const tourCurrentIndex =
+    activeTour && murals.length > 0 && activeMural
+      ? murals.findIndex((m) => m.id === activeMural.id)
+      : 0;
+  const tourStopOneBased = tourCurrentIndex >= 0 ? tourCurrentIndex + 1 : 1;
+  const nextMural =
+    activeTour && murals.length > 0 && tourStopOneBased < murals.length
+      ? murals[tourStopOneBased]
+      : null;
+
   return (
     <header
-      className="safe-top absolute left-2 right-12 top-2 z-30 flex min-w-0 flex-col gap-2 overflow-visible rounded-2xl border border-white/20 bg-white/85 px-3 pb-3 pt-2 shadow-[0_4px_24px_-4px_rgba(0,0,0,0.08)] backdrop-blur-xl sm:left-4 sm:right-14 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-3 sm:gap-y-0 sm:rounded-2xl sm:px-4 sm:pb-2 sm:pt-2 md:right-auto md:max-w-4xl md:border-white/30 md:shadow-lg"
+      className="safe-top absolute left-2 right-2 top-2 z-30 flex min-w-0 flex-col gap-2 overflow-visible rounded-2xl border border-white/20 bg-white/85 px-3 pb-3 pt-2 shadow-[0_4px_24px_-4px_rgba(0,0,0,0.08)] backdrop-blur-xl sm:left-4 sm:right-4 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-3 sm:gap-y-0 sm:rounded-2xl sm:px-4 sm:pb-2 sm:pt-2 md:right-auto md:max-w-4xl md:border-white/30 md:shadow-lg"
       aria-label="Map header"
     >
       <div className="flex min-w-0 shrink items-center justify-between gap-2 sm:flex-1 sm:justify-start">
-        <div className="flex min-w-0 shrink items-baseline gap-2">
-          <h1 className="truncate text-base font-semibold tracking-tight text-zinc-900 sm:text-lg">
-            {activeTour ? activeTour.name : "Pilsen Murals"}
-          </h1>
-          <span className="shrink-0 text-xs text-zinc-500 sm:text-sm sm:text-zinc-600" aria-label="Number of murals">
-            {murals.length} mural{murals.length !== 1 ? "s" : ""}
-          </span>
+        <div className="flex min-w-0 shrink flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2">
+          <div className="flex min-w-0 items-baseline gap-2">
+            <h1 className="min-w-0 break-words text-base font-semibold tracking-tight text-zinc-900 sm:text-lg">
+              {activeTour ? activeTour.name : "The Pilsen Mural Project"}
+            </h1>
+            <span className="shrink-0 text-xs text-zinc-500 sm:text-sm sm:text-zinc-600" aria-label="Number of murals">
+              {murals.length} mural{murals.length !== 1 ? "s" : ""}
+            </span>
+          </div>
+          {activeTour && murals.length > 0 && (
+            <span
+              className="inline-flex min-w-0 items-center gap-1.5 text-xs font-medium text-amber-800 sm:text-sm"
+              aria-label={`Tour progress: stop ${tourStopOneBased} of ${murals.length}`}
+            >
+              <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5">
+                Stop {tourStopOneBased} of {murals.length}
+              </span>
+              {nextMural && (
+                <span className="truncate text-zinc-600" title={`Next: ${nextMural.title}`}>
+                  Next: {nextMural.title}
+                </span>
+              )}
+            </span>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-          <span className="text-xs text-zinc-500 sm:text-sm sm:text-zinc-600" aria-label={`Current time in Pilsen: ${pilsenTime}`}>
-            {pilsenTime}
-          </span>
           <button
             type="button"
             onClick={handleSunIconClick}
-            className={`flex shrink-0 cursor-pointer items-center overflow-visible rounded-full p-1.5 text-zinc-600 transition-opacity hover:bg-white/60 hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] focus:ring-offset-2 focus:ring-offset-transparent ${animationAzimuth !== null || burstOnly ? "sun-icon-burst" : ""}`}
+            className={`flex shrink-0 cursor-pointer items-center overflow-visible rounded-full p-1.5 text-zinc-600 transition-opacity hover:bg-white/60 hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent ${animationAzimuth !== null || burstOnly ? "sun-icon-burst" : ""}`}
             aria-label={`Sun position in the sky. ${presetLabel}.`}
             title="Sun position in the sky"
           >
@@ -217,7 +241,7 @@ export function MapHeader({
             type="button"
             onClick={handleSurpriseMe}
             disabled={murals.length === 0}
-            className={`min-h-[40px] flex-1 rounded-lg text-sm font-semibold transition-all focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] focus:ring-offset-2 focus:ring-offset-zinc-100 disabled:pointer-events-none disabled:opacity-50 ${
+            className={`min-h-[40px] flex-1 rounded-lg text-sm font-semibold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 disabled:pointer-events-none disabled:opacity-50 ${
               isSurpriseActive
                 ? "bg-[var(--color-accent)] text-[var(--color-accent-foreground)] shadow-sm"
                 : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"
@@ -234,7 +258,7 @@ export function MapHeader({
               aria-expanded={isListOpen}
               aria-label="Browse all murals"
               aria-pressed={isBrowseActive}
-              className={`min-h-[40px] flex-1 rounded-lg text-sm font-semibold transition-all focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] focus:ring-offset-2 focus:ring-offset-zinc-100 ${
+              className={`min-h-[40px] flex-1 rounded-lg text-sm font-semibold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 ${
                 isBrowseActive
                   ? "bg-[var(--color-accent)] text-[var(--color-accent-foreground)] shadow-sm"
                   : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"
@@ -248,7 +272,7 @@ export function MapHeader({
               <button
                 type="button"
                 onClick={onLeaveTour}
-                className="min-h-[40px] flex-1 rounded-lg text-sm font-semibold text-zinc-600 transition-all hover:bg-white/70 hover:text-zinc-900 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 focus:ring-offset-zinc-100"
+                className="min-h-[40px] flex-1 rounded-lg text-sm font-semibold text-zinc-600 transition-all hover:bg-white/70 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100"
                 aria-label="Leave tour and show all murals"
               >
                 Leave tour
@@ -262,7 +286,7 @@ export function MapHeader({
                 aria-expanded={isTourListOpen}
                 aria-label="Walking tours"
                 aria-pressed={isToursActive}
-                className={`min-h-[40px] flex-1 rounded-lg text-sm font-semibold transition-all focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] focus:ring-offset-2 focus:ring-offset-zinc-100 ${
+                className={`min-h-[40px] flex-1 rounded-lg text-sm font-semibold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 ${
                   isToursActive
                     ? "bg-[var(--color-accent)] text-[var(--color-accent-foreground)] shadow-sm"
                     : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"
@@ -280,7 +304,7 @@ export function MapHeader({
             type="button"
             onClick={handleSurpriseMe}
             disabled={murals.length === 0}
-            className="min-h-[44px] shrink-0 rounded-xl bg-[var(--color-accent)] px-4 py-2.5 text-sm font-semibold text-[var(--color-accent-foreground)] shadow-sm transition-colors hover:bg-[var(--color-accent-hover)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none ring-offset-white"
+            className="min-h-[44px] shrink-0 rounded-xl bg-[var(--color-accent)] px-4 py-2.5 text-sm font-semibold text-[var(--color-accent-foreground)] shadow-sm transition-colors hover:bg-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none ring-offset-white"
             aria-label="Surprise me — fly to a random mural"
           >
             Surprise me
@@ -291,7 +315,7 @@ export function MapHeader({
               onClick={onBrowseClick}
               aria-expanded={isListOpen}
               aria-label="Browse all murals"
-              className="min-h-[44px] shrink-0 rounded-xl border-2 border-[var(--color-accent)] bg-transparent px-4 py-2.5 text-sm font-semibold text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent)] hover:text-[var(--color-accent-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] focus:ring-offset-2 ring-offset-white"
+              className="min-h-[44px] shrink-0 rounded-xl border-2 border-[var(--color-accent)] bg-transparent px-4 py-2.5 text-sm font-semibold text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent)] hover:text-[var(--color-accent-foreground)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 ring-offset-white"
             >
               Browse
             </button>
@@ -301,7 +325,7 @@ export function MapHeader({
               <button
                 type="button"
                 onClick={onLeaveTour}
-                className="min-h-[44px] shrink-0 rounded-xl border border-zinc-300 bg-zinc-100 px-4 py-2.5 text-sm font-semibold text-zinc-700 transition-colors hover:bg-zinc-200 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 ring-offset-white"
+                className="min-h-[44px] shrink-0 rounded-xl border border-zinc-300 bg-zinc-100 px-4 py-2.5 text-sm font-semibold text-zinc-700 transition-colors hover:bg-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 ring-offset-white"
                 aria-label="Leave tour and show all murals"
               >
                 Leave tour
@@ -314,7 +338,7 @@ export function MapHeader({
                 onClick={onToursClick}
                 aria-expanded={isTourListOpen}
                 aria-label="Walking tours"
-                className="min-h-[44px] shrink-0 rounded-xl border-2 border-[var(--color-accent)] bg-transparent px-4 py-2.5 text-sm font-semibold text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent)] hover:text-[var(--color-accent-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] focus:ring-offset-2 ring-offset-white"
+                className="min-h-[44px] shrink-0 rounded-xl border-2 border-[var(--color-accent)] bg-transparent px-4 py-2.5 text-sm font-semibold text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent)] hover:text-[var(--color-accent-foreground)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 ring-offset-white"
               >
                 Tours
               </button>

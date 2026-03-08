@@ -1,14 +1,18 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { LocationPrompt } from "@/components/LocationPrompt";
 import { MapHeader } from "@/components/MapHeader";
 import { MuralList } from "@/components/MuralList";
 import { MuralMap } from "@/components/MuralMap";
 import { MuralModal } from "@/components/MuralModal";
+import { NearbyMuralCard } from "@/components/NearbyMuralCard";
 import { TourList } from "@/components/TourList";
 import { useMuralStore } from "@/store/muralStore";
+import { useProximityStore } from "@/store/proximityStore";
 import { useTourStore } from "@/store/tourStore";
 import { getOrderedMuralsForCollection } from "@/lib/collections";
+import { useProximity } from "@/hooks/useProximity";
 import type { Mural } from "@/types/mural";
 import type { Collection } from "@/types/collection";
 
@@ -29,6 +33,16 @@ export function MapContent({ murals, collections }: MapContentProps) {
     return getOrderedMuralsForCollection(activeTour, murals);
   }, [activeTour, murals]);
 
+  useProximity(displayMurals);
+  const currentNearby = useProximityStore((s) => s.currentNearby);
+  const isModalOpen = useMuralStore((s) => s.isModalOpen);
+  const activeMural = useMuralStore((s) => s.activeMural);
+  // Don't highlight the nearby marker when that mural is already open in the modal (avoids duplicate thumbnail + "You're near" on screen).
+  const nearbyMuralIdForMap =
+    currentNearby?.id != null && (!isModalOpen || activeMural?.id !== currentNearby.id)
+      ? currentNearby.id
+      : null;
+
   const routeCoordinates = useMemo(
     () =>
       activeTour && displayMurals.length >= 2
@@ -44,6 +58,7 @@ export function MapContent({ murals, collections }: MapContentProps) {
 
   return (
     <>
+      <LocationPrompt />
       <MapHeader
         murals={displayMurals}
         onBrowseClick={() => setListOpen((o) => !o)}
@@ -57,8 +72,15 @@ export function MapContent({ murals, collections }: MapContentProps) {
         murals={displayMurals}
         showTourNumbers={!!activeTour}
         routeCoordinates={routeCoordinates}
+        nearbyMuralId={nearbyMuralIdForMap}
       />
       <MuralModal />
+      {!isModalOpen && (
+        <NearbyMuralCard
+          activeTour={activeTour}
+          orderedMurals={displayMurals}
+        />
+      )}
       <MuralList
         murals={displayMurals}
         isOpen={listOpen}

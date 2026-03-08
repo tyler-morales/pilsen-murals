@@ -9,7 +9,7 @@ export default function Home() {
   const collections = collectionsData as unknown as Collection[];
 
   return (
-    <main className="fixed inset-0 h-screen w-screen">
+    <main id="main" className="fixed inset-0 h-screen w-screen" tabIndex={-1}>
       <MapContent murals={murals} collections={collections} />
     </main>
   );

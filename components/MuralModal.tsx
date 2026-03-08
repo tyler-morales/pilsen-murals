@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence, useDragControls } from "framer-motion";
 import { useMuralStore } from "@/store/muralStore";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 import type { Mural } from "@/types/mural";
+import { getDirectionsUrl } from "@/lib/directions";
 
 const BACKDROP = { hidden: { opacity: 0 }, visible: { opacity: 1 }, exit: { opacity: 0 } };
 const PANEL_RIGHT = {
@@ -58,15 +60,6 @@ function formatPhotoDate(dateTaken: string | undefined): string | null {
   }).format(date);
 }
 
-function getDirectionsUrl(mural: Mural): string {
-  if (mural.address && mural.address.trim()) {
-    const q = encodeURIComponent(mural.address);
-    return `https://www.google.com/maps/search/?api=1&query=${q}`;
-  }
-  const [lng, lat] = mural.coordinates;
-  return `https://www.google.com/maps?q=${lat},${lng}`;
-}
-
 export function MuralModal() {
   const {
     activeMural,
@@ -76,6 +69,7 @@ export function MuralModal() {
     activeIndex,
     goPrev,
     goNext,
+    requestFlyTo,
   } = useMuralStore();
   const [isImageExpanded, setIsImageExpanded] = useState(false);
   const [isImageLoaded, setIsImageLoaded] = useState(false);
@@ -83,6 +77,11 @@ export function MuralModal() {
   const prefersReducedMotion = usePrefersReducedMotion();
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const dragControls = useDragControls();
+  const panelRef = useRef<HTMLElement>(null);
+  const enlargedRef = useRef<HTMLDivElement>(null);
+
+  useFocusTrap(panelRef, isModalOpen && !!activeMural && !isImageExpanded);
+  useFocusTrap(enlargedRef, isImageExpanded);
   const panelVariants = isDesktop ? PANEL_RIGHT : DRAWER_UP;
   const canGoPrev = muralsOrder.length > 0 && activeIndex > 0;
 
@@ -162,6 +161,7 @@ export function MuralModal() {
                   aria-hidden
                 />
                 <motion.div
+                  ref={enlargedRef}
                   role="dialog"
                   aria-modal="true"
                   aria-label={`Enlarged view: ${activeMural.title}`}
@@ -197,7 +197,7 @@ export function MuralModal() {
                   <button
                     type="button"
                     onClick={() => setIsImageExpanded(false)}
-                    className="absolute right-4 top-4 min-h-[44px] min-w-[44px] rounded-full bg-white/10 p-2 text-white backdrop-blur-sm transition-colors hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 focus:ring-offset-transparent"
+                    className="absolute right-4 top-4 min-h-[44px] min-w-[44px] rounded-full bg-white/10 p-2 text-white backdrop-blur-sm transition-colors hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
                     aria-label="Close enlarged image"
                   >
                     <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
@@ -210,6 +210,7 @@ export function MuralModal() {
           </AnimatePresence>
 
           <motion.aside
+            ref={panelRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby="mural-modal-title"
@@ -261,7 +262,7 @@ export function MuralModal() {
                 <button
                   type="button"
                   onClick={() => setIsImageExpanded(true)}
-                  className="relative h-full w-full cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-inset"
+                  className="relative h-full w-full cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-inset"
                   aria-label={`View larger image of ${activeMural.title}`}
                 >
                   <img
@@ -298,11 +299,12 @@ export function MuralModal() {
                 <p id="mural-modal-desc" className="mt-4 text-sm text-zinc-600">
                   {activeMural.address || "Address not recorded"}
                 </p>
+                <div className="mt-3 flex flex-wrap items-center gap-3">
                 <a
                   href={getDirectionsUrl(activeMural)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="mt-3 inline-flex w-fit items-center gap-2 text-sm font-medium text-amber-700 underline decoration-amber-700/50 underline-offset-2 transition-colors hover:text-amber-800 hover:decoration-amber-800 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 rounded"
+                  className="inline-flex w-fit items-center gap-2 text-sm font-medium text-amber-700 underline decoration-amber-700/50 underline-offset-2 transition-colors hover:text-amber-800 hover:decoration-amber-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
                   aria-label="Get directions to this mural in Google Maps"
                 >
                   Get directions
@@ -310,6 +312,22 @@ export function MuralModal() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                   </svg>
                 </a>
+                <button
+                  type="button"
+                  onClick={() => {
+                    closeModal();
+                    requestFlyTo(activeMural, { openModalAfterFly: false });
+                  }}
+                  className="inline-flex items-center gap-2 text-sm font-medium text-zinc-700 underline decoration-zinc-400 underline-offset-2 transition-colors hover:text-zinc-900 hover:decoration-zinc-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
+                  aria-label="View this mural on the map"
+                >
+                  View on map
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                </button>
+                </div>
                 <div className="mt-6 flex items-center gap-3">
                   <span className="text-xs uppercase tracking-wider text-zinc-500">
                     Dominant color
@@ -331,7 +349,7 @@ export function MuralModal() {
                     >
                       <summary
                         id="image-metadata-heading"
-                        className="cursor-pointer list-none text-xs font-medium uppercase tracking-wider text-zinc-500 hover:text-zinc-700 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 rounded"
+                        className="cursor-pointer list-none text-xs font-medium uppercase tracking-wider text-zinc-500 hover:text-zinc-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
                       >
                         Image metadata
                       </summary>
@@ -359,7 +377,7 @@ export function MuralModal() {
                   type="button"
                   onClick={goPrev}
                   disabled={!canGoPrev}
-                  className="flex-1 min-h-[44px] rounded-lg border border-zinc-200 bg-white py-3 text-sm font-medium text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 focus:ring-offset-white disabled:pointer-events-none disabled:opacity-50"
+                  className="flex-1 min-h-[44px] rounded-lg border border-zinc-200 bg-white py-3 text-sm font-medium text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:pointer-events-none disabled:opacity-50"
                   aria-label="Previous mural"
                 >
                   Previous
@@ -368,7 +386,7 @@ export function MuralModal() {
                   type="button"
                   onClick={goNext}
                   disabled={!canGoNext}
-                  className="flex-1 min-h-[44px] rounded-lg border border-zinc-200 bg-white py-3 text-sm font-medium text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 focus:ring-offset-white disabled:pointer-events-none disabled:opacity-50"
+                  className="flex-1 min-h-[44px] rounded-lg border border-zinc-200 bg-white py-3 text-sm font-medium text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:pointer-events-none disabled:opacity-50"
                   aria-label="Next mural"
                 >
                   Next
@@ -376,7 +394,7 @@ export function MuralModal() {
                 <button
                   type="button"
                   onClick={closeModal}
-                  className="flex-1 min-h-[44px] rounded-lg border border-zinc-200 bg-white py-3 text-sm font-medium text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 focus:ring-offset-white"
+                  className="flex-1 min-h-[44px] rounded-lg border border-zinc-200 bg-white py-3 text-sm font-medium text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
                 >
                   Close
                 </button>

@@ -4,14 +4,15 @@ import type { Mural } from "@/types/mural";
 interface MuralState {
   activeMural: Mural | null;
   isModalOpen: boolean;
-  /** When set, map should fly to this mural and open modal on moveend; cleared after open. */
-  pendingFlyTo: Mural | null;
+  /** When set, map should fly to this mural; if openModalAfterFly, open modal on moveend. Cleared after fly. */
+  pendingFlyTo: { mural: Mural; openModalAfterFly: boolean } | null;
   /** Ordered list for prev/next navigation; set when opening modal. */
   muralsOrder: Mural[];
   activeIndex: number;
   openModal: (mural: Mural, allMurals: Mural[]) => void;
   closeModal: () => void;
-  requestFlyTo: (mural: Mural) => void;
+  /** Fly map to mural; openModalAfterFly (default true) opens modal on moveend (e.g. list/View); false for center-only (e.g. nearby rotation). */
+  requestFlyTo: (mural: Mural, options?: { openModalAfterFly?: boolean }) => void;
   clearPendingFlyTo: () => void;
   goPrev: () => void;
   goNext: () => void;
@@ -34,7 +35,13 @@ export const useMuralStore = create<MuralState>((set) => ({
     });
   },
   closeModal: () => set({ isModalOpen: false, activeMural: null }),
-  requestFlyTo: (mural) => set({ pendingFlyTo: mural }),
+  requestFlyTo: (mural, options) =>
+    set({
+      pendingFlyTo: {
+        mural,
+        openModalAfterFly: options?.openModalAfterFly !== false,
+      },
+    }),
   clearPendingFlyTo: () => set({ pendingFlyTo: null }),
   goPrev: () =>
     set((state) => {
