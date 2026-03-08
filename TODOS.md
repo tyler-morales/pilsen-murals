@@ -164,4 +164,4 @@
 - **SEO/share**: Open Graph and Twitter card meta in `layout.tsx` for link previews; optional `og:image` from a mural or static asset.
 - **Tests**: Unit tests for `lib/sunPilsen.ts`, `lib/collections.ts` (e.g. `getOrderedMuralsForCollection`), and store actions; keeps critical logic covered without full E2E.
 - **Docs**: No separate docs site in repo; README + TODOS cover usage. Add a docs site only if you need public feature/API docs.
-- **Version control**: Repo initialized; `.gitignore` added; initial commit on `main`, full app on `feature/current-work`; PR #1 open to merge current work into main.
+- **Version control**: Repo initialized; `.gitignore` added; initial commit on `main`, full app on `feature/current-work`; PR #1 merged. **PR #2** ([feature/proximity-geofence](https://github.com/tyler-morales/pilsen-murals/pull/2)): proximity, location, map UX, Pilsen boundary, a11y — ready to merge to main and share live link for feedback.
