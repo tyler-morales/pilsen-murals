@@ -223,6 +223,51 @@ body {
   opacity: 0.6;
 }
 
+/* Single stacked toolbar in bottom-right: Zoom+, Zoom-, Fit, Compass, Satellite */
+.mapboxgl-ctrl-bottom-right .mapboxgl-ctrl-group > button:first-child {
+  border-top: none;
+}
+
+/* Custom toolbar buttons (Fit, Compass, Satellite): minimal icons, subtle color */
+.mapboxgl-ctrl-toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 29px;
+  height: 29px;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+  outline: none;
+  color: #666;
+}
+.mapboxgl-ctrl-toolbar-btn:hover {
+  background-color: rgba(0, 0, 0, 0.04);
+  color: #333;
+}
+.mapboxgl-ctrl-toolbar-btn:focus-visible {
+  outline: 2px solid var(--color-accent, #e11d48);
+  outline-offset: -2px;
+}
+.mapboxgl-ctrl-toolbar-btn .mapboxgl-ctrl-icon {
+  display: block;
+  flex-shrink: 0;
+  color: inherit;
+}
+.mapboxgl-ctrl-toolbar-btn .mapboxgl-ctrl-icon path,
+.mapboxgl-ctrl-toolbar-btn .mapboxgl-ctrl-icon circle,
+.mapboxgl-ctrl-toolbar-btn .mapboxgl-ctrl-icon line,
+.mapboxgl-ctrl-toolbar-btn .mapboxgl-ctrl-icon polygon {
+  color: inherit;
+}
+/* Satellite toggle: active state when satellite view is on */
+.mapboxgl-ctrl-toolbar-btn[data-style-active="satellite"] {
+  background-color: rgba(0, 0, 0, 0.08);
+  color: #333;
+}
+
 /* Ensure user location dot and accuracy circle are visible above map layers */
 .mapboxgl-map .mapboxgl-user-location {
   z-index: 2;

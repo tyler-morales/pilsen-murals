@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useThemeStore } from "@/store/themeStore";
 import { useMuralStore } from "@/store/muralStore";
-import { useMapStore } from "@/store/mapStore";
 import type { Mural } from "@/types/mural";
 import type { Collection } from "@/types/collection";
 
@@ -115,12 +114,10 @@ export function MapHeader({
   const mapLightPreset = useThemeStore((s) => s.mapLightPreset);
   const sunAltitudeDeg = useThemeStore((s) => s.sunAltitudeDeg);
   const sunAzimuthDeg = useThemeStore((s) => s.sunAzimuthDeg);
-  const pilsenTime = useThemeStore((s) => s.pilsenTimeString);
   const presetLabel =
     { dawn: "Dawn", day: "Day", dusk: "Dusk", night: "Night" }[mapLightPreset] ?? mapLightPreset;
   const requestFlyTo = useMuralStore((s) => s.requestFlyTo);
   const activeMural = useMuralStore((s) => s.activeMural);
-  const requestFitBounds = useMapStore((s) => s.requestFitBounds);
 
   const [animationAzimuth, setAnimationAzimuth] = useState<number | null>(null);
   const [burstOnly, setBurstOnly] = useState(false);
@@ -170,11 +167,6 @@ export function MapHeader({
     requestFlyTo(murals[index]);
   };
 
-  const handleFitMap = () => {
-    if (murals.length === 0) return;
-    requestFitBounds(murals.map((m) => m.coordinates));
-  };
-
   const isSurpriseActive = !isListOpen && !isTourListOpen;
   const isBrowseActive = isListOpen;
   const isToursActive = isTourListOpen;
@@ -191,14 +183,14 @@ export function MapHeader({
 
   return (
     <header
-      className="safe-top absolute left-2 right-12 top-2 z-30 flex min-w-0 flex-col gap-2 overflow-visible rounded-2xl border border-white/20 bg-white/85 px-3 pb-3 pt-2 shadow-[0_4px_24px_-4px_rgba(0,0,0,0.08)] backdrop-blur-xl sm:left-4 sm:right-14 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-3 sm:gap-y-0 sm:rounded-2xl sm:px-4 sm:pb-2 sm:pt-2 md:right-auto md:max-w-4xl md:border-white/30 md:shadow-lg"
+      className="safe-top absolute left-2 right-2 top-2 z-30 flex min-w-0 flex-col gap-2 overflow-visible rounded-2xl border border-white/20 bg-white/85 px-3 pb-3 pt-2 shadow-[0_4px_24px_-4px_rgba(0,0,0,0.08)] backdrop-blur-xl sm:left-4 sm:right-4 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-3 sm:gap-y-0 sm:rounded-2xl sm:px-4 sm:pb-2 sm:pt-2 md:right-auto md:max-w-4xl md:border-white/30 md:shadow-lg"
       aria-label="Map header"
     >
       <div className="flex min-w-0 shrink items-center justify-between gap-2 sm:flex-1 sm:justify-start">
         <div className="flex min-w-0 shrink flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2">
           <div className="flex min-w-0 items-baseline gap-2">
-            <h1 className="truncate text-base font-semibold tracking-tight text-zinc-900 sm:text-lg">
-              {activeTour ? activeTour.name : "Pilsen Murals"}
+            <h1 className="min-w-0 break-words text-base font-semibold tracking-tight text-zinc-900 sm:text-lg">
+              {activeTour ? activeTour.name : "The Pilsen Mural Project"}
             </h1>
             <span className="shrink-0 text-xs text-zinc-500 sm:text-sm sm:text-zinc-600" aria-label="Number of murals">
               {murals.length} mural{murals.length !== 1 ? "s" : ""}
@@ -221,19 +213,6 @@ export function MapHeader({
           )}
         </div>
         <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-          <button
-            type="button"
-            onClick={handleFitMap}
-            disabled={murals.length === 0}
-            className="shrink-0 rounded-lg border border-zinc-200 bg-white/80 px-2 py-1 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
-            aria-label={activeTour ? "Fit tour route in view" : "Fit all murals in view"}
-            title={activeTour ? "Fit tour" : "Fit map"}
-          >
-            {activeTour ? "Fit tour" : "Fit map"}
-          </button>
-          <span className="text-xs text-zinc-500 sm:text-sm sm:text-zinc-600" aria-label={`Current time in Pilsen: ${pilsenTime}`}>
-            {pilsenTime}
-          </span>
           <button
             type="button"
             onClick={handleSunIconClick}

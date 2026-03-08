@@ -3,8 +3,8 @@ import "./globals.css";
 import { ThemeByPilsenTime } from "@/components/ThemeByPilsenTime";
 
 export const metadata: Metadata = {
-  title: "Pilsen Murals — 3D Map",
-  description: "Interactive 3D map of street art and murals",
+  title: "The Pilsen Mural Project",
+  description: "Interactive 3D map of street art and murals in Pilsen, Chicago",
 };
 
 export const viewport: Viewport = {

@@ -77,7 +77,9 @@
 
 ## User location on map (done)
 
-- **Feature**: When the user allows location access, their position is shown on the map (blue dot) and can be tracked. A locate-me control appears in the top-right with the zoom controls; clicking it prompts for permission (if not yet granted), then shows the user's location and can track movement.
+- **Feature**: When the user allows location access, their position is shown on the map (blue dot) and can be tracked. A locate-me control appears in the bottom-right with the zoom controls; clicking it prompts for permission (if not yet granted), then shows the user's location and can track movement.
+- **Header + map controls (mobile)**: Full app title on mobile (no ellipsis): MapHeader h1 uses `break-words` instead of `truncate`. Fit map moved from header to map: round button next to Geolocate in bottom-right, same shape/size (29px) and similar style; `createFitMapControl` in MuralMap, CSS in globals for `.mapboxgl-ctrl-bottom-right` row layout and `.mapboxgl-ctrl-fit-map`.
+- **Refactor**: Map controls (NavigationControl, GeolocateControl, and custom style/compass buttons) moved from top-right to bottom-right so the header can use full available width.
 - **Implementation**: `MuralMap.tsx` — Mapbox GL `GeolocateControl` with `trackUserLocation: true`, `showUserHeading: true`, `showUserLocation: true`, high-accuracy position options, and `fitBoundsOptions.maxZoom: 16`.
 - **Zoom to user (3D preserved)**: On first `geolocate` (when user grants location), map flies to user with `pitch: 50`, `zoom: 16`, and current bearing so the view keeps the 3D scale effect instead of a flat birds-eye; runs once per session so we don’t re-fly on every position update.
 - **User dot fixed to map**: Custom user location dot via GeoJSON source + circle layer (`USER_LOCATION_SOURCE_ID` / `USER_LOCATION_LAYER_ID`); `GeolocateControl` has `showUserLocation: false`. Dot stays at user’s coordinates when panning/zooming and updates on every `geolocate` so it follows the user.
@@ -115,6 +117,7 @@
 - **Tour progress on map**: When a tour is active, header shows pill "Stop X of Y" and optional "Next: [title]". Uses `activeMural` + `displayMurals` for current stop index.
 - **Compass reset**: Button in map controls calls `map.easeTo({ bearing: 0 })` for north-up. `mapStore`: `pendingCompassReset`, `requestCompassReset`.
 - **View on map (modal)**: In MuralModal, "View on map" button closes the modal and flies to the mural without reopening (`requestFlyTo(activeMural, { openModalAfterFly: false })`). No mini-map in this iteration.
+- **Map controls toolbar**: Default zoom +/- (NavigationControl) plus Fit, North compass, Satellite. One merged toolbar: Zoom+, Zoom-, Fit, Compass, Satellite. Custom icons minimal (14px, stroke 1.5, color #666); centered in 29×29 box.
 
 ## Accessibility (done)
 
@@ -157,6 +160,10 @@
 - **MuralModal**: `safe-top safe-left safe-right` on the panel for notched devices; footer already uses `safe-bottom-footer`.
 - **globals.css**: Added `@supports` glass-header utility for optional reuse.
 - **Gentle loading states**: Map loads with a seamless overlay (bg-dynamic + `.loading-map-placeholder` soft pulse) that fades out over 500ms when the map is ready. Map loading overlay: white background in light mode (`#ffffff` in `.loading-map-placeholder`), gray in dark mode; centered "Loading map..." text with `role="status"` and `aria-live="polite"`. App route loading (`app/loading.tsx`) uses a full-page skeleton (header bar + map area) with `.loading-skeleton-soft` (2s soft opacity pulse); respects `prefers-reduced-motion`. Modal image placeholders use the same soft pulse and 300ms ease-out opacity transition for loaded images. See `globals.css` for `loading-shimmer-soft`, `loading-map-placeholder`, `loading-skeleton-soft`.
+
+## Branding (done)
+
+- **Site title and favicon**: Metadata title set to "The Pilsen Mural Project"; `app/icon.svg` is Mexican flag (green | white | red vertical stripes); MapHeader shows same title when no tour is active.
 
 ## Possible improvements (when you want to polish)
 

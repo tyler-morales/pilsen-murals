@@ -50,6 +50,104 @@ function applyLightPreset(
 const REVEAL_STAGGER_MS = 28;
 const MARKER_CHUNK_SIZE = 8;
 
+/** Minimal fit-to-bounds icon (24×24 viewBox, 14px display). */
+const FIT_ICON_SVG =
+  '<svg class="mapboxgl-ctrl-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/></svg>';
+
+/**
+ * Custom Mapbox IControl: Fit map to murals (official icon, centered).
+ */
+function createFitMapControl(getCoords: () => [number, number][]) {
+  return class FitMapControl {
+    onAdd(_map: import("mapbox-gl").Map) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "mapboxgl-ctrl-toolbar-btn mapboxgl-ctrl-fit-map";
+      btn.setAttribute("aria-label", "Fit map to all murals");
+      btn.setAttribute("title", "Fit map");
+      btn.innerHTML = FIT_ICON_SVG;
+      btn.addEventListener("click", () => {
+        const coords = getCoords();
+        if (coords.length) useMapStore.getState().requestFitBounds(coords);
+      });
+      const container = document.createElement("div");
+      container.className = "mapboxgl-ctrl mapboxgl-ctrl-group";
+      container.appendChild(btn);
+      return container;
+    }
+    onRemove() {}
+  };
+}
+
+/** Minimal north compass icon (24×24 viewBox, 14px display). */
+const COMPASS_ICON_SVG =
+  '<svg class="mapboxgl-ctrl-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polygon points="12,2 10,12 14,12" fill="currentColor" stroke="none"/><line x1="12" y1="12" x2="12" y2="22"/></svg>';
+
+/** Custom control: compass / north. Calls requestCompassReset. */
+function createCompassControl() {
+  return class CompassControl {
+    onAdd(_map: import("mapbox-gl").Map) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "mapboxgl-ctrl-toolbar-btn mapboxgl-ctrl-compass-custom";
+      btn.setAttribute("aria-label", "Reset map to north");
+      btn.setAttribute("title", "North up");
+      btn.innerHTML = COMPASS_ICON_SVG;
+      btn.addEventListener("click", () => useMapStore.getState().requestCompassReset());
+      const container = document.createElement("div");
+      container.className = "mapboxgl-ctrl mapboxgl-ctrl-group";
+      container.appendChild(btn);
+      return container;
+    }
+    onRemove() {}
+  };
+}
+
+/** Minimal satellite/globe icon (24×24 viewBox, 14px display). */
+const SATELLITE_ICON_SVG =
+  '<svg class="mapboxgl-ctrl-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><ellipse cx="12" cy="12" rx="10" ry="4"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>';
+
+/** Custom control: satellite/standard style toggle. Button label and active state sync with store. */
+function createStyleControl() {
+  return class StyleControl {
+    private unsubscribe: (() => void) | null = null;
+
+    private updateButton(btn: HTMLButtonElement) {
+      const mapStyle = useMapStore.getState().mapStyle;
+      const isSatellite = mapStyle === "satellite";
+      btn.setAttribute(
+        "aria-label",
+        isSatellite ? "Switch to map view" : "Switch to satellite map"
+      );
+      btn.setAttribute("title", isSatellite ? "Map view" : "Satellite");
+      btn.setAttribute("aria-pressed", String(isSatellite));
+      btn.dataset.styleActive = isSatellite ? "satellite" : "";
+    }
+
+    onAdd(_map: import("mapbox-gl").Map) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "mapboxgl-ctrl-toolbar-btn mapboxgl-ctrl-style-custom";
+      btn.setAttribute("aria-pressed", "false");
+      btn.innerHTML = SATELLITE_ICON_SVG;
+      this.updateButton(btn);
+      btn.addEventListener("click", () => {
+        const { mapStyle, setMapStyle } = useMapStore.getState();
+        setMapStyle(mapStyle === "standard" ? "satellite" : "standard");
+      });
+      this.unsubscribe = useMapStore.subscribe(() => this.updateButton(btn));
+      const container = document.createElement("div");
+      container.className = "mapboxgl-ctrl mapboxgl-ctrl-group";
+      container.appendChild(btn);
+      return container;
+    }
+    onRemove() {
+      this.unsubscribe?.();
+      this.unsubscribe = null;
+    }
+  };
+}
+
 /** GeoJSON point feature for supercluster; properties.muralId links back to Mural. */
 function muralToPoint(mural: Mural): GeoJSON.Feature<GeoJSON.Point, { muralId: string }> {
   return {
@@ -383,12 +481,15 @@ export function MuralMap({
   const updateMarkersRef = useRef<(() => void) | null>(null);
   const hasFlownToUserFromStoreRef = useRef(false);
   const mapStyleRef = useRef<MapStyleKind>(useMapStore.getState().mapStyle);
+  const muralsCoordsRef = useRef<[number, number][]>([]);
   const [zoom, setZoom] = useState(INITIAL_ZOOM);
   const [mapReady, setMapReady] = useState(false);
+
+  useEffect(() => {
+    muralsCoordsRef.current = murals.map((m) => m.coordinates);
+  }, [murals]);
   const mapStyle = useMapStore((s) => s.mapStyle);
-  const requestCompassReset = useMapStore((s) => s.requestCompassReset);
   const clearPendingCompassReset = useMapStore((s) => s.clearPendingCompassReset);
-  const setMapStyle = useMapStore((s) => s.setMapStyle);
   const openModal = useMuralStore((s) => s.openModal);
   const pendingFlyTo = useMuralStore((s) => s.pendingFlyTo);
   const clearPendingFlyTo = useMuralStore((s) => s.clearPendingFlyTo);
@@ -441,39 +542,31 @@ export function MuralMap({
         antialias: true,
       });
 
-      map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }), "top-right");
-      const geolocateControl = new mapboxgl.GeolocateControl({
-        positionOptions: { enableHighAccuracy: true },
-        trackUserLocation: true,
-        showUserHeading: true,
-        showUserLocation: false,
-        fitBoundsOptions: { maxZoom: 16 },
-      });
-      map.addControl(geolocateControl, "top-right");
+      map.addControl(
+        new mapboxgl.NavigationControl({ showZoom: true, showCompass: true, visualizePitch: true }),
+        "bottom-right"
+      );
+      map.addControl(new (createFitMapControl(() => muralsCoordsRef.current))(), "bottom-right");
+      map.addControl(new (createCompassControl())(), "bottom-right");
+      map.addControl(new (createStyleControl())(), "bottom-right");
 
-      // When user grants location, zoom to them while keeping 3D perspective (pitch), not flat top-down.
-      let hasFlownToUser = false;
-      geolocateControl.on("geolocate", (e: { coords: { longitude: number; latitude: number } }) => {
-        const { longitude, latitude } = e.coords;
-        const source = map.getSource(USER_LOCATION_SOURCE_ID) as mapboxgl.GeoJSONSource | undefined;
-        if (source) {
-          source.setData({
-            type: "Feature",
-            properties: {},
-            geometry: { type: "Point", coordinates: [longitude, latitude] },
-          });
+      // Merge into one toolbar. Mapbox inserts bottom-right controls with insertBefore, so DOM order is reverse of add order: [style, compass, fit, nav].
+      const bottomRight = containerRef.current?.querySelector(".mapboxgl-ctrl-bottom-right");
+      if (bottomRight) {
+        const groups = Array.from(bottomRight.querySelectorAll<HTMLElement>(":scope > .mapboxgl-ctrl-group"));
+        if (groups.length === 4) {
+          const [styleGroup, compassGroup, fitGroup, navGroup] = groups;
+          const fitBtn = fitGroup.querySelector("button");
+          const compassBtn = compassGroup.querySelector("button");
+          const styleBtn = styleGroup.querySelector("button");
+          if (fitBtn) navGroup.appendChild(fitBtn);
+          if (compassBtn) navGroup.appendChild(compassBtn);
+          if (styleBtn) navGroup.appendChild(styleBtn);
+          fitGroup.remove();
+          compassGroup.remove();
+          styleGroup.remove();
         }
-        if (hasFlownToUser) return;
-        hasFlownToUser = true;
-        map.flyTo({
-          center: [longitude, latitude],
-          zoom: 16,
-          pitch: ZOOM_TO_USER_PITCH,
-          bearing: map.getBearing(),
-          duration: prefersReducedMotion ? 0 : 1500,
-          essential: true,
-        });
-      });
+      }
 
       map.on("load", () => {
         const preset = useThemeStore.getState().mapLightPreset;
@@ -853,37 +946,6 @@ export function MuralMap({
   return (
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" aria-hidden />
-      {/* Map controls: style toggle and compass reset (top-right, above Mapbox controls) */}
-      {MAPBOX_TOKEN && mapReady && (
-        <div
-          className="absolute right-14 top-2 z-20 flex flex-col gap-1 sm:right-16"
-          role="group"
-          aria-label="Map controls"
-        >
-          <button
-            type="button"
-            onClick={() => setMapStyle(mapStyle === "standard" ? "satellite" : "standard")}
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-200 bg-white/95 shadow-sm transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
-            aria-label={mapStyle === "standard" ? "Switch to satellite map" : "Switch to standard map"}
-            title={mapStyle === "standard" ? "Satellite" : "Standard"}
-          >
-            <svg className="h-5 w-5 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            onClick={requestCompassReset}
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-200 bg-white/95 shadow-sm transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
-            aria-label="Reset map to north"
-            title="North up"
-          >
-            <svg className="h-5 w-5 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v18m0-18l-4 4m4-4l4 4M3 12h18" />
-            </svg>
-          </button>
-        </div>
-      )}
       {/* Seamless loading overlay: soft placeholder that fades out when map is ready */}
       {MAPBOX_TOKEN && (
         <div
