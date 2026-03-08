@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build / Next
+.next/
+out/
+build/
+dist/
+
+# Env and secrets
+.env
+.env.local
+.env.*.local
+
+# IDE / OS
+.idea/
+.vscode/
+*.log
+.DS_Store
+
+# Cache and generated
+.sync-murals-cache.json
+*.tsbuildinfo
+
+# Optional: raw photos (large); uncomment if you don't want them in repo
+# raw-photos/
