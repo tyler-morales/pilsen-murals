@@ -5,10 +5,12 @@ import { MapHeader } from "@/components/MapHeader";
 import { MuralList } from "@/components/MuralList";
 import { MuralMap } from "@/components/MuralMap";
 import { MuralModal } from "@/components/MuralModal";
+import { ProximityBanner } from "@/components/ProximityBanner";
 import { TourList } from "@/components/TourList";
 import { useMuralStore } from "@/store/muralStore";
 import { useTourStore } from "@/store/tourStore";
 import { getOrderedMuralsForCollection } from "@/lib/collections";
+import { useGeofence } from "@/hooks/useGeofence";
 import type { Mural } from "@/types/mural";
 import type { Collection } from "@/types/collection";
 
@@ -28,6 +30,8 @@ export function MapContent({ murals, collections }: MapContentProps) {
     if (!activeTour) return murals;
     return getOrderedMuralsForCollection(activeTour, murals);
   }, [activeTour, murals]);
+
+  const { nearbyMural, clearNearby } = useGeofence(displayMurals);
 
   const routeCoordinates = useMemo(
     () =>
@@ -59,6 +63,13 @@ export function MapContent({ murals, collections }: MapContentProps) {
         routeCoordinates={routeCoordinates}
       />
       <MuralModal />
+      {nearbyMural && (
+        <ProximityBanner
+          mural={nearbyMural}
+          onView={requestFlyTo}
+          onDismiss={clearNearby}
+        />
+      )}
       <MuralList
         murals={displayMurals}
         isOpen={listOpen}

@@ -62,6 +62,11 @@
 - **Mural images → WebP**: Pipeline now outputs WebP for smaller size and faster loading. `generate-map-data.js` writes `.webp` paths; `sync-murals.js` converts source images to WebP (high-res at quality 88, thumbnails at 400px max width and quality 82), removes orphaned files by expected .webp names. Cache version bumped so next sync regenerates murals.json with .webp paths.
 - **Mobile-first**: Viewport export in `app/layout.tsx` (`viewportFit: "cover"`, `themeColor`). Safe-area utilities in `app/globals.css` (`.safe-top`, `.safe-bottom`, `.safe-left`, `.safe-right`, `.safe-bottom-footer`). MapHeader: mobile-default compact layout (`left-2 right-14`, `max-w-[calc(100%-3.5rem)]`), `sm:` for larger spacing; dynamic theme (`bg-dynamic-surface`, `text-dynamic`, `text-dynamic-muted`, `border-dynamic`); 44px min touch targets. MuralList: safe-bottom on sheet; drag handle at top. MuralModal: safe-area on footer (`.safe-bottom-footer`) and enlarged overlay (safe-top/right/bottom/left); 44px min height on footer and close buttons. MuralMarker: 44px minimum touch target (button grows, thumbnail visual unchanged).
 
+## Geofence proximity alerts (done)
+
+- **Feature**: When the app is open and location is allowed, walking near a mural (within 80 m) shows a proximity banner: “You’re near [title]” with View and Dismiss. View flies to the mural and opens the modal. Works only while the app is in the foreground (no background geofencing on web).
+- **Implementation**: `lib/geo.ts` (Haversine + `getMuralsWithinRadius`), `hooks/useGeofence.ts` (`watchPosition`, enter/notify once per visit, clear on leave so re-entry triggers again), `components/ProximityBanner.tsx` (accessible banner with `aria-live`, View/Dismiss). Wired in `MapContent`; uses `displayMurals` so during a tour only tour murals are geofenced.
+
 ## Collections / Walking tours (done)
 
 - **Data**: `types/collection.ts` (Collection: id, name, description?, muralIds, estimatedMinutes?); `data/collections.json` with sample tours (18th St Highlights, Pilsen Art Walk, Quick Five). Murals unchanged; tours reference mural IDs.
