@@ -1,16 +1,18 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { LocationPrompt } from "@/components/LocationPrompt";
 import { MapHeader } from "@/components/MapHeader";
 import { MuralList } from "@/components/MuralList";
 import { MuralMap } from "@/components/MuralMap";
 import { MuralModal } from "@/components/MuralModal";
-import { ProximityBanner } from "@/components/ProximityBanner";
+import { NearbyMuralCard } from "@/components/NearbyMuralCard";
 import { TourList } from "@/components/TourList";
 import { useMuralStore } from "@/store/muralStore";
+import { useProximityStore } from "@/store/proximityStore";
 import { useTourStore } from "@/store/tourStore";
 import { getOrderedMuralsForCollection } from "@/lib/collections";
-import { useGeofence } from "@/hooks/useGeofence";
+import { useProximity } from "@/hooks/useProximity";
 import type { Mural } from "@/types/mural";
 import type { Collection } from "@/types/collection";
 
@@ -31,7 +33,8 @@ export function MapContent({ murals, collections }: MapContentProps) {
     return getOrderedMuralsForCollection(activeTour, murals);
   }, [activeTour, murals]);
 
-  const { nearbyMural, clearNearby } = useGeofence(displayMurals);
+  useProximity(displayMurals);
+  const currentNearby = useProximityStore((s) => s.currentNearby);
 
   const routeCoordinates = useMemo(
     () =>
@@ -48,6 +51,7 @@ export function MapContent({ murals, collections }: MapContentProps) {
 
   return (
     <>
+      <LocationPrompt />
       <MapHeader
         murals={displayMurals}
         onBrowseClick={() => setListOpen((o) => !o)}
@@ -61,15 +65,13 @@ export function MapContent({ murals, collections }: MapContentProps) {
         murals={displayMurals}
         showTourNumbers={!!activeTour}
         routeCoordinates={routeCoordinates}
+        nearbyMuralId={currentNearby?.id ?? null}
       />
       <MuralModal />
-      {nearbyMural && (
-        <ProximityBanner
-          mural={nearbyMural}
-          onView={requestFlyTo}
-          onDismiss={clearNearby}
-        />
-      )}
+      <NearbyMuralCard
+        activeTour={activeTour}
+        orderedMurals={displayMurals}
+      />
       <MuralList
         murals={displayMurals}
         isOpen={listOpen}

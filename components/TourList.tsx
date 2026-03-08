@@ -1,7 +1,9 @@
 "use client";
 
+import { useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { useTourStore } from "@/store/tourStore";
 import type { Collection } from "@/types/collection";
 
@@ -31,8 +33,11 @@ export function TourList({
   onClose,
 }: TourListProps) {
   const setActiveTour = useTourStore((s) => s.setActiveTour);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const variants = isDesktop ? SIDEBAR : SHEET;
+
+  useFocusTrap(dialogRef, isOpen);
 
   const handleSelectTour = (tour: Collection) => {
     setActiveTour(tour);
@@ -54,6 +59,7 @@ export function TourList({
             aria-hidden
           />
           <motion.div
+            ref={dialogRef}
             role="dialog"
             aria-modal="true"
             aria-label="Walking tours"
@@ -79,7 +85,7 @@ export function TourList({
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-full p-2 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2"
+                className="rounded-full p-2 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
                 aria-label="Close walking tours"
               >
                 <svg
@@ -112,7 +118,7 @@ export function TourList({
                     <button
                       type="button"
                       onClick={() => handleSelectTour(tour)}
-                      className="flex w-full flex-col items-start gap-1 rounded-lg border border-zinc-200 bg-white px-4 py-3 text-left shadow-sm transition-colors hover:bg-zinc-50 hover:border-[var(--color-accent)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] focus:ring-offset-2"
+                      className="flex w-full flex-col items-start gap-1 rounded-lg border border-zinc-200 bg-white px-4 py-3 text-left shadow-sm transition-colors hover:bg-zinc-50 hover:border-[var(--color-accent)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
                       aria-label={`Start tour: ${tour.name}, ${tour.muralIds.length} murals`}
                     >
                       <span className="font-semibold text-zinc-900">

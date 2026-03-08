@@ -54,7 +54,9 @@
 - **Header UI**: Removed onboarding hint ("Tap a mural…"). MapHeader buttons restyled: primary accent (amber) for "Surprise me", secondary outline for "Browse"; added `--color-accent` / `--color-accent-hover` / `--color-accent-foreground` in globals.css. Deleted `OnboardingBanner.tsx`.
 - **Header readability**: MapHeader uses solid white background and explicit zinc text (zinc-900 title, zinc-600 muted) so title and meta stay readable over any map; Browse button uses accent outline (border + text) and fill on hover for clear contrast.
 - **Map markers (single React root)**: Replaced 37 per-marker React roots with one shared root and `createPortal`; `zoomend` triggers a single reconciliation instead of 37 full re-renders. `AllMarkers` in `MuralMap.tsx` portals each `<MuralMarker>` into the existing Mapbox marker wrapper divs.
+- **Thumbnail re-fade on map move**: On pan/zoom, `updateMarkers()` creates new wrapper DOM and remounts markers, so each `MuralMarker` re-ran its entrance animation. `MuralMarker` now tracks revealed mural IDs in a module-level `Set`; remounted markers for already-shown murals render visible immediately with no fade.
 - **Number clusters when zoomed out**: Supercluster clusters mural points by zoom/viewport; when zoomed out, numbered cluster markers (e.g. "5") replace overlapping thumbnails. Clicking a cluster zooms in to expand it. Individual mural thumbnails show when zoomed in. `ClusterMarker` component; `MuralMap` builds index from murals, runs `getClusters` on zoom/move and swaps cluster vs mural markers accordingly.
+- **Mural cards: human tilt + fanned deck**: Every mural card has a deterministic slight rotation and x/y offset from `mural.id` (`getStableCardOffset` in `MuralMarker.tsx`) so cards feel less rigid. Where leaf markers overlap on screen (within 50px), they are grouped into a single placement and rendered as a fanned deck via `FannedMuralCards.tsx`; `MuralMap` uses `groupLeavesIntoPlacements` (union-find by screen distance) and `PlacementMarkers` to render either one `MuralMarker` or one `FannedMuralCards` per placement. Tour mode unchanged (one marker per mural, tilt still applied).
 - **Responsiveness/speed (Mar 2025)**: MapHeader reads `pilsenTimeString` from theme store (one 60s tick for time + preset). Theme store and ThemeByPilsenTime document that subscribers must stay minimal. MuralModal uses blurred thumbnail (or imageUrl) as placeholder while full-size image loads (panel + enlarged view). `lib/muralBuildingLayer.ts` has top-of-file notes for future use: viewport culling, texture reuse/thumbnails, minimize triggerRepaint. MuralList virtualized with `@tanstack/react-virtual` (fixed row height, ul/li, a11y). Murals data: client fetch deferred; current server pass kept; for many murals or lighter shell, fetch `/data/murals.json` (or API) from client after hydration and show loading state.
 
 ## Refactor / Cleanup (done, continued)
@@ -62,10 +64,26 @@
 - **Mural images → WebP**: Pipeline now outputs WebP for smaller size and faster loading. `generate-map-data.js` writes `.webp` paths; `sync-murals.js` converts source images to WebP (high-res at quality 88, thumbnails at 400px max width and quality 82), removes orphaned files by expected .webp names. Cache version bumped so next sync regenerates murals.json with .webp paths.
 - **Mobile-first**: Viewport export in `app/layout.tsx` (`viewportFit: "cover"`, `themeColor`). Safe-area utilities in `app/globals.css` (`.safe-top`, `.safe-bottom`, `.safe-left`, `.safe-right`, `.safe-bottom-footer`). MapHeader: mobile-default compact layout (`left-2 right-14`, `max-w-[calc(100%-3.5rem)]`), `sm:` for larger spacing; dynamic theme (`bg-dynamic-surface`, `text-dynamic`, `text-dynamic-muted`, `border-dynamic`); 44px min touch targets. MuralList: safe-bottom on sheet; drag handle at top. MuralModal: safe-area on footer (`.safe-bottom-footer`) and enlarged overlay (safe-top/right/bottom/left); 44px min height on footer and close buttons. MuralMarker: 44px minimum touch target (button grows, thumbnail visual unchanged).
 
-## Geofence proximity alerts (done)
+## Proximity alerts and location enablement (done)
 
-- **Feature**: When the app is open and location is allowed, walking near a mural (within 80 m) shows a proximity banner: “You’re near [title]” with View and Dismiss. View flies to the mural and opens the modal. Works only while the app is in the foreground (no background geofencing on web).
-- **Implementation**: `lib/geo.ts` (Haversine + `getMuralsWithinRadius`), `hooks/useGeofence.ts` (`watchPosition`, enter/notify once per visit, clear on leave so re-entry triggers again), `components/ProximityBanner.tsx` (accessible banner with `aria-live`, View/Dismiss). Wired in `MapContent`; uses `displayMurals` so during a tour only tour murals are geofenced.
+- **Enable location prompt**: On first load, a small CTA asks to enable location for proximity alerts; `getCurrentPosition` / `watchPosition` are called only after the user taps "Enable". "Not now" dismisses and is persisted in localStorage so the prompt is not shown again until the user clears storage.
+- **Implementation**: `store/locationStore.ts` (permission, userCoords, promptDismissed, requestLocation, dismissPrompt); `components/LocationPrompt.tsx` (compact bar with Enable / Not now). No geolocation calls on load.
+- **Multiple nearby (queue)**: When two or more murals are within radius (80 m), the closest is shown first in a bottom card; on "View" or "Dismiss", the next in queue is shown. `store/proximityStore.ts` (nearbyQueue, currentNearby, setNearbyFromCoords, showNext); `hooks/useProximity.ts` syncs location coords to proximity store; `components/NearbyMuralCard.tsx` shows one mural with View / Dismiss and optional "N more nearby".
+- **MapContent**: Renders LocationPrompt, NearbyMuralCard; runs useProximity(displayMurals); passes currentNearby?.id to MuralMap as nearbyMuralId so the active nearby marker is highlighted (amber border, "You're near" on marker).
+- **Nearby marker stacking**: When a mural is the "near you" one, its map marker wrapper gets `z-index: 1000` so its card always renders on top of other mural cards (tour and cluster code paths in MuralMap).
+- **LocationPrompt layout**: Centered card below header (not under it): `left-1/2 -translate-x-1/2`, `top-[5.5rem]` / `sm:top-24`, `max-w-md`; responsive stack on mobile (flex-col, centered text/buttons), row on sm+; works on mobile and desktop.
+- **PWA / background**: Proximity alerts work only while the app is open (watchPosition + in-app card). True "notify when nearby with app closed" would require a native wrapper (e.g. Capacitor with background geolocation) or server-side geofencing + Web Push; see "Later" below.
+- **Refactor**: Replaced `useGeofence` (which called watchPosition on load) with opt-in `locationStore` + `useProximity` + `proximityStore`. Removed unused `hooks/useGeofence.ts`. MuralMap no longer triggers GeolocateControl on load; user dot is driven by `locationStore.userCoords`. Removed unused `mapBearing` from MuralMap/AllMarkers (MuralMarker never used it).
+
+## User location on map (done)
+
+- **Feature**: When the user allows location access, their position is shown on the map (blue dot) and can be tracked. A locate-me control appears in the top-right with the zoom controls; clicking it prompts for permission (if not yet granted), then shows the user's location and can track movement.
+- **Implementation**: `MuralMap.tsx` — Mapbox GL `GeolocateControl` with `trackUserLocation: true`, `showUserHeading: true`, `showUserLocation: true`, high-accuracy position options, and `fitBoundsOptions.maxZoom: 16`.
+- **Zoom to user (3D preserved)**: On first `geolocate` (when user grants location), map flies to user with `pitch: 50`, `zoom: 16`, and current bearing so the view keeps the 3D scale effect instead of a flat birds-eye; runs once per session so we don’t re-fly on every position update.
+- **User dot fixed to map**: Custom user location dot via GeoJSON source + circle layer (`USER_LOCATION_SOURCE_ID` / `USER_LOCATION_LAYER_ID`); `GeolocateControl` has `showUserLocation: false`. Dot stays at user’s coordinates when panning/zooming and updates on every `geolocate` so it follows the user.
+- **Zoom to user when location enabled**: When user enables location via LocationPrompt (or store gets `userCoords`), map flies to user once (zoom 16, pitch 50); `hasFlownToUserFromStoreRef` prevents re-flying on watchPosition updates. NearbyMuralCard (thumbnail) already shows when in range via `useProximity` + `currentNearby`.
+- **Geofence radius on map**: 120 m geofence circle drawn around user location (green fill + stroke) via `circlePolygon` in `lib/geo.ts` and GeoJSON fill/line layers in MuralMap; circle appears when location is enabled and clears when coords are null.
+- **Pilsen neighborhood border**: Neighborhood outline (Lower West Side / Chicago community area 31) drawn on the map via static GeoJSON in `data/pilsen-boundary.json`; source `pilsen-boundary`, fill (indigo 8% opacity) + line (indigo 70% opacity). Boundary from City of Chicago Data Portal (Boundaries - Community Areas). Re-applied with other custom layers on style change (Standard ↔ Satellite).
 
 ## Collections / Walking tours (done)
 
@@ -75,12 +93,62 @@
 - **Flow**: Default = all murals; "Tours" → pick tour → map/list show only tour murals in walking order; modal prev/next follow tour order; "Leave tour" resets.
 - **Walking tour route UX**: When a tour is active, list thumbnails show a 1-based stop number badge (amber pill, top-left); map markers show the same number (bottom-right of thumbnail). Map draws a route line (amber LineString) connecting stops in order. MapContent passes `showTourNumbers` and `routeCoordinates` to MuralMap; MuralList infers tour mode from `listTitle` for badges; aria-labels include "Stop N" for list and markers.
 
+## NearbyMuralCard enhancements (done)
+
+- **Distance + address**: `lib/geo.ts` — `getMuralsWithinRadiusWithDistance`, `formatDistance(meters, locale)` (m vs ft by locale); `proximityStore` stores queue as `MuralWithDistance[]`, exposes `currentDistanceM`; card shows "~25 m away" and address line when non-empty.
+- **Get directions**: `lib/directions.ts` — `getDirectionsUrl(mural)`, `getDirectionsGeoUri(mural)`; MuralModal imports from it; NearbyMuralCard has "Get directions" link (opens in new tab).
+- **Tour context**: MapContent passes `activeTour` and `orderedMurals` (displayMurals) to NearbyMuralCard; card shows "Stop N of M" and optional tour name when current mural is in active tour; "Next: [title] (~X m away)" with distance to next stop via haversine.
+- **Bearing hint**: `lib/geo.ts` — `bearingToDirectionText(degrees)`; card shows "Face north" / "Face east" etc. when `currentNearby.bearing` is set.
+- **Card exit animation**: `proximityStore` — `exitDirection` for slide-out when advancing to next; enter/exit animations; respects `prefersReducedMotion`.
+- **Dominant color**: Card uses `currentNearby.dominantColor` for a thin top border (`border-t-4`).
+- **Seen (stored only)**: `proximityStore` — `markSeen(muralId)` and seen IDs in localStorage (`pilsen-murals-seen-murals`) kept for possible future use; Dismiss and View still call `markSeen`. Nearby queue is sorted by distance only (closest first) so users can loop through all nearby murals; seen no longer affects order.
+- **Proximity distance**: `formatDistance` clamps to non-negative so distance never shows as negative (e.g. -275 ft).
+- **Share**: "Share" button in card — Web Share API when available, else copy mural URL (`/?mural=id`) to clipboard with "Link copied" feedback.
+- **Photo tip**: When `imageMetadata['Date taken']` exists, card shows short tip ("Photo taken in morning/afternoon — similar light now.").
+- **Card shows only current mural**: Removed "X of Y nearby" text, full list of nearby murals, prev/next arrows, and swipe; card displays only the single current nearby mural. View/Dismiss still advance to next in queue. `requestFlyTo(mural, { openModalAfterFly: false })`; muralStore `pendingFlyTo` extended to `{ mural, openModalAfterFly }` so list/View/Surprise me still open modal on moveend.
+- **Nearby card prev/next centers map**: Clicking the ←/→ arrows in the "You're near" card now calls `requestFlyTo(mural, { openModalAfterFly: false })` before advancing the card, so the map flies to center the newly selected mural.
+
+## Map UX (done)
+
+- **Fit all murals / Fit tour**: Header button "Fit map" (or "Fit tour" when a tour is active) fits the map bounds to all display murals with padding and maxZoom 16. `store/mapStore.ts`: `pendingFitBounds`, `requestFitBounds`; MuralMap subscribes and runs `fitBounds`; MapHeader triggers with `displayMurals` coordinates.
+- **Layer toggle (Standard ↔ Satellite)**: Toggle in map controls (top-right) swaps style between `mapbox://styles/mapbox/standard` and `mapbox://styles/mapbox/satellite-streets-v12`. After `setStyle`, custom sources/layers (user dot, geofence, route line) are re-applied so they don’t disappear. Theme (light preset) only applied for Standard style.
+- **Tour progress on map**: When a tour is active, header shows pill "Stop X of Y" and optional "Next: [title]". Uses `activeMural` + `displayMurals` for current stop index.
+- **Compass reset**: Button in map controls calls `map.easeTo({ bearing: 0 })` for north-up. `mapStore`: `pendingCompassReset`, `requestCompassReset`.
+- **View on map (modal)**: In MuralModal, "View on map" button closes the modal and flies to the mural without reopening (`requestFlyTo(activeMural, { openModalAfterFly: false })`). No mini-map in this iteration.
+
+## Accessibility (done)
+
+- **Skip link**: "Skip to main content" link at top of body in `app/layout.tsx`; visually hidden until focused (`focus-visible`); targets `#main`. Main content in `app/page.tsx` has `id="main"` and `tabIndex={-1}` so it can receive focus after skip.
+- **Focus trap and return**: `hooks/useFocusTrap.ts` — on dialog open, focus moves to first focusable inside container; Tab/Shift+Tab cycles within dialog; on close, focus restores to previously focused element. Used in MuralModal (panel + enlarged image), MuralList, and TourList.
+- **Focus-visible rings**: Interactive controls use `focus-visible:ring-*` (and `focus-visible:ring-offset-*`) so focus rings show for keyboard users only, not on mouse click. Applied across MapHeader, MuralMap, MuralModal, MuralList, TourList, LocationPrompt, NearbyMuralCard, MuralMarker, ClusterMarker, and error page.
+
 ## Later
 
 - **Murals data**: For 100+ murals or smaller initial payload, fetch murals from client (e.g. `fetch("/data/murals.json")`) after hydration; show map shell + loading state until data arrives.
 - Replace placeholder images with real mural assets or CMS
 - Optional: persist selected mural in URL (e.g. `?mural=mural-1`) for sharing
-- Optional: a11y focus trap and focus return when modal closes
+
+## More features (beyond submission)
+
+- **Sharing & deep links**: URL with mural id (e.g. `/?mural=mural-1`) so opening the link scrolls/flys to that mural and opens modal; Open Graph / Twitter card so shared links show mural image + title.
+- **Search / filter**: Search by title or artist; filter by artist (dropdown or chip list). Keeps map + list in sync (highlight or restrict to matches).
+- **Favorites / “My list”**: LocalStorage (or optional account later) to save favorite murals; “Saved” view or filter; optional “plan a visit” list.
+- **Offline / PWA**: Service worker + cache so map and key assets work offline; “Add to home screen” for app-like use while walking Pilsen.
+- **More mural content**: Optional `description` or `story` in mural data; “About the artist” link; year or date added; tags (e.g. theme, style) for future filtering.
+- **Discovery**: “Murals near you” (reuse geofence data); “Similar color” or “Same artist” from modal; “Finish this tour” progress (e.g. 3/5 stops).
+- **Map UX**: Optional layer toggle (e.g. satellite vs standard); compass reset; “Fit all murals” button; optional mini-map in modal for context.
+- **Analytics (privacy-friendly)**: Count mural views or tour starts (no PII); helps decide which tours to expand or which murals need better photos.
+- **i18n**: Spanish (or language toggle) for labels and modal copy, given Pilsen’s community.
+- **Background / PWA proximity notifications**: In-app alerts only while the tab is open. For "notify when nearby even when app closed": (1) **Native wrapper** — Capacitor or React Native with a background geolocation plugin to trigger local or push notifications on geofence enter; (2) **Server-side** — device registers with backend, server does geofencing and sends Web Push (or FCM) when user enters a mural zone; requires HTTPS, service worker, and backend.
+
+## Opening to contributions (others adding murals)
+
+- **Current**: Only you add murals via `raw-photos/` + `npm run sync-murals` (EXIF → murals.json + WebP). No auth or submission UI.
+- **Options** (pick one path, then iterate):
+  - **A — Low-friction (recommended first)**: "Submit a mural" page: form (photo upload, title, artist, optional address) + optional lat/lng from browser geolocation or map picker. Submissions go to a queue (email, Notion, Airtable, or a single JSON file in repo). You review, then run your existing pipeline (e.g. add photo to raw-photos, run sync-murals, merge into murals.json). No backend required; use a form service (Formspree, Tally) or static form + serverless (Vercel serverless saves to storage or sends email).
+  - **B — Backend + queue**: Next.js API route(s): POST submission (multipart: image + JSON). Store image in Vercel Blob / S3 / Cloudinary and append to `data/submissions.json` (or DB). Admin page (or script) lists pending; approve → run generate-map-data on that image (or call a serverless that does it), then append to murals.json and redeploy. Adds storage + one-off processing.
+  - **C — Full UGC**: Auth (e.g. NextAuth + Google/GitHub), DB (e.g. Supabase: users, murals, submissions). Submissions table with status (pending/approved/rejected). Approved rows become murals; image processing (dominant color, thumbnails) in API or background job. Map and list read from API or static build from DB. Enables attribution, moderation, and scaling.
+- **Decisions to make**: (1) Anonymous vs attributed submissions. (2) Moderation: manual review before publish vs auto-publish with report flow. (3) Image storage: stay in repo (size/cap) vs cloud (Vercel Blob, Supabase Storage, Cloudinary). (4) Geofence: require Pilsen-area coordinates or allow city-wide and filter later.
 
 ## Mobile / native app UX (done)
 
@@ -88,7 +156,7 @@
 - **Bottom sheets**: MuralList and TourList use `rounded-t-3xl`, larger drag handle (`h-1.5 w-12`), `max-h-[55vh]`, and softer shadow for a native bottom-sheet feel.
 - **MuralModal**: `safe-top safe-left safe-right` on the panel for notched devices; footer already uses `safe-bottom-footer`.
 - **globals.css**: Added `@supports` glass-header utility for optional reuse.
-- **Gentle loading states**: Map loads with a seamless overlay (bg-dynamic + `.loading-map-placeholder` soft pulse) that fades out over 500ms when the map is ready. App route loading (`app/loading.tsx`) uses a full-page skeleton (header bar + map area) with `.loading-skeleton-soft` (2s soft opacity pulse); respects `prefers-reduced-motion`. Modal image placeholders use the same soft pulse and 300ms ease-out opacity transition for loaded images. See `globals.css` for `loading-shimmer-soft`, `loading-map-placeholder`, `loading-skeleton-soft`.
+- **Gentle loading states**: Map loads with a seamless overlay (bg-dynamic + `.loading-map-placeholder` soft pulse) that fades out over 500ms when the map is ready. Map loading overlay: white background in light mode (`#ffffff` in `.loading-map-placeholder`), gray in dark mode; centered "Loading map..." text with `role="status"` and `aria-live="polite"`. App route loading (`app/loading.tsx`) uses a full-page skeleton (header bar + map area) with `.loading-skeleton-soft` (2s soft opacity pulse); respects `prefers-reduced-motion`. Modal image placeholders use the same soft pulse and 300ms ease-out opacity transition for loaded images. See `globals.css` for `loading-shimmer-soft`, `loading-map-placeholder`, `loading-skeleton-soft`.
 
 ## Possible improvements (when you want to polish)
 

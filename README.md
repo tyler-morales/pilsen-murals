@@ -35,6 +35,7 @@ Proof of concept for a high-end, dynamic-lighting “digital twin” map of stre
 - **Markers**: 3D Sims-style diamond markers (CSS 3D: rotating gem + subtle float) per mural from `data/murals.json`; glow uses each mural’s dominant color. Respects `prefers-reduced-motion`.
 - **Fly-to**: Click a marker to fly the camera to street level with pitch; when the animation ends, the detail modal opens.
 - **Modal**: Slide-in panel (Framer Motion) with editorial layout: image, title, artist, address, and dominant color swatch. State is managed with Zustand (`activeMural`, modal open/closed).
+- **Proximity alerts**: On first load you can enable location; when you’re within ~80 m of a mural, a card appears with the closest mural (and “View” / “Dismiss”). If several murals are nearby, the queue shows the next after you dismiss or view. Alerts work only while the app is open; true background notifications would require a native app or server-side geofencing + push.
 
 ## Stack
 

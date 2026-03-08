@@ -20,7 +20,7 @@ export function ClusterMarker({ count, onClick }: ClusterMarkerProps) {
         e.stopPropagation();
         onClick();
       }}
-      className="flex h-10 w-10 min-w-[2.5rem] items-center justify-center rounded-full border-2 border-white bg-amber-500 text-sm font-bold text-white shadow-lg transition-transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-dynamic-surface"
+      className="flex h-10 w-10 min-w-[2.5rem] items-center justify-center rounded-full border-2 border-white bg-amber-500 text-sm font-bold text-white shadow-lg transition-transform hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-dynamic-surface"
       aria-label={`${count} murals in this area — zoom in to view`}
     >
       {label}
