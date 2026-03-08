@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useDragControls } from "framer-motion";
 import { useMuralStore } from "@/store/muralStore";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -82,8 +82,15 @@ export function MuralModal() {
   const [isEnlargedImageLoaded, setIsEnlargedImageLoaded] = useState(false);
   const prefersReducedMotion = usePrefersReducedMotion();
   const isDesktop = useMediaQuery("(min-width: 768px)");
+  const dragControls = useDragControls();
   const panelVariants = isDesktop ? PANEL_RIGHT : DRAWER_UP;
   const canGoPrev = muralsOrder.length > 0 && activeIndex > 0;
+
+  const handleDrawerDragEnd = (_: unknown, info: { offset: { y: number }; velocity: { y: number } }) => {
+    const threshold = 80;
+    const velocityThreshold = 300;
+    if (info.offset.y > threshold || info.velocity.y > velocityThreshold) closeModal();
+  };
   const canGoNext =
     muralsOrder.length > 0 && activeIndex < muralsOrder.length - 1;
   const panelTransition = prefersReducedMotion
@@ -214,10 +221,18 @@ export function MuralModal() {
             exit="exit"
             transition={panelTransition}
             onClick={(e) => e.stopPropagation()}
+            {...(!isDesktop && {
+              drag: "y",
+              dragConstraints: { top: 0 },
+              dragElastic: { top: 0, bottom: 0.25 },
+              dragControls,
+              onDragEnd: handleDrawerDragEnd,
+            })}
           >
             <div
-              className="flex justify-center pt-3 pb-1 md:hidden"
+              className="flex min-h-[44px] cursor-grab active:cursor-grabbing flex-col items-center justify-center pt-3 pb-1 md:cursor-default md:min-h-0 md:pt-0 md:pb-0"
               aria-hidden
+              onPointerDown={!isDesktop ? (e) => dragControls.start(e) : undefined}
             >
               <span className="h-1.5 w-12 shrink-0 rounded-full bg-zinc-300" aria-hidden />
             </div>
