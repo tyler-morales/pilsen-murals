@@ -1,0 +1,23 @@
+[
+  {
+    "id": "18th-st-highlights",
+    "name": "18th St Highlights",
+    "description": "A short walk along 18th Street with some of Pilsen's most iconic murals.",
+    "muralIds": ["mural-1", "mural-2", "mural-3", "mural-4", "mural-5"],
+    "estimatedMinutes": 20
+  },
+  {
+    "id": "pilsen-art-walk",
+    "name": "Pilsen Art Walk",
+    "description": "A longer tour through the heart of Pilsen's mural district.",
+    "muralIds": ["mural-1", "mural-4", "mural-5", "mural-6", "mural-7", "mural-8", "mural-9", "mural-10"],
+    "estimatedMinutes": 45
+  },
+  {
+    "id": "quick-five",
+    "name": "Quick Five",
+    "description": "Five murals in a compact loop for a quick visit.",
+    "muralIds": ["mural-2", "mural-3", "mural-11", "mural-12", "mural-13"],
+    "estimatedMinutes": 15
+  }
+]
