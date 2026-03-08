@@ -137,6 +137,7 @@ export function MuralMap({
   const markersRootContainerRef = useRef<HTMLDivElement | null>(null);
   const unsubThemeRef = useRef<(() => void) | null>(null);
   const [zoom, setZoom] = useState(INITIAL_ZOOM);
+  const [mapReady, setMapReady] = useState(false);
   const openModal = useMuralStore((s) => s.openModal);
   const pendingFlyTo = useMuralStore((s) => s.pendingFlyTo);
   const clearPendingFlyTo = useMuralStore((s) => s.clearPendingFlyTo);
@@ -200,6 +201,7 @@ export function MuralMap({
 
         mapRef.current = map;
         setZoom(map.getZoom());
+        requestAnimationFrame(() => setMapReady(true));
 
         if (routeCoordinates && routeCoordinates.length >= 2) {
           map.addSource(ROUTE_SOURCE_ID, {
@@ -426,6 +428,17 @@ export function MuralMap({
   return (
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" aria-hidden />
+      {/* Seamless loading overlay: soft placeholder that fades out when map is ready */}
+      {MAPBOX_TOKEN && (
+        <div
+          aria-hidden
+          className={`absolute inset-0 z-10 bg-dynamic transition-opacity duration-500 ease-out ${
+            mapReady ? "pointer-events-none opacity-0" : "opacity-100"
+          }`}
+        >
+          <div className="loading-map-placeholder absolute inset-0" />
+        </div>
+      )}
       {!MAPBOX_TOKEN && (
         <div className="absolute inset-0 flex items-center justify-center bg-dynamic text-dynamic-muted">
           <p className="max-w-md text-center text-sm">

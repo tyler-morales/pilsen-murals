@@ -174,7 +174,7 @@ export function MuralModal() {
                 >
                   {!isEnlargedImageLoaded && (
                     <div
-                      className="absolute inset-0 m-auto h-48 w-48 max-h-[60vh] max-w-[60vw] animate-pulse rounded-lg bg-white/20"
+                      className="absolute inset-0 m-auto h-48 w-48 max-h-[60vh] max-w-[60vw] loading-skeleton-soft rounded-lg bg-white/15"
                       aria-hidden
                     />
                   )}
@@ -190,7 +190,7 @@ export function MuralModal() {
                     src={activeMural.imageUrl}
                     alt={`${activeMural.title} — full size`}
                     decoding="async"
-                    className={`relative max-h-[90vh] max-w-[95vw] w-auto h-auto object-contain cursor-default transition-opacity duration-200 ${isEnlargedImageLoaded ? "opacity-100" : "opacity-0"}`}
+                    className={`relative max-h-[90vh] max-w-[95vw] w-auto h-auto object-contain cursor-default transition-opacity duration-300 ease-out ${isEnlargedImageLoaded ? "opacity-100" : "opacity-0"}`}
                     onLoad={() => setIsEnlargedImageLoaded(true)}
                     onClick={(e) => e.stopPropagation()}
                   />
@@ -248,7 +248,7 @@ export function MuralModal() {
               >
                 {!isImageLoaded && (
                   <div
-                    className="absolute inset-0 animate-pulse bg-zinc-200"
+                    className="absolute inset-0 loading-skeleton-soft bg-zinc-200/80"
                     aria-hidden
                   />
                 )}
@@ -268,7 +268,7 @@ export function MuralModal() {
                     src={activeMural.imageUrl}
                     alt={`Mural: ${activeMural.title} by ${activeMural.artist}`}
                     decoding="async"
-                    className={`h-full w-full object-contain transition-opacity duration-200 ${isImageLoaded ? "opacity-100" : "opacity-0"}`}
+                    className={`h-full w-full object-contain transition-opacity duration-300 ease-out ${isImageLoaded ? "opacity-100" : "opacity-0"}`}
                     onLoad={() => setIsImageLoaded(true)}
                     onError={(e) => {
                       (e.target as HTMLImageElement).src =

@@ -154,6 +154,38 @@ body {
   stroke: var(--color-accent);
 }
 
+/* Gentle loading states: soft pulse/shimmer, reduced motion respected */
+@keyframes loading-shimmer-soft {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-map-placeholder,
+  .loading-skeleton-soft {
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
+.loading-map-placeholder {
+  background: color-mix(
+    in srgb,
+    var(--color-night-bg) calc((1 - var(--sun-brightness)) * 100%),
+    var(--color-day-bg) calc(var(--sun-brightness) * 100%)
+  );
+  animation: loading-shimmer-soft 2.5s ease-in-out infinite;
+}
+
+.loading-skeleton-soft {
+  animation: loading-shimmer-soft 2s ease-in-out infinite;
+}
+
 /* Mapbox overrides for dark matte buildings */
 .mapboxgl-ctrl-attrib,
 .mapboxgl-ctrl-logo {
