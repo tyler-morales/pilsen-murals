@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ThemeByPilsenTime } from "@/components/ThemeByPilsenTime";
+import { Analytics } from "@vercel/analytics/next";
 
 export const metadata: Metadata = {
   title: "The Pilsen Mural Project",
@@ -33,6 +34,7 @@ export default function RootLayout({
         </a>
         <ThemeByPilsenTime />
         {children}
+        <Analytics />
       </body>
     </html>
   );
