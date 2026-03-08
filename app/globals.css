@@ -1,0 +1,162 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --glow: rgba(251, 191, 36, 0.4);
+  /* Primary accent (amber) for buttons and CTAs; works on both day and night */
+  --color-accent: #f59e0b;
+  --color-accent-hover: #d97706;
+  --color-accent-foreground: #1c1917;
+  /* Dynamic lighting: 0 = night, 1 = day; set by ThemeByPilsenTime every minute */
+  --sun-brightness: 0.5;
+  --sun-altitude-deg: 0;
+  /* Night (Pilsen dark theme) */
+  --color-night-bg: #0a0a0b;
+  --color-night-surface: #141416;
+  --color-night-border: #27272a;
+  --color-night-text: #ffffff;
+  --color-night-muted: #71717a;
+  /* Day */
+  --color-day-bg: #fafafa;
+  --color-day-surface: #f4f4f5;
+  --color-day-border: #e4e4e7;
+  --color-day-text: #18181b;
+  --color-day-muted: #52525b;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: color-mix(
+    in srgb,
+    var(--color-night-bg) calc((1 - var(--sun-brightness)) * 100%),
+    var(--color-day-bg) calc(var(--sun-brightness) * 100%)
+  );
+  color: color-mix(
+    in srgb,
+    var(--color-night-text) calc((1 - var(--sun-brightness)) * 100%),
+    var(--color-day-text) calc(var(--sun-brightness) * 100%)
+  );
+}
+
+/* Dynamic lighting utility classes for components */
+.bg-dynamic {
+  background: color-mix(
+    in srgb,
+    var(--color-night-bg) calc((1 - var(--sun-brightness)) * 100%),
+    var(--color-day-bg) calc(var(--sun-brightness) * 100%)
+  );
+}
+
+.bg-dynamic-surface {
+  background: color-mix(
+    in srgb,
+    var(--color-night-surface) calc((1 - var(--sun-brightness)) * 100%),
+    var(--color-day-surface) calc(var(--sun-brightness) * 100%)
+  );
+}
+
+.border-dynamic {
+  border-color: color-mix(
+    in srgb,
+    var(--color-night-border) calc((1 - var(--sun-brightness)) * 100%),
+    var(--color-day-border) calc(var(--sun-brightness) * 100%)
+  );
+}
+
+.text-dynamic {
+  color: color-mix(
+    in srgb,
+    var(--color-night-text) calc((1 - var(--sun-brightness)) * 100%),
+    var(--color-day-text) calc(var(--sun-brightness) * 100%)
+  );
+}
+
+.text-dynamic-muted {
+  color: color-mix(
+    in srgb,
+    var(--color-night-muted) calc((1 - var(--sun-brightness)) * 100%),
+    var(--color-day-muted) calc(var(--sun-brightness) * 100%)
+  );
+}
+
+.from-dynamic-surface {
+  --tw-gradient-from: color-mix(
+    in srgb,
+    var(--color-night-surface) calc((1 - var(--sun-brightness)) * 100%),
+    var(--color-day-surface) calc(var(--sun-brightness) * 100%)
+  );
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to, rgb(0 0 0 / 0));
+}
+
+.ring-offset-dynamic-surface {
+  --tw-ring-offset-color: color-mix(
+    in srgb,
+    var(--color-night-surface) calc((1 - var(--sun-brightness)) * 100%),
+    var(--color-day-surface) calc(var(--sun-brightness) * 100%)
+  );
+}
+
+/* Safe-area insets for notched devices (use with viewport-fit: cover) */
+.safe-top {
+  padding-top: env(safe-area-inset-top, 0);
+}
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+.safe-left {
+  padding-left: env(safe-area-inset-left, 0);
+}
+.safe-right {
+  padding-right: env(safe-area-inset-right, 0);
+}
+.safe-bottom-footer {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom, 0));
+}
+
+/* Glass-style header for native app feel (backdrop blur) */
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .glass-header {
+    -webkit-backdrop-filter: blur(24px);
+    backdrop-filter: blur(24px);
+  }
+}
+
+/* Sun icon click: burst of color + rays extend then settle (scale kept within bounds to avoid clipping) */
+@keyframes sun-ray-burst {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  30% {
+    transform: scale(1.18);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.sun-icon-burst .sun-icon-burst-group {
+  animation: sun-ray-burst 0.5s ease-out;
+  transform-origin: 15px 25px;
+}
+
+.sun-icon-burst .sun-icon-burst-group circle,
+.sun-icon-burst .sun-icon-burst-group line {
+  fill: var(--color-accent);
+  stroke: var(--color-accent);
+}
+
+/* Mapbox overrides for dark matte buildings */
+.mapboxgl-ctrl-attrib,
+.mapboxgl-ctrl-logo {
+  opacity: 0.6;
+}
+
