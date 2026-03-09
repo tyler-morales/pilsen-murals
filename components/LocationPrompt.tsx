@@ -1,16 +1,41 @@
 "use client";
 
+import { useEffect } from "react";
 import { useLocationStore } from "@/store/locationStore";
+import { useMapStore } from "@/store/mapStore";
 
 /**
  * Small CTA shown on first load to enable location for proximity alerts.
- * Only rendered when permission is still "prompt" and user has not dismissed.
+ * Only rendered when permission is still "prompt", user has not dismissed, and the map has loaded.
  * Geolocation is only requested when user taps "Enable".
+ * Choice (Enable or Not now) is persisted in localStorage and rehydrated on mount.
  */
 export function LocationPrompt() {
-  const { permission, promptDismissed, requestLocation, dismissPrompt } = useLocationStore();
+  const { permission, promptDismissed, requestLocation, dismissPrompt, rehydrateFromStorage } =
+    useLocationStore();
+  const mapReady = useMapStore((s) => s.mapReady);
 
-  const show = permission === "prompt" && !promptDismissed;
+  useEffect(() => {
+    rehydrateFromStorage();
+  }, [rehydrateFromStorage]);
+
+  const show = permission === "prompt" && !promptDismissed && mapReady;
+  // #region agent log
+  if (typeof window !== "undefined") {
+    fetch("http://127.0.0.1:7834/ingest/75c1fc41-3a14-4be5-8874-6f7c19a23dc4", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1444f7" },
+      body: JSON.stringify({
+        sessionId: "1444f7",
+        location: "LocationPrompt.tsx:render",
+        message: "LocationPrompt render",
+        data: { permission, promptDismissed, show, hasWindow: true },
+        timestamp: Date.now(),
+        hypothesisId: "H1",
+      }),
+    }).catch(() => {});
+  }
+  // #endregion
   if (!show) return null;
 
   return (

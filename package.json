@@ -7,8 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "generate-map-data": "node scripts/generate-map-data.js",
-    "sync-murals": "node scripts/sync-murals.js"
+    "sync-murals": "node scripts/sync-murals.js",
+    "image-stats": "bash scripts/image-stats.sh"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.13.21",

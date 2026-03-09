@@ -28,8 +28,9 @@
 
 ## Scripts
 
-- `scripts/generate-map-data.js`: EXIF GPS + full image metadata + **per-image dominant color** (sharp resize + quantize) → murals.json; outputs **.webp** paths for high-res and thumbnails. Run with photos in `raw-photos`, output to `public/data/murals.json`. Fallback `#333333` if extraction fails. Copy to `data/murals.json` for app import. Image metadata appears in the mural slide-out.
-- `scripts/sync-murals.js`: Full pipeline — run **whenever you add new photos** to `raw-photos`. Runs generate-map-data, copies murals.json to `data/`, converts only **new or changed** images to WebP (skips when high-res + thumb WebP exist and are newer than source). Progress bar during conversion. **Empties raw-photos** after a successful sync. Use: `npm run sync-murals`.
+- `scripts/generate-map-data.js`: EXIF GPS + full image metadata + **per-image dominant color** (sharp resize + quantize) → murals.json; outputs **.webp** paths for display and thumbnails only. Run with photos in `raw-photos`, output to `public/data/murals.json`. Fallback `#333333` if extraction fails. Copy to `data/murals.json` for app import. Image metadata appears in the mural slide-out. **imageUrl** = display size (fast modal load).
+- `scripts/sync-murals.js`: **raw-photos is staging only** — add new photos there, run `npm run sync-murals`. New photos are converted to WebP (display, thumb only) and **merged** into existing murals.json (new IDs; same `originalFile` replaces existing). **Existing mural images are never deleted.** Only sources that need conversion are processed. After sync, raw-photos is emptied. When raw-photos is empty, sync exits with "nothing to convert" (no backfill).
+- `scripts/image-stats.sh`: Image inventory — total count, size by extension and directory, average size, top 10 largest files. Run: `npm run image-stats` or `./scripts/image-stats.sh`.
 
 ## Refactor / Cleanup (done, continued)
 
@@ -53,21 +54,26 @@
 
 - **Header UI**: Removed onboarding hint ("Tap a mural…"). MapHeader buttons restyled: primary accent (amber) for "Surprise me", secondary outline for "Browse"; added `--color-accent` / `--color-accent-hover` / `--color-accent-foreground` in globals.css. Deleted `OnboardingBanner.tsx`.
 - **Header readability**: MapHeader uses solid white background and explicit zinc text (zinc-900 title, zinc-600 muted) so title and meta stay readable over any map; Browse button uses accent outline (border + text) and fill on hover for clear contrast.
+- **Location prompt after map load**: Enable-location popup (`LocationPrompt`) only shows after the map has loaded; `mapStore.mapReady` set in `MuralMap` on `map.on("load")` and cleared on cleanup; `LocationPrompt` gates visibility on `mapReady`.
 - **Map markers (single React root)**: Replaced 37 per-marker React roots with one shared root and `createPortal`; `zoomend` triggers a single reconciliation instead of 37 full re-renders. `AllMarkers` in `MuralMap.tsx` portals each `<MuralMarker>` into the existing Mapbox marker wrapper divs.
 - **Thumbnail re-fade on map move**: On pan/zoom, `updateMarkers()` creates new wrapper DOM and remounts markers, so each `MuralMarker` re-ran its entrance animation. `MuralMarker` now tracks revealed mural IDs in a module-level `Set`; remounted markers for already-shown murals render visible immediately with no fade.
 - **Number clusters when zoomed out**: Supercluster clusters mural points by zoom/viewport; when zoomed out, numbered cluster markers (e.g. "5") replace overlapping thumbnails. Clicking a cluster zooms in to expand it. Individual mural thumbnails show when zoomed in. `ClusterMarker` component; `MuralMap` builds index from murals, runs `getClusters` on zoom/move and swaps cluster vs mural markers accordingly.
 - **Mural cards: human tilt + fanned deck**: Every mural card has a deterministic slight rotation and x/y offset from `mural.id` (`getStableCardOffset` in `MuralMarker.tsx`) so cards feel less rigid. Where leaf markers overlap on screen (within 50px), they are grouped into a single placement and rendered as a fanned deck via `FannedMuralCards.tsx`; `MuralMap` uses `groupLeavesIntoPlacements` (union-find by screen distance) and `PlacementMarkers` to render either one `MuralMarker` or one `FannedMuralCards` per placement. Tour mode unchanged (one marker per mural, tilt still applied).
+- **Zoom-in: no stacking, spread same-location markers**: At zoom ≥ 16 grouping is disabled so each mural gets its own marker (all clickable). Murals with the same or very close coordinates are spread in a circle (55px radius) via `spreadOverlappingPlacements` (project → offset → unproject) so they don’t stack and each remains clickable.
 - **Responsiveness/speed (Mar 2025)**: MapHeader reads `pilsenTimeString` from theme store (one 60s tick for time + preset). Theme store and ThemeByPilsenTime document that subscribers must stay minimal. MuralModal uses blurred thumbnail (or imageUrl) as placeholder while full-size image loads (panel + enlarged view). `lib/muralBuildingLayer.ts` has top-of-file notes for future use: viewport culling, texture reuse/thumbnails, minimize triggerRepaint. MuralList virtualized with `@tanstack/react-virtual` (fixed row height, ul/li, a11y). Murals data: client fetch deferred; current server pass kept; for many murals or lighter shell, fetch `/data/murals.json` (or API) from client after hydration and show loading state.
 
 ## Refactor / Cleanup (done, continued)
 
-- **Mural images → WebP**: Pipeline now outputs WebP for smaller size and faster loading. `generate-map-data.js` writes `.webp` paths; `sync-murals.js` converts source images to WebP (high-res at quality 88, thumbnails at 400px max width and quality 82), removes orphaned files by expected .webp names. Cache version bumped so next sync regenerates murals.json with .webp paths.
+- **Mural images → WebP**: Pipeline now outputs WebP for smaller size and faster loading. `generate-map-data.js` writes `.webp` paths; `sync-murals.js` converts source images to WebP (display at 1600px long edge / 85%, thumbnails at 400px max width / 82%). Cache version bumped so next sync regenerates murals.json with .webp paths.
+- **Modal/enlarged image load speed**: **display** size (max 1600px long edge, WebP 85%) used for modal and enlarged view via `imageUrl`; no full-res download. High-res assets and "Download full resolution" removed to reduce storage and keep the site fast.
+- **Deleted/consolidated**: Removed high-res WebP output and `highResUrl` from data/types; removed "Download full resolution" from MuralModal; sync produces only display + thumb; backfill-from-high-res removed; `public/images/murals/high-res/` deleted.
+- **Image performance (srcset)**: Mural images use `srcset` (thumb 400w, display 1600w) and `sizes` so the browser picks the right asset. Modal panel: `sizes="(max-width: 512px) 100vw, 512px"`; enlarged view: `sizes="90vw"`; markers: dynamic `sizes` from rendered width; list and nearby card: `sizes="56px"`. All mural `<img>` use `decoding="async"` and thumbnails use `loading="lazy"`.
 - **Mobile-first**: Viewport export in `app/layout.tsx` (`viewportFit: "cover"`, `themeColor`). Safe-area utilities in `app/globals.css` (`.safe-top`, `.safe-bottom`, `.safe-left`, `.safe-right`, `.safe-bottom-footer`). MapHeader: mobile-default compact layout (`left-2 right-14`, `max-w-[calc(100%-3.5rem)]`), `sm:` for larger spacing; dynamic theme (`bg-dynamic-surface`, `text-dynamic`, `text-dynamic-muted`, `border-dynamic`); 44px min touch targets. MuralList: safe-bottom on sheet; drag handle at top. MuralModal: safe-area on footer (`.safe-bottom-footer`) and enlarged overlay (safe-top/right/bottom/left); 44px min height on footer and close buttons. MuralMarker: 44px minimum touch target (button grows, thumbnail visual unchanged).
 
 ## Proximity alerts and location enablement (done)
 
 - **Enable location prompt**: On first load, a small CTA asks to enable location for proximity alerts; `getCurrentPosition` / `watchPosition` are called only after the user taps "Enable". "Not now" dismisses and is persisted in localStorage so the prompt is not shown again until the user clears storage.
-- **Implementation**: `store/locationStore.ts` (permission, userCoords, promptDismissed, requestLocation, dismissPrompt); `components/LocationPrompt.tsx` (compact bar with Enable / Not now). No geolocation calls on load.
+- **Implementation**: `store/locationStore.ts` (permission, userCoords, promptDismissed, requestLocation, dismissPrompt, rehydrateFromStorage); `components/LocationPrompt.tsx` (compact bar with Enable / Not now). No geolocation calls on load. Prompt choice (Enable or Not now) persisted in localStorage; rehydrateFromStorage runs on client mount so choice survives refresh; requestLocation also persists so "Enable" is remembered.
 - **Multiple nearby (queue)**: When two or more murals are within radius (80 m), the closest is shown first in a bottom card; on "View" or "Dismiss", the next in queue is shown. `store/proximityStore.ts` (nearbyQueue, currentNearby, setNearbyFromCoords, showNext); `hooks/useProximity.ts` syncs location coords to proximity store; `components/NearbyMuralCard.tsx` shows one mural with View / Dismiss and optional "N more nearby".
 - **MapContent**: Renders LocationPrompt, NearbyMuralCard; runs useProximity(displayMurals); passes currentNearby?.id to MuralMap as nearbyMuralId so the active nearby marker is highlighted (amber border, "You're near" on marker). NearbyMuralCard is hidden when modal is open; when the modal is open for the current nearby mural, nearbyMuralId is passed as null so the map marker does not show the "You're near" thumbnail/label (avoids duplicate on screen).
 - **Nearby marker stacking**: When a mural is the "near you" one, its map marker wrapper gets `z-index: 1000` so its card always renders on top of other mural cards (tour and cluster code paths in MuralMap).
@@ -115,9 +121,9 @@
 - **Fit all murals / Fit tour**: Header button "Fit map" (or "Fit tour" when a tour is active) fits the map bounds to all display murals with padding and maxZoom 16. `store/mapStore.ts`: `pendingFitBounds`, `requestFitBounds`; MuralMap subscribes and runs `fitBounds`; MapHeader triggers with `displayMurals` coordinates.
 - **Layer toggle (Standard ↔ Satellite)**: Toggle in map controls (top-right) swaps style between `mapbox://styles/mapbox/standard` and `mapbox://styles/mapbox/satellite-streets-v12`. After `setStyle`, custom sources/layers (user dot, geofence, route line) are re-applied so they don’t disappear. Theme (light preset) only applied for Standard style.
 - **Tour progress on map**: When a tour is active, header shows pill "Stop X of Y" and optional "Next: [title]". Uses `activeMural` + `displayMurals` for current stop index.
-- **Compass reset**: Button in map controls calls `map.easeTo({ bearing: 0 })` for north-up. `mapStore`: `pendingCompassReset`, `requestCompassReset`.
+- **Compass reset**: Mapbox NavigationControl built-in compass (`visualizePitch: true`) handles north reset natively; removed redundant custom compass control and dead `pendingCompassReset`/`requestCompassReset` from `mapStore`.
 - **View on map (modal)**: In MuralModal, "View on map" button closes the modal and flies to the mural without reopening (`requestFlyTo(activeMural, { openModalAfterFly: false })`). No mini-map in this iteration.
-- **Map controls toolbar**: Default zoom +/- (NavigationControl) plus Fit, North compass, Satellite. One merged toolbar: Zoom+, Zoom-, Fit, Compass, Satellite. Custom icons minimal (14px, stroke 1.5, color #666); centered in 29×29 box.
+- **Map controls toolbar**: Controls moved to `top-right` with CSS offset below header (130px mobile, 80px sm+). One merged group: Zoom+, Zoom−, Compass (built-in), Fit, Satellite. Removed duplicate custom compass. Custom icons 14px, stroke 1.5; centered in 29×29 box matching Mapbox UI.
 
 ## Accessibility (done)
 
@@ -130,6 +136,18 @@
 - **Murals data**: For 100+ murals or smaller initial payload, fetch murals from client (e.g. `fetch("/data/murals.json")`) after hydration; show map shell + loading state until data arrives.
 - Replace placeholder images with real mural assets or CMS
 - Optional: persist selected mural in URL (e.g. `?mural=mural-1`) for sharing
+
+## Launch readiness (before real users / before "add mural")
+
+Essential before inviting real people or adding user submissions:
+
+1. **Deep links** (done) — Read `?mural=id` on load in `MapContent` via `useSearchParams`; one-time effect finds mural in full list and calls `requestFlyTo(mural)`; `MuralMap` pendingFlyTo effect now depends on `mapReady` so fly + modal run when map has loaded. Shared links open to the correct mural and modal.
+2. **SEO / share previews** — Open Graph + Twitter card in `layout.tsx` (title, description, `og:image` from a default mural or static asset) so link previews look good.
+3. **Privacy / analytics** — You have Vercel Analytics; confirm it’s acceptable for your use; no PII, no mural-level tracking unless you add it intentionally.
+4. **Content polish** — Replace "Unknown Artist" and empty addresses where possible; ensure a few murals have real titles/addresses so the app doesn’t feel like a demo.
+5. **Error / offline** — `error.tsx` and `loading.tsx` exist; consider a simple "Map failed to load" message if Mapbox or murals fetch fails (e.g. network error).
+
+Only after the above feels solid, add **user ability to add murals** — use Option A from "Opening to contributions" (form → queue → you run sync-murals) so you don’t need auth or a DB yet.
 
 ## More features (beyond submission)
 
@@ -159,7 +177,7 @@
 - **Bottom sheets**: MuralList and TourList use `rounded-t-3xl`, larger drag handle (`h-1.5 w-12`), `max-h-[55vh]`, and softer shadow for a native bottom-sheet feel.
 - **MuralModal**: `safe-top safe-left safe-right` on the panel for notched devices; footer already uses `safe-bottom-footer`.
 - **globals.css**: Added `@supports` glass-header utility for optional reuse.
-- **Gentle loading states**: Map loads with a seamless overlay (bg-dynamic + `.loading-map-placeholder` soft pulse) that fades out over 500ms when the map is ready. Map loading overlay: white background in light mode (`#ffffff` in `.loading-map-placeholder`), gray in dark mode; centered "Loading map..." text with `role="status"` and `aria-live="polite"`. App route loading (`app/loading.tsx`) uses a full-page skeleton (header bar + map area) with `.loading-skeleton-soft` (2s soft opacity pulse); respects `prefers-reduced-motion`. Modal image placeholders use the same soft pulse and 300ms ease-out opacity transition for loaded images. See `globals.css` for `loading-shimmer-soft`, `loading-map-placeholder`, `loading-skeleton-soft`.
+- **Gentle loading states**: Map loads with a **full-viewport** overlay (`fixed inset-0 z-[100]`) so the header is hidden during load; overlay fades out over 500ms when the map is ready. **Pilsen boundary SVG** (from `data/pilsen-boundary.json`) is the loading indicator: gray track + green stroke traced by progress (`strokeDasharray`/`strokeDashoffset`, 0→90% over ~2.2s, 100% on `map.on("load")`). Copy: "Loading... Pilsen murals near you" with `role="status"`, `aria-live="polite"`, and `role="progressbar"`. App route loading (`app/loading.tsx`) uses full-page skeleton with `.loading-skeleton-soft`; modal image placeholders use same soft pulse and 300ms opacity transition.
 
 ## Branding (done)
 

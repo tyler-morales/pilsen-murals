@@ -159,7 +159,7 @@ async function main() {
       const dominantColor = await getDominantColor(filePath);
 
       const webpBasename = path.basename(filename, path.extname(filename)) + ".webp";
-      const imagePath = `/images/murals/high-res/${webpBasename}`;
+      const displayPath = `/images/murals/display/${webpBasename}`;
       const thumbnailPath = `/images/murals/thumbnails/${webpBasename}`;
 
       const mural = {
@@ -168,11 +168,11 @@ async function main() {
         artist: "Unknown Artist",
         coordinates,
         bearing: 0,
-        image: imagePath,
+        image: displayPath,
         thumbnail: thumbnailPath,
         dominantColor,
         originalFile: basename,
-        imageUrl: imagePath,
+        imageUrl: displayPath,
         address: "",
       };
       if (imageMetadata) mural.imageMetadata = imageMetadata;

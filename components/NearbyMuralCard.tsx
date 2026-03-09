@@ -161,8 +161,12 @@ export function NearbyMuralCard({
             <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-zinc-100">
               <img
                 src={currentNearby.thumbnail ?? currentNearby.imageUrl}
+                srcSet={`${currentNearby.thumbnail ?? currentNearby.imageUrl} 400w, ${currentNearby.imageUrl} 1600w`}
+                sizes="56px"
                 alt=""
                 className="h-full w-full object-cover"
+                loading="lazy"
+                decoding="async"
               />
             </div>
             <div className="min-w-0 flex-1">

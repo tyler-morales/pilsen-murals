@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { LocationPrompt } from "@/components/LocationPrompt";
 import { MapHeader } from "@/components/MapHeader";
 import { MuralList } from "@/components/MuralList";
@@ -55,6 +56,18 @@ export function MapContent({ murals, collections }: MapContentProps) {
     requestFlyTo(mural);
     setListOpen(false);
   };
+
+  const appliedDeepLinkRef = useRef(false);
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    if (appliedDeepLinkRef.current) return;
+    const muralId = searchParams.get("mural");
+    if (!muralId) return;
+    const mural = murals.find((m) => m.id === muralId);
+    if (!mural) return;
+    appliedDeepLinkRef.current = true;
+    requestFlyTo(mural);
+  }, [searchParams, murals, requestFlyTo]);
 
   return (
     <>

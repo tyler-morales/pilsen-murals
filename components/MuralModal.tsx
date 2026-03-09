@@ -188,6 +188,8 @@ export function MuralModal() {
                   </div>
                   <img
                     src={activeMural.imageUrl}
+                    srcSet={`${activeMural.thumbnail ?? activeMural.imageUrl} 400w, ${activeMural.imageUrl} 1600w`}
+                    sizes="90vw"
                     alt={`${activeMural.title} — full size`}
                     decoding="async"
                     className={`relative max-h-[90vh] max-w-[95vw] w-auto h-auto object-contain cursor-default transition-opacity duration-300 ease-out ${isEnlargedImageLoaded ? "opacity-100" : "opacity-0"}`}
@@ -267,8 +269,11 @@ export function MuralModal() {
                 >
                   <img
                     src={activeMural.imageUrl}
+                    srcSet={`${activeMural.thumbnail ?? activeMural.imageUrl} 400w, ${activeMural.imageUrl} 1600w`}
+                    sizes="(max-width: 512px) 100vw, 512px"
                     alt={`Mural: ${activeMural.title} by ${activeMural.artist}`}
                     decoding="async"
+                    loading="lazy"
                     className={`h-full w-full object-contain transition-opacity duration-300 ease-out ${isImageLoaded ? "opacity-100" : "opacity-0"}`}
                     onLoad={() => setIsImageLoaded(true)}
                     onError={(e) => {

@@ -173,6 +173,8 @@ export function MuralMarker({
           />
           <img
             src={thumbSrc}
+            srcSet={`${mural.thumbnail ?? mural.imageUrl} 400w, ${mural.imageUrl} 1600w`}
+            sizes={`${widthPx}px`}
             alt=""
             className="relative z-10 h-full w-full object-cover"
             width={widthPx}
