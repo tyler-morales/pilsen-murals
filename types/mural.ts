@@ -11,7 +11,6 @@ export interface Mural {
   imageUrl: string;
   /** Thumbnail image URL for map markers. Falls back to imageUrl if absent. */
   thumbnail?: string;
-  address: string;
   /** EXIF/image metadata (e.g. date, camera, exposure). Populated by generate-map-data. */
   imageMetadata?: Record<string, string>;
 }

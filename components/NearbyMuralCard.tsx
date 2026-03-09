@@ -225,21 +225,41 @@ export function NearbyMuralCard({
               <p className="truncate text-sm font-semibold text-zinc-900">
                 {currentNearby.title}
               </p>
-              {currentNearby.artist && (
+              {(currentNearby.artist ||
+                currentNearby.artistInstagramHandle) && (
                 <p className="truncate text-xs text-zinc-600">
-                  {currentNearby.artist}
+                  {currentNearby.artistInstagramHandle &&
+                  (!currentNearby.artist?.trim() ||
+                    currentNearby.artist === "Unknown Artist") ? (
+                    <a
+                      href={getArtistInstagramUrl(currentNearby.artistInstagramHandle)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-[var(--color-accent)] underline decoration-[var(--color-accent)] underline-offset-2 transition-colors hover:text-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-1 rounded"
+                      aria-label="View artist on Instagram"
+                    >
+                      @{currentNearby.artistInstagramHandle.replace(/^@/, "")}
+                    </a>
+                  ) : (
+                    <>
+                      {currentNearby.artist}
+                      {currentNearby.artistInstagramHandle && (
+                        <>
+                          {" "}
+                          <a
+                            href={getArtistInstagramUrl(currentNearby.artistInstagramHandle)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="font-medium text-[var(--color-accent)] underline decoration-[var(--color-accent)] underline-offset-2 transition-colors hover:text-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-1 rounded"
+                            aria-label={`View ${currentNearby.artist} on Instagram`}
+                          >
+                            @{currentNearby.artistInstagramHandle.replace(/^@/, "")}
+                          </a>
+                        </>
+                      )}
+                    </>
+                  )}
                 </p>
-              )}
-              {currentNearby.artistInstagramHandle && (
-                <a
-                  href={getArtistInstagramUrl(currentNearby.artistInstagramHandle)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-block text-xs font-medium text-[var(--color-accent)] underline decoration-[var(--color-accent)] underline-offset-2 transition-colors hover:text-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-1 rounded"
-                  aria-label={`View ${currentNearby.artist} on Instagram`}
-                >
-                  View on Instagram
-                </a>
               )}
               {currentDistanceM != null && (
                 <p className="text-xs text-zinc-500">
@@ -249,11 +269,6 @@ export function NearbyMuralCard({
               {typeof currentNearby.bearing === "number" && (
                 <p className="text-xs text-zinc-500">
                   {bearingToDirectionText(currentNearby.bearing)}
-                </p>
-              )}
-              {currentNearby.address?.trim() && (
-                <p className="mt-0.5 truncate text-xs text-zinc-500">
-                  {currentNearby.address.trim()}
                 </p>
               )}
               {tourContext?.nextMural && (

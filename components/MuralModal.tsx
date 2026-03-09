@@ -94,6 +94,18 @@ export function MuralModal() {
   };
   const canGoNext =
     muralsOrder.length > 0 && activeIndex < muralsOrder.length - 1;
+  const nextMural = canGoNext ? muralsOrder[activeIndex + 1] : null;
+  const prevMural = canGoPrev ? muralsOrder[activeIndex - 1] : null;
+
+  const handlePrev = () => {
+    if (prevMural) requestFlyTo(prevMural, { openModalAfterFly: false });
+    goPrev();
+  };
+  const handleNext = () => {
+    if (nextMural) requestFlyTo(nextMural, { openModalAfterFly: false });
+    goNext();
+  };
+
   const panelTransition = prefersReducedMotion
     ? { duration: 0 }
     : { type: "spring" as const, damping: 28, stiffness: 300 };
@@ -244,11 +256,6 @@ export function MuralModal() {
             >
               <span className="h-1.5 w-12 shrink-0 rounded-full bg-zinc-300" aria-hidden />
             </div>
-            <div
-              className="h-1 w-full shrink-0"
-              style={{ backgroundColor: activeMural.dominantColor }}
-              aria-hidden
-            />
             <div className="flex flex-1 flex-col overflow-y-auto">
               <div
                 className="relative w-full shrink-0 overflow-hidden bg-zinc-100"
@@ -296,26 +303,44 @@ export function MuralModal() {
                 >
                   {activeMural.title}
                 </h2>
-                <p className="mt-1 text-zinc-600">by {activeMural.artist}</p>
-                {activeMural.artistInstagramHandle && (
-                  <a
-                    href={getArtistInstagramUrl(activeMural.artistInstagramHandle)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-0.5 inline-block text-sm font-medium text-amber-700 underline decoration-amber-700/50 underline-offset-2 transition-colors hover:text-amber-800 hover:decoration-amber-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
-                    aria-label={`View ${activeMural.artist} on Instagram`}
-                  >
-                    View on Instagram
-                  </a>
-                )}
+                <p className="mt-1 text-zinc-600">
+                  by{" "}
+                  {activeMural.artistInstagramHandle &&
+                  (!activeMural.artist?.trim() || activeMural.artist === "Unknown Artist") ? (
+                    <a
+                      href={getArtistInstagramUrl(activeMural.artistInstagramHandle)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-amber-700 underline decoration-amber-700/50 underline-offset-2 transition-colors hover:text-amber-800 hover:decoration-amber-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
+                      aria-label="View artist on Instagram"
+                    >
+                      @{activeMural.artistInstagramHandle.replace(/^@/, "")}
+                    </a>
+                  ) : (
+                    <>
+                      {activeMural.artist}
+                      {activeMural.artistInstagramHandle && (
+                        <>
+                          {" "}
+                          <a
+                            href={getArtistInstagramUrl(activeMural.artistInstagramHandle)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="font-medium text-amber-700 underline decoration-amber-700/50 underline-offset-2 transition-colors hover:text-amber-800 hover:decoration-amber-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
+                            aria-label={`View ${activeMural.artist} on Instagram`}
+                          >
+                            @{activeMural.artistInstagramHandle.replace(/^@/, "")}
+                          </a>
+                        </>
+                      )}
+                    </>
+                  )}
+                </p>
                 {formatPhotoDate(activeMural.imageMetadata?.["Date taken"]) && (
-                  <p className="mt-0.5 text-sm text-zinc-500" aria-label="Date photo was taken">
-                    {formatPhotoDate(activeMural.imageMetadata?.["Date taken"])}
+                  <p className="mt-2 text-sm font-medium text-zinc-700" aria-label="Date photo was captured">
+                    Photo captured: {formatPhotoDate(activeMural.imageMetadata?.["Date taken"])}
                   </p>
                 )}
-                <p id="mural-modal-desc" className="mt-4 text-sm text-zinc-600">
-                  {activeMural.address || "Address not recorded"}
-                </p>
                 <div className="mt-3 flex flex-wrap items-center gap-3">
                 <a
                   href={getDirectionsUrl(activeMural)}
@@ -345,54 +370,40 @@ export function MuralModal() {
                   </svg>
                 </button>
                 </div>
-                <div className="mt-6 flex items-center gap-3">
-                  <span className="text-xs uppercase tracking-wider text-zinc-500">
-                    Dominant color
-                  </span>
-                  <div
-                    className="h-8 w-20 rounded border border-zinc-200"
-                    style={{ backgroundColor: activeMural.dominantColor }}
-                    title={activeMural.dominantColor}
-                  />
-                  <span className="font-mono text-sm text-zinc-600">
-                    {activeMural.dominantColor}
-                  </span>
-                </div>
-                {activeMural.imageMetadata &&
-                  Object.keys(activeMural.imageMetadata).length > 0 && (
-                    <details
-                      className="mt-6 border-t border-zinc-200 pt-6 group/details"
-                      aria-labelledby="image-metadata-heading"
-                    >
-                      <summary
-                        id="image-metadata-heading"
-                        className="cursor-pointer list-none text-xs font-medium uppercase tracking-wider text-zinc-500 hover:text-zinc-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
-                      >
-                        Image metadata
-                      </summary>
-                      <dl className="mt-3 grid gap-2 sm:grid-cols-2">
-                        {Object.entries(activeMural.imageMetadata).map(
-                          ([label, value]) => (
-                            <div key={label}>
-                              <dt className="text-xs text-zinc-500">
-                                {label}
-                              </dt>
-                              <dd className="mt-0.5 font-mono text-sm text-zinc-700">
-                                {value}
-                              </dd>
-                            </div>
-                          )
-                        )}
-                      </dl>
-                    </details>
-                  )}
+                <details
+                  id="mural-modal-desc"
+                  className="mt-6 border-t border-zinc-200 pt-6 group/details"
+                  aria-labelledby="image-metadata-heading"
+                >
+                  <summary
+                    id="image-metadata-heading"
+                    className="cursor-pointer list-none text-xs font-medium uppercase tracking-wider text-zinc-500 hover:text-zinc-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
+                  >
+                    Image metadata
+                  </summary>
+                  <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <div>
+                      <dt className="text-xs text-zinc-500">Coordinates</dt>
+                      <dd className="mt-0.5 font-mono text-sm text-zinc-700" aria-label="Mural location coordinates">
+                        {activeMural.coordinates[1].toFixed(5)}°, {activeMural.coordinates[0].toFixed(5)}°
+                      </dd>
+                    </div>
+                    {activeMural.imageMetadata &&
+                      Object.entries(activeMural.imageMetadata).map(([label, value]) => (
+                        <div key={label}>
+                          <dt className="text-xs text-zinc-500">{label}</dt>
+                          <dd className="mt-0.5 font-mono text-sm text-zinc-700">{value}</dd>
+                        </div>
+                      ))}
+                  </dl>
+                </details>
               </div>
             </div>
             <div className="safe-bottom-footer border-t border-zinc-200 bg-zinc-50 p-4">
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={goPrev}
+                  onClick={handlePrev}
                   disabled={!canGoPrev}
                   className="flex-1 min-h-[44px] rounded-lg border border-zinc-200 bg-white py-3 text-sm font-medium text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:pointer-events-none disabled:opacity-50"
                   aria-label="Previous mural"
@@ -401,7 +412,7 @@ export function MuralModal() {
                 </button>
                 <button
                   type="button"
-                  onClick={goNext}
+                  onClick={handleNext}
                   disabled={!canGoNext}
                   className="flex-1 min-h-[44px] rounded-lg border border-zinc-200 bg-white py-3 text-sm font-medium text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:pointer-events-none disabled:opacity-50"
                   aria-label="Next mural"

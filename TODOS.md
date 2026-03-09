@@ -8,7 +8,7 @@
 - `data/murals.json` — placeholder murals (Pilsen-area coordinates)
 - Zustand store: `activeMural`, `isModalOpen`, `openModal`, `closeModal`; theme store has `mapLightPreset` (day/night/dawn/dusk) from sun altitude/azimuth.
 - `MuralMap`: Mapbox **Standard** style (sky + sun-based lighting); `lightPreset` synced to Pilsen time via `setConfigProperty('basemap', 'lightPreset', …)`; 3D buildings from style; custom glowing HTML markers, flyTo on marker click (includes mural `bearing` so map orients to image direction), modal opens on moveend.
-- `MuralModal`: Framer Motion slide-in, editorial layout (image, title, artist, color swatch, address)
+- `MuralModal`: Framer Motion slide-in, editorial layout (image, title, artist, color swatch, coordinates)
 - README + `.env.local.example` for Mapbox token
 
 ## Refactor / Cleanup (done)
@@ -18,12 +18,14 @@
 - Removed dead CSS: `--map-bg`, `.mapboxgl-popup-close-button` (no popups used).
 - Removed unused Tailwind `mural.glow` (glow uses `:root` `--glow` in keyframes).
 - Modal image: added descriptive `alt` for a11y.
-- **Mural slideout readability**: Modal panel uses fixed light theme (white/zinc) so text is always high-contrast; dominant color kept as accent bar and swatch only.
+- **Mural slideout readability**: Modal panel uses fixed light theme (white/zinc) so text is always high-contrast.
+- **Mural modal card**: Coordinates moved into Image metadata section (first row); dominant color UI (accent bar, swatch, hex) removed; date shown as "Photo captured: [date]" with clearer label and styling.
 - **Mural slide-out image metadata**: `generate-map-data.js` extracts full EXIF (date, camera, exposure, etc.) into `imageMetadata`; `MuralModal` shows an "Image metadata" section when present.
 - **Map markers**: Replaced 3D diamond with mural thumbnail; removed `mural-diamond-spin` / `mural-diamond-float` from Tailwind (dead code).
 - **Map marker styling**: Minimal white outline (1px border white/70, shadow-md); focus ring white/80 for a11y.
 - **Mural thumbnails zoom-aware**: Thumbnail size scales with map zoom (28px height at zoom 11, 88px at zoom 18) so they stay small when zoomed out (less overlap, don’t obscure 3D buildings) and grow when zoomed in; map listens to `zoom`/`zoomend` and re-renders markers.
 - **Mural modal full image**: Modal image uses dynamic aspect ratio from `imageMetadata` (Width/Height) so horizontal murals are no longer cropped; `object-contain` ensures full image is always visible; ratio clamped 9/16–2, default 4/5 when metadata missing.
+- **Deleted/consolidated**: Removed `address` from murals data and `Mural` type; directions and modal use lat/lon coordinates only. `getDirectionsUrl` always uses coordinates; modal shows coordinates in description; `NearbyMuralCard` no longer shows address.
 - **Performance**: Marker size updates only on `zoomend` (removed `zoom` listener) to avoid hundreds of React re-renders during zoom. Three.js mural building layer disabled in default flow (HTML markers only). Glow animation on markers is hover/focus-only. Modal overlay uses `bg-black/60` without backdrop blur. Theme store subscription moved into map load callback so `MuralMap` does not re-render every 60s.
 
 ## Scripts
