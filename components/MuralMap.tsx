@@ -1,7 +1,6 @@
 "use client";
 
-import "mapbox-gl/dist/mapbox-gl.css";
-import { useRef, useEffect, useCallback, useState } from "react";
+import { useRef, useEffect, useCallback, useState, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
 import Supercluster from "supercluster";
@@ -70,30 +69,6 @@ function createFitMapControl(getCoords: () => [number, number][]) {
         const coords = getCoords();
         if (coords.length) useMapStore.getState().requestFitBounds(coords);
       });
-      const container = document.createElement("div");
-      container.className = "mapboxgl-ctrl mapboxgl-ctrl-group";
-      container.appendChild(btn);
-      return container;
-    }
-    onRemove() {}
-  };
-}
-
-/** Minimal north compass icon (24×24 viewBox, 14px display). */
-const COMPASS_ICON_SVG =
-  '<svg class="mapboxgl-ctrl-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polygon points="12,2 10,12 14,12" fill="currentColor" stroke="none"/><line x1="12" y1="12" x2="12" y2="22"/></svg>';
-
-/** Custom control: compass / north. Calls requestCompassReset. */
-function createCompassControl() {
-  return class CompassControl {
-    onAdd(_map: import("mapbox-gl").Map) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "mapboxgl-ctrl-toolbar-btn mapboxgl-ctrl-compass-custom";
-      btn.setAttribute("aria-label", "Reset map to north");
-      btn.setAttribute("title", "North up");
-      btn.innerHTML = COMPASS_ICON_SVG;
-      btn.addEventListener("click", () => useMapStore.getState().requestCompassReset());
       const container = document.createElement("div");
       container.className = "mapboxgl-ctrl mapboxgl-ctrl-group";
       container.appendChild(btn);
@@ -290,20 +265,27 @@ const CLUSTER_INDEX_OPTIONS = {
   minPoints: 2,
 };
 
-/** Pixel distance under which leaf markers are grouped into a fanned deck. */
+/** Pixel distance under which leaf markers are grouped into a fanned deck (when zoom < FAN_DISABLE_ZOOM). */
 const OVERLAP_GROUP_PX = 50;
+
+/** At this zoom and above, leaves are not grouped—each mural gets its own marker so all are clickable. */
+const FAN_DISABLE_ZOOM = 16;
 
 interface Placement {
   center: [number, number];
   murals: Mural[];
 }
 
-/** Group leaves by screen proximity; each group becomes one placement (single marker or fanned deck). */
+/** Group leaves by screen proximity; each group becomes one placement (single marker or fanned deck). When zoom >= FAN_DISABLE_ZOOM, no grouping so every leaf is one placement. */
 function groupLeavesIntoPlacements(
   leaves: { mural: Mural; coordinates: [number, number] }[],
-  project: (coords: [number, number]) => { x: number; y: number }
+  project: (coords: [number, number]) => { x: number; y: number },
+  zoom: number
 ): Placement[] {
   if (leaves.length === 0) return [];
+  if (zoom >= FAN_DISABLE_ZOOM) {
+    return leaves.map((l) => ({ center: l.coordinates, murals: [l.mural] }));
+  }
   const points = leaves.map((l) => ({ ...l, point: project(l.coordinates) }));
   const n = points.length;
   const parent = Array.from({ length: n }, (_, i) => i);
@@ -334,6 +316,34 @@ function groupLeavesIntoPlacements(
     const murals = group.map((p) => p.mural);
     return { center, murals };
   });
+}
+
+/** When zoomed in, placements with the same or very close center are spread in a circle (screen space) so each marker is clickable. */
+function spreadOverlappingPlacements(
+  placements: Placement[],
+  project: (coords: [number, number]) => { x: number; y: number },
+  unproject: (point: { x: number; y: number }) => [number, number],
+  spreadRadiusPx: number = 55
+): void {
+  const key = (c: [number, number]) =>
+    `${Math.round(c[0] * 1e5)}_${Math.round(c[1] * 1e5)}`;
+  const byKey = new Map<string, Placement[]>();
+  for (const p of placements) {
+    const k = key(p.center);
+    if (!byKey.has(k)) byKey.set(k, []);
+    byKey.get(k)!.push(p);
+  }
+  for (const group of byKey.values()) {
+    if (group.length <= 1) continue;
+    const center = group[0].center;
+    const screen = project(center);
+    group.forEach((p, i) => {
+      const angle = (2 * Math.PI * i) / group.length;
+      const x = screen.x + spreadRadiusPx * Math.cos(angle);
+      const y = screen.y + spreadRadiusPx * Math.sin(angle);
+      p.center = unproject({ x, y });
+    });
+  }
 }
 
 const ROUTE_SOURCE_ID = "tour-route";
@@ -484,17 +494,63 @@ export function MuralMap({
   const muralsCoordsRef = useRef<[number, number][]>([]);
   const [zoom, setZoom] = useState(INITIAL_ZOOM);
   const [mapReady, setMapReady] = useState(false);
+  const [loadProgress, setLoadProgress] = useState(0);
+
+  /** Simplified Pilsen boundary path for loading SVG (from GeoJSON first ring, sampled and normalized). */
+  const pilsenOutlinePath = useMemo(() => {
+    const fc = pilsenBoundary as GeoJSON.FeatureCollection<GeoJSON.MultiPolygon>;
+    const ring = fc?.features?.[0]?.geometry?.coordinates?.[0]?.[0];
+    if (!ring?.length) return "";
+    const step = Math.max(1, Math.floor(ring.length / 28));
+    const sampled = ring.filter((_, i) => i % step === 0);
+    const lngs = sampled.map((p) => p[0]);
+    const lats = sampled.map((p) => p[1]);
+    const minLng = Math.min(...lngs);
+    const maxLng = Math.max(...lngs);
+    const minLat = Math.min(...lats);
+    const maxLat = Math.max(...lats);
+    const w = maxLng - minLng;
+    const h = maxLat - minLat;
+    if (w <= 0 || h <= 0) return "";
+    const pad = 8;
+    const x = (lng: number) => ((lng - minLng) / w) * (100 - 2 * pad) + pad;
+    const y = (lat: number) => (1 - (lat - minLat) / h) * (100 - 2 * pad) + pad;
+    return "M " + sampled.map(([lng, lat]) => `${x(lng)} ${y(lat)}`).join(" L ") + " Z";
+  }, []);
 
   useEffect(() => {
     muralsCoordsRef.current = murals.map((m) => m.coordinates);
   }, [murals]);
   const mapStyle = useMapStore((s) => s.mapStyle);
-  const clearPendingCompassReset = useMapStore((s) => s.clearPendingCompassReset);
   const openModal = useMuralStore((s) => s.openModal);
   const pendingFlyTo = useMuralStore((s) => s.pendingFlyTo);
   const clearPendingFlyTo = useMuralStore((s) => s.clearPendingFlyTo);
   const prefersReducedMotion = usePrefersReducedMotion();
   const flyDuration = prefersReducedMotion ? 0 : FLY_OPTIONS.duration;
+
+  /** Animate load progress 0→90 while map is loading (map.on("load") jumps to 100). */
+  const loadProgressRafRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!MAPBOX_TOKEN || mapReady) return;
+    const start = Date.now();
+    const durationMs = 2200;
+    const maxProgress = 90;
+    const tick = () => {
+      const elapsed = Date.now() - start;
+      const p = Math.min(maxProgress, (elapsed / durationMs) * maxProgress);
+      setLoadProgress(p);
+      if (p < maxProgress) {
+        loadProgressRafRef.current = requestAnimationFrame(tick);
+      }
+    };
+    loadProgressRafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (loadProgressRafRef.current != null) {
+        cancelAnimationFrame(loadProgressRafRef.current);
+        loadProgressRafRef.current = null;
+      }
+    };
+  }, [mapReady]);
 
   const handleMarkerClick = useCallback(
     (mural: Mural) => {
@@ -521,6 +577,8 @@ export function MuralMap({
 
   useEffect(() => {
     if (!containerRef.current || !MAPBOX_TOKEN) return;
+    setMapReady(false);
+    setLoadProgress(0);
 
     const points = murals.map(muralToPoint);
     const index = new Supercluster(CLUSTER_INDEX_OPTIONS);
@@ -529,11 +587,21 @@ export function MuralMap({
 
     // Dynamic import so Mapbox (window-dependent) only runs on client
     import("mapbox-gl").then((mapboxglModule) => {
+      // Load Mapbox CSS non-blocking so first paint is not delayed
+      if (typeof document !== "undefined") {
+        const link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = "/mapbox-gl.css";
+        document.head.appendChild(link);
+      }
       const mapboxgl = mapboxglModule.default;
       const initialStyle = useMapStore.getState().mapStyle;
       const map = new mapboxgl.Map({
         container: containerRef.current!,
         style: STYLE_URLS[initialStyle],
+        config: {
+          basemap: { show3dBuildings: false },
+        },
         center: [-87.657, 41.852],
         zoom: 14,
         pitch: 45,
@@ -544,31 +612,33 @@ export function MuralMap({
 
       map.addControl(
         new mapboxgl.NavigationControl({ showZoom: true, showCompass: true, visualizePitch: true }),
-        "bottom-right"
+        "top-right"
       );
-      map.addControl(new (createFitMapControl(() => muralsCoordsRef.current))(), "bottom-right");
-      map.addControl(new (createCompassControl())(), "bottom-right");
-      map.addControl(new (createStyleControl())(), "bottom-right");
+      map.addControl(new (createFitMapControl(() => muralsCoordsRef.current))(), "top-right");
+      map.addControl(new (createStyleControl())(), "top-right");
 
-      // Merge into one toolbar. Mapbox inserts bottom-right controls with insertBefore, so DOM order is reverse of add order: [style, compass, fit, nav].
-      const bottomRight = containerRef.current?.querySelector(".mapboxgl-ctrl-bottom-right");
-      if (bottomRight) {
-        const groups = Array.from(bottomRight.querySelectorAll<HTMLElement>(":scope > .mapboxgl-ctrl-group"));
-        if (groups.length === 4) {
-          const [styleGroup, compassGroup, fitGroup, navGroup] = groups;
+      // Merge custom buttons into the NavigationControl group for one unified vertical toolbar.
+      // top-right uses appendChild so DOM order matches add order: [nav, fit, style].
+      const topRight = containerRef.current?.querySelector(".mapboxgl-ctrl-top-right");
+      if (topRight) {
+        const groups = Array.from(topRight.querySelectorAll<HTMLElement>(":scope > .mapboxgl-ctrl-group"));
+        if (groups.length === 3) {
+          const [navGroup, fitGroup, styleGroup] = groups;
           const fitBtn = fitGroup.querySelector("button");
-          const compassBtn = compassGroup.querySelector("button");
           const styleBtn = styleGroup.querySelector("button");
           if (fitBtn) navGroup.appendChild(fitBtn);
-          if (compassBtn) navGroup.appendChild(compassBtn);
           if (styleBtn) navGroup.appendChild(styleBtn);
           fitGroup.remove();
-          compassGroup.remove();
           styleGroup.remove();
         }
       }
 
       map.on("load", () => {
+        try {
+          map.setConfigProperty("basemap", "show3dBuildings", false);
+        } catch {
+          // Style may not support this config
+        }
         const preset = useThemeStore.getState().mapLightPreset;
         applyLightPreset(map, preset);
         try {
@@ -584,7 +654,25 @@ export function MuralMap({
         mapRef.current = map;
         mapStyleRef.current = initialStyle;
         setZoom(map.getZoom());
-        requestAnimationFrame(() => setMapReady(true));
+        setLoadProgress(100);
+        requestAnimationFrame(() => {
+          setMapReady(true);
+          useMapStore.getState().setMapReady(true);
+        });
+
+        // Progressive enhancement: load 3D buildings after initial paint so LCP stays fast
+        const enable3dBuildings = () => {
+          try {
+            map.setConfigProperty("basemap", "show3dBuildings", true);
+          } catch {
+            // Style may not support this config (e.g. satellite)
+          }
+        };
+        if (typeof requestIdleCallback !== "undefined") {
+          requestIdleCallback(enable3dBuildings, { timeout: 500 });
+        } else {
+          setTimeout(enable3dBuildings, 300);
+        }
 
         const userCoords = useLocationStore.getState().userCoords;
         addCustomSourcesAndLayers(map, routeCoordinates, userCoords);
@@ -700,8 +788,19 @@ export function MuralMap({
           }
 
           const placements = groupLeavesIntoPlacements(leaves, (coords) =>
-            map.project(coords)
+            map.project(coords),
+            z
           );
+          if (z >= FAN_DISABLE_ZOOM) {
+            spreadOverlappingPlacements(
+              placements,
+              (coords) => map.project(coords),
+              (point) => {
+                const ll = map.unproject([point.x, point.y]);
+                return [ll.lng, ll.lat];
+              }
+            );
+          }
           const placementWrappers: HTMLDivElement[] = [];
 
           for (const placement of placements) {
@@ -749,6 +848,7 @@ export function MuralMap({
     });
 
     return () => {
+      useMapStore.getState().setMapReady(false);
       unsubThemeRef.current?.();
       unsubThemeRef.current = null;
       clusterIndexRef.current = null;
@@ -887,7 +987,7 @@ export function MuralMap({
     return () => {
       map.off("moveend", onMoveEnd);
     };
-  }, [pendingFlyTo, openModal, clearPendingFlyTo, murals, flyDuration]);
+  }, [pendingFlyTo, openModal, clearPendingFlyTo, murals, flyDuration, mapReady]);
 
   // Fit map to bounds when requested from header (Fit map / Fit tour).
   const pendingFitBounds = useMapStore((s) => s.pendingFitBounds);
@@ -905,16 +1005,6 @@ export function MuralMap({
     });
   }, [pendingFitBounds, clearPendingFitBounds]);
 
-  // Compass reset: north-up.
-  const pendingCompassReset = useMapStore((s) => s.pendingCompassReset);
-  useEffect(() => {
-    if (!pendingCompassReset) return;
-    const map = mapRef.current;
-    if (!map) return;
-    map.easeTo({ bearing: 0 });
-    clearPendingCompassReset();
-  }, [pendingCompassReset, clearPendingCompassReset]);
-
   // When map style is toggled (Standard ↔ Satellite), setStyle and re-add custom layers.
   useEffect(() => {
     if (mapStyle === mapStyleRef.current) return;
@@ -931,6 +1021,7 @@ export function MuralMap({
         applyLightPreset(map, preset);
         try {
           map.setConfigProperty("basemap", "showPointOfInterestLabels", false);
+          map.setConfigProperty("basemap", "show3dBuildings", true);
         } catch {
           // Standard style only
         }
@@ -946,19 +1037,64 @@ export function MuralMap({
   return (
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" aria-hidden />
-      {/* Seamless loading overlay: soft placeholder that fades out when map is ready */}
+      {/* Map loading overlay — full viewport so header is hidden; fades out when ready */}
       {MAPBOX_TOKEN && (
         <div
-          className={`absolute inset-0 z-10 bg-dynamic transition-opacity duration-500 ease-out ${mapReady ? "pointer-events-none opacity-0" : "opacity-100"
+          className={`fixed inset-0 z-[100] bg-white transition-opacity duration-500 ease-out ${mapReady ? "pointer-events-none opacity-0" : "opacity-100"
             }`}
+          aria-hidden={mapReady}
         >
-          <div className="loading-map-placeholder absolute inset-0" aria-hidden />
           <div
-            className="absolute inset-0 flex items-center justify-center pointer-events-none"
+            className="absolute inset-0 flex flex-col items-center justify-center gap-6 pointer-events-none"
             role="status"
             aria-live="polite"
+            aria-label="Loading Pilsen murals"
           >
-            <p className="text-sm text-dynamic-muted">Loading map...</p>
+            {/* Pilsen boundary: full outline (track) + traced stroke as progress */}
+            {pilsenOutlinePath && (
+              <svg
+                viewBox="0 0 100 100"
+                width="160"
+                height="160"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                aria-hidden
+                className="text-zinc-300"
+              >
+                <path
+                  d={pilsenOutlinePath}
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinejoin="round"
+                  fill="none"
+                />
+                <path
+                  d={pilsenOutlinePath}
+                  pathLength={100}
+                  strokeDasharray={100}
+                  strokeDashoffset={100 - loadProgress}
+                  stroke="#006847"
+                  strokeWidth="2.5"
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                  fill="none"
+                  className="transition-[stroke-dashoffset] duration-300 ease-out"
+                  aria-hidden
+                />
+              </svg>
+            )}
+            <div
+              className="flex flex-col items-center gap-1.5"
+              role="progressbar"
+              aria-valuenow={Math.round(loadProgress)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label="Loading progress"
+            >
+              <p className="text-sm font-semibold text-zinc-700">
+                Loading... Pilsen murals near you
+              </p>
+            </div>
           </div>
         </div>
       )}

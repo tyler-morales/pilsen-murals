@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { motion, AnimatePresence, useDragControls } from "framer-motion";
 import { useMuralStore } from "@/store/muralStore";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
@@ -178,22 +179,27 @@ export function MuralModal() {
                       aria-hidden
                     />
                   )}
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <img
+                  <div className="absolute inset-0">
+                    <Image
                       src={activeMural.thumbnail ?? activeMural.imageUrl}
                       alt=""
-                      className="max-h-[90vh] max-w-[95vw] w-auto h-auto object-contain blur-2xl scale-105"
+                      fill
+                      sizes="90vw"
+                      className="object-contain blur-2xl scale-105"
                       aria-hidden
                     />
                   </div>
-                  <img
-                    src={activeMural.imageUrl}
-                    alt={`${activeMural.title} — full size`}
-                    decoding="async"
-                    className={`relative max-h-[90vh] max-w-[95vw] w-auto h-auto object-contain cursor-default transition-opacity duration-300 ease-out ${isEnlargedImageLoaded ? "opacity-100" : "opacity-0"}`}
-                    onLoad={() => setIsEnlargedImageLoaded(true)}
-                    onClick={(e) => e.stopPropagation()}
-                  />
+                  <div className="absolute inset-0">
+                    <Image
+                      src={activeMural.imageUrl}
+                      alt={`${activeMural.title} — full size`}
+                      fill
+                      sizes="90vw"
+                      className={`object-contain cursor-default transition-opacity duration-300 ease-out ${isEnlargedImageLoaded ? "opacity-100" : "opacity-0"}`}
+                      onLoad={() => setIsEnlargedImageLoaded(true)}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </div>
                   <button
                     type="button"
                     onClick={() => setIsImageExpanded(false)}
@@ -253,10 +259,12 @@ export function MuralModal() {
                     aria-hidden
                   />
                 )}
-                <img
+                <Image
                   src={activeMural.thumbnail ?? activeMural.imageUrl}
                   alt=""
-                  className="absolute inset-0 h-full w-full object-cover blur-xl scale-105"
+                  fill
+                  sizes="(max-width: 512px) 100vw, 512px"
+                  className="object-cover blur-xl scale-105"
                   aria-hidden
                 />
                 <button
@@ -265,17 +273,14 @@ export function MuralModal() {
                   className="relative h-full w-full cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-inset"
                   aria-label={`View larger image of ${activeMural.title}`}
                 >
-                  <img
+                  <Image
                     src={activeMural.imageUrl}
                     alt={`Mural: ${activeMural.title} by ${activeMural.artist}`}
-                    decoding="async"
-                    className={`h-full w-full object-contain transition-opacity duration-300 ease-out ${isImageLoaded ? "opacity-100" : "opacity-0"}`}
+                    fill
+                    sizes="(max-width: 512px) 100vw, 512px"
+                    className={`object-contain transition-opacity duration-300 ease-out ${isImageLoaded ? "opacity-100" : "opacity-0"}`}
                     onLoad={() => setIsImageLoaded(true)}
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).src =
-                        "https://placehold.co/600x750/1a1a1a/71717a?text=No+image";
-                      setIsImageLoaded(true);
-                    }}
+                    onError={() => setIsImageLoaded(true)}
                   />
                 </button>
                 <div

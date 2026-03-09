@@ -35,6 +35,7 @@ interface LocationState {
   watchId: number | null;
   requestLocation: () => void;
   dismissPrompt: () => void;
+  rehydrateFromStorage: () => void;
   setPosition: (coords: [number, number]) => void;
   setError: (error: string | null) => void;
   setPermission: (permission: LocationPermission) => void;
@@ -45,7 +46,7 @@ export const useLocationStore = create<LocationState>((set, get) => ({
   permission: "prompt",
   userCoords: null,
   error: null,
-  promptDismissed: getStoredDismissed(),
+  promptDismissed: false,
   watchId: null,
 
   requestLocation: () => {
@@ -54,7 +55,8 @@ export const useLocationStore = create<LocationState>((set, get) => ({
       return;
     }
 
-    set({ error: null });
+    setStoredDismissed(true);
+    set({ error: null, promptDismissed: true });
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
@@ -86,6 +88,10 @@ export const useLocationStore = create<LocationState>((set, get) => ({
   dismissPrompt: () => {
     setStoredDismissed(true);
     set({ promptDismissed: true });
+  },
+
+  rehydrateFromStorage: () => {
+    set({ promptDismissed: getStoredDismissed() });
   },
 
   setPosition: (userCoords) => set({ userCoords, error: null }),

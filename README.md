@@ -37,6 +37,10 @@ Proof of concept for a high-end, dynamic-lighting “digital twin” map of stre
 - **Modal**: Slide-in panel (Framer Motion) with editorial layout: image, title, artist, address, and dominant color swatch. State is managed with Zustand (`activeMural`, modal open/closed).
 - **Proximity alerts**: On first load you can enable location; when you’re within ~80 m of a mural, a card appears with the closest mural (and “View” / “Dismiss”). If several murals are nearby, the queue shows the next after you dismiss or view. Alerts work only while the app is open; true background notifications would require a native app or server-side geofencing + push.
 
+## Lighthouse / SEO
+
+Run Lighthouse against the **production** URL when measuring SEO and crawlability. Vercel sets `x-robots-tag: noindex` on **preview** deployments (e.g. `*-tyler-morales-projects.vercel.app`); the production deployment (e.g. main branch URL) does not send this header.
+
 ## Stack
 
 - Next.js 15 (App Router), React 18

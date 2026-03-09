@@ -185,7 +185,7 @@ body {
   stroke: var(--color-accent);
 }
 
-/* Gentle loading states: soft pulse/shimmer, reduced motion respected */
+/* Skeleton shimmer for modals and app/loading.tsx */
 @keyframes loading-shimmer-soft {
   0%,
   100% {
@@ -196,25 +196,15 @@ body {
   }
 }
 
+.loading-skeleton-soft {
+  animation: loading-shimmer-soft 2s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .loading-map-placeholder,
   .loading-skeleton-soft {
     animation: none;
     opacity: 0.5;
   }
-}
-
-.loading-map-placeholder {
-  background: color-mix(
-    in srgb,
-    var(--color-night-bg) calc((1 - var(--sun-brightness)) * 100%),
-    #ffffff calc(var(--sun-brightness) * 100%)
-  );
-  animation: loading-shimmer-soft 2.5s ease-in-out infinite;
-}
-
-.loading-skeleton-soft {
-  animation: loading-shimmer-soft 2s ease-in-out infinite;
 }
 
 /* Mapbox overrides for dark matte buildings */
@@ -223,12 +213,22 @@ body {
   opacity: 0.6;
 }
 
-/* Single stacked toolbar in bottom-right: Zoom+, Zoom-, Fit, Compass, Satellite */
-.mapboxgl-ctrl-bottom-right .mapboxgl-ctrl-group > button:first-child {
+/* Push top-right controls below the header on mobile; on md+ the header is narrower */
+.mapboxgl-ctrl-top-right {
+  top: 130px !important;
+}
+@media (min-width: 640px) {
+  .mapboxgl-ctrl-top-right {
+    top: 80px !important;
+  }
+}
+
+/* Unified toolbar column: remove first-child border for flush look */
+.mapboxgl-ctrl-top-right .mapboxgl-ctrl-group > button:first-child {
   border-top: none;
 }
 
-/* Custom toolbar buttons (Fit, Compass, Satellite): minimal icons, subtle color */
+/* Custom toolbar buttons (Fit, Satellite): match Mapbox NavigationControl size and style */
 .mapboxgl-ctrl-toolbar-btn {
   display: flex;
   align-items: center;
@@ -238,14 +238,14 @@ body {
   padding: 0;
   background: none;
   border: 0;
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
   cursor: pointer;
   outline: none;
-  color: #666;
+  color: #333;
 }
 .mapboxgl-ctrl-toolbar-btn:hover {
-  background-color: rgba(0, 0, 0, 0.04);
-  color: #333;
+  background-color: rgba(0, 0, 0, 0.05);
+  color: #1a1a1a;
 }
 .mapboxgl-ctrl-toolbar-btn:focus-visible {
   outline: 2px solid var(--color-accent, #e11d48);

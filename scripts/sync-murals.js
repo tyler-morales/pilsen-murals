@@ -1,13 +1,10 @@
 /**
- * Full pipeline: generate murals.json from raw-photos EXIF, copy to app data,
- * and sync images to public as WebP. Run after adding new photos to raw-photos:
+ * Sync pipeline: raw-photos is a staging folder. Add new photos there, run
  *   npm run sync-murals
- *
- * Uses a cache so running again with no changes skips EXIF work. Only converts
- * source images to WebP when output is missing or older than source. Public
- * image dirs are mirrored from raw-photos (orphaned files removed). After a
- * successful sync, raw-photos is emptied. Outputs .webp for smaller size and
- * faster loading.
+ * New photos are converted to WebP (display, thumb only), merged into
+ * existing murals.json (new entries get next IDs; same originalFile replaces
+ * existing). Existing mural images are never deleted. After sync, raw-photos
+ * is emptied. Only sources that need conversion are re-processed.
  */
 
 const fs = require("fs");
@@ -20,7 +17,9 @@ const CACHE_FILE = ".sync-murals-cache.json";
 const CACHE_VERSION = 2; // bump when output format changes (e.g. jpg → webp)
 const SUPPORTED_EXTENSIONS = [".jpg", ".jpeg", ".heic"];
 const THUMB_MAX_WIDTH = 400;
-const WEBP_QUALITY_HIGHRES = 88;
+/** Max length of the long edge for modal/enlarged view; keeps file size down while staying sharp on retina. */
+const DISPLAY_MAX_LONG_EDGE = 1600;
+const WEBP_QUALITY_DISPLAY = 85;
 const WEBP_QUALITY_THUMB = 82;
 
 function getImageFiles(dir) {
@@ -53,15 +52,63 @@ function manifestEqual(a, b) {
   return true;
 }
 
-function needsWebPConversion(srcPath, highResPath, thumbPath, srcMtimeMs) {
+function needsWebPConversion(displayPath, thumbPath, srcMtimeMs) {
   try {
-    const highResStat = fs.statSync(highResPath);
+    const displayStat = fs.statSync(displayPath);
     const thumbStat = fs.statSync(thumbPath);
-    return (
-      highResStat.mtimeMs < srcMtimeMs || thumbStat.mtimeMs < srcMtimeMs
-    );
+    return displayStat.mtimeMs < srcMtimeMs || thumbStat.mtimeMs < srcMtimeMs;
   } catch {
     return true;
+  }
+}
+
+/**
+ * Merge murals from generate-map-data output (new only) into existing
+ * murals.json. New murals get next IDs; same originalFile replaces existing.
+ */
+function mergeNewMuralsIntoExisting(appDataPath, generatedPath) {
+  let existing = [];
+  if (fs.existsSync(appDataPath)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(appDataPath, "utf8"));
+      if (Array.isArray(data)) existing = data;
+    } catch {
+      existing = [];
+    }
+  }
+  let newMurals = [];
+  if (fs.existsSync(generatedPath)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(generatedPath, "utf8"));
+      if (Array.isArray(data)) newMurals = data;
+    } catch {
+      newMurals = [];
+    }
+  }
+  const result = [...existing];
+  const byOriginal = new Map();
+  for (const m of existing) {
+    const key = m.originalFile || (m.imageUrl && path.basename(m.imageUrl));
+    if (key) byOriginal.set(key, m);
+  }
+  let maxId = 0;
+  for (const m of existing) {
+    const n = parseInt(m.id && m.id.replace(/^mural-/, ""), 10);
+    if (!Number.isNaN(n) && n > maxId) maxId = n;
+  }
+  for (const m of newMurals) {
+    const key = m.originalFile || (m.imageUrl && path.basename(m.imageUrl));
+    if (key && byOriginal.has(key)) {
+      Object.assign(byOriginal.get(key), m);
+    } else {
+      maxId += 1;
+      result.push({ ...m, id: `mural-${maxId}` });
+      if (key) byOriginal.set(key, result[result.length - 1]);
+    }
+  }
+  fs.writeFileSync(appDataPath, JSON.stringify(result, null, 2), "utf8");
+  if (fs.existsSync(path.dirname(generatedPath))) {
+    fs.writeFileSync(generatedPath, JSON.stringify(result, null, 2), "utf8");
   }
 }
 
@@ -107,40 +154,24 @@ async function main() {
     console.log("1. No changes in raw-photos, skipping EXIF read (cached).");
   }
 
-  console.log("2. Copying murals.json to app data...");
-  fs.mkdirSync(path.dirname(generatedPath), { recursive: true });
-  if (fs.existsSync(generatedPath)) {
-    fs.copyFileSync(generatedPath, appDataPath);
-  }
-
   const files = Object.keys(currentManifest);
   if (files.length === 0) {
-    console.log("3. No images to sync.");
     fs.writeFileSync(
       cachePath,
       JSON.stringify({ ...currentManifest, version: CACHE_VERSION }, null, 2)
     );
-    console.log("Done.");
+    console.log("2. raw-photos is empty; nothing to convert. Done.");
     return;
   }
 
-  const highResDir = path.join(cwd, "public", "images", "murals", "high-res");
-  const thumbDir = path.join(cwd, "public", "images", "murals", "thumbnails");
-  fs.mkdirSync(highResDir, { recursive: true });
-  fs.mkdirSync(thumbDir, { recursive: true });
+  console.log("2. Merging new murals into murals.json...");
+  fs.mkdirSync(path.dirname(generatedPath), { recursive: true });
+  mergeNewMuralsIntoExisting(appDataPath, generatedPath);
 
-  const expectedWebpNames = new Set(
-    files.map((name) => path.basename(name, path.extname(name)) + ".webp")
-  );
-  for (const dir of [highResDir, thumbDir]) {
-    if (fs.existsSync(dir)) {
-      for (const name of fs.readdirSync(dir)) {
-        if (!expectedWebpNames.has(name)) {
-          fs.unlinkSync(path.join(dir, name));
-        }
-      }
-    }
-  }
+  const displayDir = path.join(cwd, "public", "images", "murals", "display");
+  const thumbDir = path.join(cwd, "public", "images", "murals", "thumbnails");
+  fs.mkdirSync(displayDir, { recursive: true });
+  fs.mkdirSync(thumbDir, { recursive: true });
 
   const barWidth = 24;
   function progressBar(current, total, label = "") {
@@ -154,11 +185,10 @@ async function main() {
   }
 
   const toConvert = files.filter((name) => {
-    const src = path.join(inputDir, name);
     const webpName = path.basename(name, path.extname(name)) + ".webp";
-    const highResPath = path.join(highResDir, webpName);
+    const displayPath = path.join(displayDir, webpName);
     const thumbPath = path.join(thumbDir, webpName);
-    return needsWebPConversion(src, highResPath, thumbPath, currentManifest[name]);
+    return needsWebPConversion(displayPath, thumbPath, currentManifest[name]);
   });
   const skipCount = files.length - toConvert.length;
   if (skipCount > 0) {
@@ -171,14 +201,21 @@ async function main() {
     progressBar(i, files.length, path.basename(name));
     const src = path.join(inputDir, name);
     const webpName = path.basename(name, path.extname(name)) + ".webp";
-    const highResPath = path.join(highResDir, webpName);
+    const displayPath = path.join(displayDir, webpName);
     const thumbPath = path.join(thumbDir, webpName);
-    if (!needsWebPConversion(src, highResPath, thumbPath, currentManifest[name])) {
+    if (!needsWebPConversion(displayPath, thumbPath, currentManifest[name])) {
       continue;
     }
     const pipeline = sharp(src);
     await Promise.all([
-      pipeline.clone().webp({ quality: WEBP_QUALITY_HIGHRES }).toFile(highResPath),
+      pipeline
+        .clone()
+        .resize(DISPLAY_MAX_LONG_EDGE, DISPLAY_MAX_LONG_EDGE, {
+          fit: "inside",
+          withoutEnlargement: true,
+        })
+        .webp({ quality: WEBP_QUALITY_DISPLAY })
+        .toFile(displayPath),
       pipeline
         .clone()
         .resize(THUMB_MAX_WIDTH, null, { withoutEnlargement: true })

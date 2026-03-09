@@ -1,16 +1,25 @@
 "use client";
 
+import { useEffect } from "react";
 import { useLocationStore } from "@/store/locationStore";
+import { useMapStore } from "@/store/mapStore";
 
 /**
  * Small CTA shown on first load to enable location for proximity alerts.
- * Only rendered when permission is still "prompt" and user has not dismissed.
+ * Only rendered when permission is still "prompt", user has not dismissed, and the map has loaded.
  * Geolocation is only requested when user taps "Enable".
+ * Choice (Enable or Not now) is persisted in localStorage and rehydrated on mount.
  */
 export function LocationPrompt() {
-  const { permission, promptDismissed, requestLocation, dismissPrompt } = useLocationStore();
+  const { permission, promptDismissed, requestLocation, dismissPrompt, rehydrateFromStorage } =
+    useLocationStore();
+  const mapReady = useMapStore((s) => s.mapReady);
 
-  const show = permission === "prompt" && !promptDismissed;
+  useEffect(() => {
+    rehydrateFromStorage();
+  }, [rehydrateFromStorage]);
+
+  const show = permission === "prompt" && !promptDismissed && mapReady;
   if (!show) return null;
 
   return (

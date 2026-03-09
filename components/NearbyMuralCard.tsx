@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useCallback } from "react";
+import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import { useMuralStore } from "@/store/muralStore";
 import { useProximityStore } from "@/store/proximityStore";
@@ -173,10 +174,14 @@ export function NearbyMuralCard({
           >
           <div className="flex gap-3 p-3">
             <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-zinc-100">
-              <img
+              <Image
                 src={currentNearby.thumbnail ?? currentNearby.imageUrl}
                 alt=""
+                width={56}
+                height={56}
+                sizes="56px"
                 className="h-full w-full object-cover"
+                loading="lazy"
               />
             </div>
             <div className="min-w-0 flex-1">

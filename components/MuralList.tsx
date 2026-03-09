@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef } from "react";
+import Image from "next/image";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { motion, AnimatePresence } from "framer-motion";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -78,7 +79,7 @@ export function MuralList({
             role="dialog"
             aria-modal="true"
             aria-label="Browse murals"
-            className="safe-bottom fixed z-50 flex flex-col overflow-hidden border-zinc-200 bg-white shadow-[0_-8px_32px_rgba(0,0,0,0.12)] bottom-0 left-0 right-0 max-h-[55vh] rounded-t-3xl border-t border-zinc-100 md:left-0 md:right-auto md:top-0 md:bottom-0 md:max-h-none md:w-full md:max-w-[380px] md:rounded-r-2xl md:rounded-tl-none md:rounded-t-2xl md:border-l md:border-t-0"
+            className="safe-bottom fixed z-50 flex flex-col overflow-hidden border-zinc-200 bg-white shadow-[0_-8px_32px_rgba(0,0,0,0.12)] bottom-0 left-0 right-0 max-h-[55vh] rounded-t-3xl border-t md:left-0 md:right-auto md:top-0 md:bottom-0 md:max-h-none md:w-full md:max-w-[380px] md:rounded-r-2xl md:rounded-tl-none md:rounded-t-2xl md:border-l md:border-t-0"
             style={isDesktop ? { width: SIDEBAR_WIDTH } : undefined}
             variants={variants}
             initial="hidden"
@@ -174,12 +175,13 @@ export function MuralList({
                               {stopNumber}
                             </span>
                           )}
-                          <img
+                          <Image
                             src={mural.thumbnail ?? mural.imageUrl}
                             alt=""
-                            className="h-full w-full object-cover"
                             width={56}
                             height={56}
+                            sizes="56px"
+                            className="h-full w-full object-cover"
                             loading="lazy"
                           />
                         </div>
