@@ -8,7 +8,7 @@
 - `data/murals.json` — placeholder murals (Pilsen-area coordinates)
 - Zustand store: `activeMural`, `isModalOpen`, `openModal`, `closeModal`; theme store has `mapLightPreset` (day/night/dawn/dusk) from sun altitude/azimuth.
 - `MuralMap`: Mapbox **Standard** style (sky + sun-based lighting); `lightPreset` synced to Pilsen time via `setConfigProperty('basemap', 'lightPreset', …)`; 3D buildings from style; custom glowing HTML markers, flyTo on marker click (includes mural `bearing` so map orients to image direction), modal opens on moveend.
-- `MuralModal`: Framer Motion slide-in, editorial layout (image, title, artist, color swatch, address)
+- `MuralModal`: Framer Motion slide-in, editorial layout (image, title, artist, color swatch, coordinates)
 - README + `.env.local.example` for Mapbox token
 
 ## Refactor / Cleanup (done)
@@ -18,12 +18,14 @@
 - Removed dead CSS: `--map-bg`, `.mapboxgl-popup-close-button` (no popups used).
 - Removed unused Tailwind `mural.glow` (glow uses `:root` `--glow` in keyframes).
 - Modal image: added descriptive `alt` for a11y.
-- **Mural slideout readability**: Modal panel uses fixed light theme (white/zinc) so text is always high-contrast; dominant color kept as accent bar and swatch only.
+- **Mural slideout readability**: Modal panel uses fixed light theme (white/zinc) so text is always high-contrast.
+- **Mural modal card**: Coordinates moved into Image metadata section (first row); dominant color UI (accent bar, swatch, hex) removed; date shown as "Photo captured: [date]" with clearer label and styling.
 - **Mural slide-out image metadata**: `generate-map-data.js` extracts full EXIF (date, camera, exposure, etc.) into `imageMetadata`; `MuralModal` shows an "Image metadata" section when present.
 - **Map markers**: Replaced 3D diamond with mural thumbnail; removed `mural-diamond-spin` / `mural-diamond-float` from Tailwind (dead code).
 - **Map marker styling**: Minimal white outline (1px border white/70, shadow-md); focus ring white/80 for a11y.
 - **Mural thumbnails zoom-aware**: Thumbnail size scales with map zoom (28px height at zoom 11, 88px at zoom 18) so they stay small when zoomed out (less overlap, don’t obscure 3D buildings) and grow when zoomed in; map listens to `zoom`/`zoomend` and re-renders markers.
 - **Mural modal full image**: Modal image uses dynamic aspect ratio from `imageMetadata` (Width/Height) so horizontal murals are no longer cropped; `object-contain` ensures full image is always visible; ratio clamped 9/16–2, default 4/5 when metadata missing.
+- **Deleted/consolidated**: Removed `address` from murals data and `Mural` type; directions and modal use lat/lon coordinates only. `getDirectionsUrl` always uses coordinates; modal shows coordinates in description; `NearbyMuralCard` no longer shows address.
 - **Performance**: Marker size updates only on `zoomend` (removed `zoom` listener) to avoid hundreds of React re-renders during zoom. Three.js mural building layer disabled in default flow (HTML markers only). Glow animation on markers is hover/focus-only. Modal overlay uses `bg-black/60` without backdrop blur. Theme store subscription moved into map load callback so `MuralMap` does not re-render every 60s.
 
 ## Scripts
@@ -113,6 +115,7 @@
 - **Seen (stored only)**: `proximityStore` — `markSeen(muralId)` and seen IDs in localStorage (`pilsen-murals-seen-murals`) kept for possible future use; Dismiss and View still call `markSeen`. Nearby queue is sorted by distance only (closest first) so users can loop through all nearby murals; seen no longer affects order.
 - **Proximity distance**: `formatDistance` clamps to non-negative so distance never shows as negative (e.g. -275 ft).
 - **Share**: "Share" button in card — Web Share API when available, else copy mural URL (`/?mural=id`) to clipboard with "Link copied" feedback.
+- **Artist Instagram link**: Optional `artistInstagramHandle` on Mural; when set, "View on Instagram" link shown in MuralModal (under artist), NearbyMuralCard, and MuralList. `lib/instagram.ts` — `getArtistInstagramUrl(handle)` (strips @). Link opens artist profile in new tab; a11y labels.
 - **Photo tip**: When `imageMetadata['Date taken']` exists, card shows short tip ("Photo taken in morning/afternoon — similar light now.").
 - **Card shows only current mural**: Removed "X of Y nearby" text, full list of nearby murals, prev/next arrows, and swipe; card displays only the single current nearby mural. View/Dismiss still advance to next in queue. `requestFlyTo(mural, { openModalAfterFly: false })`; muralStore `pendingFlyTo` extended to `{ mural, openModalAfterFly }` so list/View/Surprise me still open modal on moveend.
 - **Nearby card prev/next centers map**: Clicking the ←/→ arrows in the "You're near" card now calls `requestFlyTo(mural, { openModalAfterFly: false })` before advancing the card, so the map flies to center the newly selected mural.
@@ -185,7 +188,7 @@ Only after the above feels solid, add **user ability to add murals** — use Opt
 - **Bottom sheets**: MuralList and TourList use `rounded-t-3xl`, larger drag handle (`h-1.5 w-12`), `max-h-[55vh]`, and softer shadow for a native bottom-sheet feel.
 - **MuralModal**: `safe-top safe-left safe-right` on the panel for notched devices; footer already uses `safe-bottom-footer`.
 - **globals.css**: Added `@supports` glass-header utility for optional reuse.
-- **Gentle loading states**: Map loads with a **full-viewport** overlay (`fixed inset-0 z-[100]`) so the header is hidden during load; overlay fades out over 500ms when the map is ready. **Pilsen boundary SVG** (from `data/pilsen-boundary.json`) is the loading indicator: gray track + green stroke traced by progress (`strokeDasharray`/`strokeDashoffset`, 0→90% over ~2.2s, 100% on `map.on("load")`). Copy: "Loading... Pilsen murals near you" with `role="status"`, `aria-live="polite"`, and `role="progressbar"`. App route loading (`app/loading.tsx`) uses full-page skeleton with `.loading-skeleton-soft`; modal image placeholders use same soft pulse and 300ms opacity transition.
+- **Gentle loading states**: Map loads with a **full-viewport** overlay (`fixed inset-0 z-[100]`) so the header is hidden during load; overlay fades out over 500ms when the map is ready. **Pilsen boundary SVG** (from `data/pilsen-boundary.json`) is the loading indicator: gray track + green stroke traced by progress (`strokeDasharray`/`strokeDashoffset`). Progress: 0→90% over ~2.2s, then slow crawl 90→99% over 4s so the line never appears stuck; 100% on `map.on("load")`. Copy: "Loading... Pilsen murals near you" with `role="status"`, `aria-live="polite"`, and `role="progressbar"`. App route loading (`app/loading.tsx`) uses full-page skeleton with `.loading-skeleton-soft`; modal image placeholders use same soft pulse and 300ms opacity transition.
 
 ## Branding (done)
 

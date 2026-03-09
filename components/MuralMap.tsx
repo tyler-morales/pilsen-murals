@@ -528,18 +528,27 @@ export function MuralMap({
   const prefersReducedMotion = usePrefersReducedMotion();
   const flyDuration = prefersReducedMotion ? 0 : FLY_OPTIONS.duration;
 
-  /** Animate load progress 0→90 while map is loading (map.on("load") jumps to 100). */
+  /** Animate load progress 0→90 quickly, then slow crawl 90→99 so the line never appears stuck (map.on("load") jumps to 100). */
   const loadProgressRafRef = useRef<number | null>(null);
   useEffect(() => {
     if (!MAPBOX_TOKEN || mapReady) return;
     const start = Date.now();
-    const durationMs = 2200;
-    const maxProgress = 90;
+    const phase1Ms = 2200; // 0 → 90%
+    const phase2Ms = 4000; // 90 → 99% over 4s so slow loads still show movement
+    const targetCap = 99;
     const tick = () => {
       const elapsed = Date.now() - start;
-      const p = Math.min(maxProgress, (elapsed / durationMs) * maxProgress);
+      let p: number;
+      if (elapsed < phase1Ms) {
+        p = (elapsed / phase1Ms) * 90;
+      } else {
+        const phase2Elapsed = elapsed - phase1Ms;
+        const crawl = Math.min(9, (phase2Elapsed / phase2Ms) * 9);
+        p = 90 + crawl;
+      }
+      p = Math.min(targetCap, p);
       setLoadProgress(p);
-      if (p < maxProgress) {
+      if (p < targetCap) {
         loadProgressRafRef.current = requestAnimationFrame(tick);
       }
     };
