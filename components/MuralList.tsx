@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 import type { Mural } from "@/types/mural";
+import { getArtistInstagramUrl } from "@/lib/instagram";
 
 const SHEET = {
   hidden: { opacity: 0, y: "100%" },
@@ -192,6 +193,18 @@ export function MuralList({
                           <p className="truncate text-sm text-zinc-600">
                             {mural.artist}
                           </p>
+                          {mural.artistInstagramHandle && (
+                            <a
+                              href={getArtistInstagramUrl(mural.artistInstagramHandle)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mt-0.5 inline-block truncate text-xs font-medium text-amber-700 underline decoration-amber-700/50 underline-offset-2 transition-colors hover:text-amber-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-1 rounded"
+                              aria-label={`View ${mural.artist} on Instagram`}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              View on Instagram
+                            </a>
+                          )}
                         </div>
                       </button>
                     </li>

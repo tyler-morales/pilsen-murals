@@ -9,6 +9,7 @@ import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 import type { Mural } from "@/types/mural";
 import { getDirectionsUrl } from "@/lib/directions";
+import { getArtistInstagramUrl } from "@/lib/instagram";
 
 const BACKDROP = { hidden: { opacity: 0 }, visible: { opacity: 1 }, exit: { opacity: 0 } };
 const PANEL_RIGHT = {
@@ -296,6 +297,17 @@ export function MuralModal() {
                   {activeMural.title}
                 </h2>
                 <p className="mt-1 text-zinc-600">by {activeMural.artist}</p>
+                {activeMural.artistInstagramHandle && (
+                  <a
+                    href={getArtistInstagramUrl(activeMural.artistInstagramHandle)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-0.5 inline-block text-sm font-medium text-amber-700 underline decoration-amber-700/50 underline-offset-2 transition-colors hover:text-amber-800 hover:decoration-amber-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
+                    aria-label={`View ${activeMural.artist} on Instagram`}
+                  >
+                    View on Instagram
+                  </a>
+                )}
                 {formatPhotoDate(activeMural.imageMetadata?.["Date taken"]) && (
                   <p className="mt-0.5 text-sm text-zinc-500" aria-label="Date photo was taken">
                     {formatPhotoDate(activeMural.imageMetadata?.["Date taken"])}

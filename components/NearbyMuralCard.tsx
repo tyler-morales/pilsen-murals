@@ -13,6 +13,7 @@ import {
   bearingToDirectionText,
 } from "@/lib/geo";
 import { getDirectionsUrl } from "@/lib/directions";
+import { getArtistInstagramUrl } from "@/lib/instagram";
 import type { Collection } from "@/types/collection";
 import type { Mural } from "@/types/mural";
 
@@ -228,6 +229,17 @@ export function NearbyMuralCard({
                 <p className="truncate text-xs text-zinc-600">
                   {currentNearby.artist}
                 </p>
+              )}
+              {currentNearby.artistInstagramHandle && (
+                <a
+                  href={getArtistInstagramUrl(currentNearby.artistInstagramHandle)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block text-xs font-medium text-[var(--color-accent)] underline decoration-[var(--color-accent)] underline-offset-2 transition-colors hover:text-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-1 rounded"
+                  aria-label={`View ${currentNearby.artist} on Instagram`}
+                >
+                  View on Instagram
+                </a>
               )}
               {currentDistanceM != null && (
                 <p className="text-xs text-zinc-500">
