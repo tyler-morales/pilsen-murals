@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef } from "react";
+import Image from "next/image";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { motion, AnimatePresence } from "framer-motion";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -174,16 +175,14 @@ export function MuralList({
                               {stopNumber}
                             </span>
                           )}
-                          <img
+                          <Image
                             src={mural.thumbnail ?? mural.imageUrl}
-                            srcSet={`${mural.thumbnail ?? mural.imageUrl} 400w, ${mural.imageUrl} 1600w`}
-                            sizes="56px"
                             alt=""
-                            className="h-full w-full object-cover"
                             width={56}
                             height={56}
+                            sizes="56px"
+                            className="h-full w-full object-cover"
                             loading="lazy"
-                            decoding="async"
                           />
                         </div>
                         <div className="min-w-0 flex-1">

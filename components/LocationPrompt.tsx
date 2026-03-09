@@ -20,22 +20,6 @@ export function LocationPrompt() {
   }, [rehydrateFromStorage]);
 
   const show = permission === "prompt" && !promptDismissed && mapReady;
-  // #region agent log
-  if (typeof window !== "undefined") {
-    fetch("http://127.0.0.1:7834/ingest/75c1fc41-3a14-4be5-8874-6f7c19a23dc4", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1444f7" },
-      body: JSON.stringify({
-        sessionId: "1444f7",
-        location: "LocationPrompt.tsx:render",
-        message: "LocationPrompt render",
-        data: { permission, promptDismissed, show, hasWindow: true },
-        timestamp: Date.now(),
-        hypothesisId: "H1",
-      }),
-    }).catch(() => {});
-  }
-  // #endregion
   if (!show) return null;
 
   return (

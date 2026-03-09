@@ -1,6 +1,5 @@
 "use client";
 
-import "mapbox-gl/dist/mapbox-gl.css";
 import { useRef, useEffect, useCallback, useState, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
@@ -588,11 +587,21 @@ export function MuralMap({
 
     // Dynamic import so Mapbox (window-dependent) only runs on client
     import("mapbox-gl").then((mapboxglModule) => {
+      // Load Mapbox CSS non-blocking so first paint is not delayed
+      if (typeof document !== "undefined") {
+        const link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = "/mapbox-gl.css";
+        document.head.appendChild(link);
+      }
       const mapboxgl = mapboxglModule.default;
       const initialStyle = useMapStore.getState().mapStyle;
       const map = new mapboxgl.Map({
         container: containerRef.current!,
         style: STYLE_URLS[initialStyle],
+        config: {
+          basemap: { show3dBuildings: false },
+        },
         center: [-87.657, 41.852],
         zoom: 14,
         pitch: 45,
@@ -625,6 +634,11 @@ export function MuralMap({
       }
 
       map.on("load", () => {
+        try {
+          map.setConfigProperty("basemap", "show3dBuildings", false);
+        } catch {
+          // Style may not support this config
+        }
         const preset = useThemeStore.getState().mapLightPreset;
         applyLightPreset(map, preset);
         try {
@@ -645,6 +659,20 @@ export function MuralMap({
           setMapReady(true);
           useMapStore.getState().setMapReady(true);
         });
+
+        // Progressive enhancement: load 3D buildings after initial paint so LCP stays fast
+        const enable3dBuildings = () => {
+          try {
+            map.setConfigProperty("basemap", "show3dBuildings", true);
+          } catch {
+            // Style may not support this config (e.g. satellite)
+          }
+        };
+        if (typeof requestIdleCallback !== "undefined") {
+          requestIdleCallback(enable3dBuildings, { timeout: 500 });
+        } else {
+          setTimeout(enable3dBuildings, 300);
+        }
 
         const userCoords = useLocationStore.getState().userCoords;
         addCustomSourcesAndLayers(map, routeCoordinates, userCoords);
@@ -993,6 +1021,7 @@ export function MuralMap({
         applyLightPreset(map, preset);
         try {
           map.setConfigProperty("basemap", "showPointOfInterestLabels", false);
+          map.setConfigProperty("basemap", "show3dBuildings", true);
         } catch {
           // Standard style only
         }
