@@ -768,7 +768,7 @@ export function MuralMap({
               placements,
               (coords) => map.project(coords),
               (point) => {
-                const ll = map.unproject(point);
+                const ll = map.unproject([point.x, point.y]);
                 return [ll.lng, ll.lat];
               }
             );
