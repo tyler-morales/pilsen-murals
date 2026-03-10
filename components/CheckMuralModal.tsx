@@ -7,6 +7,7 @@ import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { useHaptics } from "@/hooks/useHaptics";
 import { useLocationStore } from "@/store/locationStore";
+import { normalizeImageForUpload } from "@/lib/upload/normalizeImageForUpload";
 
 /**
  * Cosine similarity threshold: score >= this means "mural is in DB".
@@ -62,10 +63,24 @@ const TURNSTILE_WIDGET_ID = "check-mural-turnstile";
 const TURNSTILE_CALLBACK_NAME = "checkMuralTurnstileCallback";
 const TURNSTILE_SCRIPT_URL = "https://challenges.cloudflare.com/turnstile/v0/api.js";
 
+const PILSEN_FUN_FACTS = [
+  "Pilsen is named after Plzeň, a city in the Czech Republic.",
+  "The neighborhood has been a hub for Mexican culture since the 1960s.",
+  "18th Street is often called the \"Mexican Magnificent Mile.\"",
+  "Pilsen’s murals reflect labor, immigration, and community pride.",
+  "The National Museum of Mexican Art sits in Harrison Park.",
+  "Día de los Muertos is celebrated with altars and parades.",
+  "Pilsen was historically Czech, then Mexican; now it’s diversifying again.",
+  "Many murals were painted to resist gentrification and tell local stories.",
+];
+
 /** Digital zoom max when device has no hardware zoom. */
 const DIGITAL_ZOOM_MAX = 4;
 const CAMERA_IDEAL_WIDTH = 4096;
 const CAMERA_IDEAL_HEIGHT = 3072;
+
+/** Max request body for /api/search (Vercel serverless ~4.5MB); stay under to avoid 413. */
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 
 type ImageCaptureLike = {
   takePhoto: () => Promise<Blob>;
@@ -108,8 +123,18 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
   const [addToDbPending, setAddToDbPending] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [checkingPreviewUrl, setCheckingPreviewUrl] = useState<string | null>(null);
+  const [funFactIndex, setFunFactIndex] = useState(0);
 
   const isDesktop = useMediaQuery("(min-width: 768px)");
+
+  useEffect(() => {
+    if (phase !== "checking") return;
+    const id = setInterval(
+      () => setFunFactIndex((i) => (i + 1) % PILSEN_FUN_FACTS.length),
+      3500
+    );
+    return () => clearInterval(id);
+  }, [phase]);
   const variants = isDesktop ? CENTER : SHEET;
   const userCoords = useLocationStore((s) => s.userCoords);
   const locationPermission = useLocationStore((s) => s.permission);
@@ -312,8 +337,17 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
     }
   }, [isOpen, onClose]);
 
-  /** Check phase is read-only: we only call /api/search. No Supabase or DB writes until the user explicitly chooses "Add to database" (POST /api/murals/submit). */
+  /**
+   * Check phase is read-only: we only call /api/search. No Supabase or DB writes until the user
+   * explicitly chooses "Add to database" (POST /api/murals/submit).
+   * Camera path sends a canvas-derived JPEG (small); file path must normalize first to avoid 413.
+   */
   const submitImage = useCallback(async (blob: Blob) => {
+    if (blob.size > MAX_UPLOAD_BYTES) {
+      setSearchError("Image is too large; choose a smaller file or take a new photo.");
+      setPhase("error");
+      return;
+    }
     haptics.shutter();
     lastSubmittedBlobRef.current = blob;
     stopCamera();
@@ -335,7 +369,11 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
       });
       const data = await res.json();
       if (!res.ok) {
-        setSearchError(data?.error ?? "Search failed");
+        const message =
+          res.status === 413
+            ? "Image is too large; choose a smaller file or take a new photo."
+            : (data?.error ?? "Search failed");
+        setSearchError(message);
         setPhase("error");
         return;
       }
@@ -422,8 +460,20 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file || !file.type.startsWith("image/")) return;
-      submitImage(file);
       e.target.value = "";
+      normalizeImageForUpload(file)
+        .then((blob) => {
+          if (blob.size > MAX_UPLOAD_BYTES) {
+            setSearchError("Image is too large; choose a smaller file or take a new photo.");
+            setPhase("error");
+            return;
+          }
+          submitImage(blob);
+        })
+        .catch(() => {
+          setSearchError("Could not process image. Try another file.");
+          setPhase("error");
+        });
     },
     [submitImage]
   );
@@ -701,10 +751,10 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                         <motion.div
                           className="absolute left-0 right-0 z-10 h-2 rounded-full bg-gradient-to-b from-transparent via-[var(--color-accent)] to-transparent opacity-90 shadow-[0_0_12px_2px_rgba(226,126,166,0.6)]"
                           initial={{ top: "0%" }}
-                          animate={{ top: "100%" }}
+                          animate={{ top: ["0%", "100%", "0%"] }}
                           transition={{
                             repeat: Infinity,
-                            duration: 2,
+                            duration: 2.4,
                             ease: "easeInOut",
                           }}
                           style={{ position: "absolute" as const }}
@@ -712,24 +762,12 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                         />
                       </div>
                     )}
-                    <motion.div
-                      animate={{ scale: [1, 1.08, 1], opacity: [0.7, 1, 0.7] }}
-                      transition={{ repeat: Infinity, duration: 1.8, ease: "easeInOut" }}
-                      aria-hidden
+                    <p
+                      className="max-w-[280px] text-center text-sm text-zinc-500"
+                      aria-live="polite"
                     >
-                      <svg
-                        className="h-8 w-8 text-[var(--color-accent)]"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <circle cx="11" cy="11" r="8" />
-                        <path d="m21 21-4.35-4.35" />
-                      </svg>
-                    </motion.div>
+                      {PILSEN_FUN_FACTS[funFactIndex]}
+                    </p>
                   </div>
                 )}
 

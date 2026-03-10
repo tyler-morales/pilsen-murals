@@ -10,6 +10,12 @@ import {
   type SearchResultItem,
 } from "../CheckMuralModal";
 
+vi.mock("@/lib/upload/normalizeImageForUpload", () => ({
+  normalizeImageForUpload: vi.fn((_file: File) =>
+    Promise.resolve(new Blob(["x"], { type: "image/jpeg" }))
+  ),
+}));
+
 describe("isMatchInDb", () => {
   it("returns true when top result score is at or above threshold", () => {
     const response: SearchResponse = {
@@ -181,5 +187,54 @@ describe("CheckMuralModal persistence (explicit upload only)", () => {
       return p.includes("/api/murals/submit");
     });
     expect(submitCalls.length).toBe(0);
+  });
+
+  it("normalizes file upload then calls /api/search (success)", async () => {
+    const { normalizeImageForUpload } = await import("@/lib/upload/normalizeImageForUpload");
+    vi.mocked(normalizeImageForUpload).mockClear();
+
+    const user = userEvent.setup();
+    render(<CheckMuralModal isOpen onClose={vi.fn()} />);
+
+    const fileInput = screen.getByLabelText(/Upload photo from device/i);
+    await user.upload(fileInput, new File(["x"], "large.jpg", { type: "image/jpeg" }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Add to database/i)).toBeInTheDocument();
+    });
+
+    expect(normalizeImageForUpload).toHaveBeenCalledTimes(1);
+    const searchCalls = vi.mocked(fetch).mock.calls.filter(([url]) => {
+      const p = typeof url === "string" ? url : (url as URL).toString();
+      return p.includes("/api/search");
+    });
+    expect(searchCalls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("shows specific error when /api/search returns 413", async () => {
+    vi.mocked(fetch).mockImplementation((url: string | URL) => {
+      const path = typeof url === "string" ? url : url.toString();
+      if (path.includes("/api/search")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: "Payload too large" }), {
+            status: 413,
+            headers: { "Content-Type": "application/json" },
+          })
+        );
+      }
+      return Promise.reject(new Error(`Unexpected fetch: ${path}`));
+    });
+
+    const user = userEvent.setup();
+    render(<CheckMuralModal isOpen onClose={vi.fn()} />);
+
+    const fileInput = screen.getByLabelText(/Upload photo from device/i);
+    await user.upload(fileInput, new File(["x"], "capture.jpg", { type: "image/jpeg" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Image is too large; choose a smaller file or take a new photo/i)
+      ).toBeInTheDocument();
+    });
   });
 });
