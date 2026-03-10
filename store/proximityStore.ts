@@ -44,6 +44,8 @@ interface ProximityState {
   currentDistanceM: number | null;
   /** Direction for exit animation when swiping (set by showNext/showPrev). */
   exitDirection: SwipeDirection;
+  /** User dismissed the nearby card entirely; card stays hidden until they leave and re-enter range. */
+  dismissed: boolean;
   /**
    * Recompute nearby queue from user coords and murals; keep or reset shown mural.
    */
@@ -52,6 +54,8 @@ interface ProximityState {
   showNext: () => void;
   /** Go to the previous mural in queue. */
   showPrev: () => void;
+  /** Dismiss the entire nearby card; hides until user leaves and re-enters geofence. */
+  dismissAll: () => void;
   /** Mark a mural as seen (e.g. after Dismiss or View); stored for possible future use; does not affect queue order. */
   markSeen: (muralId: string) => void;
 }
@@ -75,6 +79,7 @@ export const useProximityStore = create<ProximityState>((set, get) => ({
   currentNearby: null,
   currentDistanceM: null,
   exitDirection: null,
+  dismissed: false,
 
   setNearbyFromCoords: (murals, coords) => {
     if (!coords) {
@@ -93,12 +98,15 @@ export const useProximityStore = create<ProximityState>((set, get) => ({
       GEOFENCE_RADIUS_M
     );
     const stateBefore = get();
-    const { currentNearby } = stateBefore;
+    const { currentNearby, nearbyQueue: prevQueue } = stateBefore;
     let showIndex = 0;
     if (currentNearby && newQueue.length > 0) {
       const idx = newQueue.findIndex((e) => e.mural.id === currentNearby.id);
       if (idx >= 0) showIndex = idx;
     }
+    const wasOutsideRange = prevQueue.length === 0;
+    const nowInRange = newQueue.length > 0;
+    const dismissed = stateBefore.dismissed && !(wasOutsideRange && nowInRange);
     const { mural, distanceM } = getCurrent(newQueue, showIndex);
     set({
       nearbyQueue: newQueue,
@@ -106,6 +114,7 @@ export const useProximityStore = create<ProximityState>((set, get) => ({
       currentNearby: mural,
       currentDistanceM: distanceM,
       exitDirection: null,
+      dismissed,
     });
   },
 
@@ -131,6 +140,10 @@ export const useProximityStore = create<ProximityState>((set, get) => ({
       currentNearby: mural,
       currentDistanceM: distanceM,
     });
+  },
+
+  dismissAll: () => {
+    set({ dismissed: true });
   },
 
   markSeen: (muralId) => {

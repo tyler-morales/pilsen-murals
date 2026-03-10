@@ -38,7 +38,7 @@ interface NearbyMuralCardProps {
 
 /**
  * Card shown when user is within radius of one or more murals. Shows the closest first;
- * View opens the modal and advances to the next nearby; Dismiss advances without opening.
+ * View opens the modal and advances to the next nearby; Dismiss closes the entire card until user leaves and re-enters range.
  */
 export function NearbyMuralCard({
   activeTour = null,
@@ -52,6 +52,8 @@ export function NearbyMuralCard({
     showPrev,
     currentDistanceM,
     exitDirection,
+    dismissed,
+    dismissAll,
     markSeen,
   } = useProximityStore();
   const userCoords = useLocationStore((s) => s.userCoords);
@@ -101,8 +103,8 @@ export function NearbyMuralCard({
   };
 
   const handleDismiss = () => {
-    if (currentNearby) markSeen(currentNearby.id);
-    showNext();
+    nearbyQueue.forEach(({ mural }) => markSeen(mural.id));
+    dismissAll();
   };
 
   const handlePrev = () => {
@@ -153,7 +155,7 @@ export function NearbyMuralCard({
 
   return (
     <AnimatePresence mode="wait">
-      {currentNearby && (
+      {currentNearby && !dismissed && (
         <motion.section
           key={currentNearby.id}
           role="region"
@@ -308,7 +310,7 @@ export function NearbyMuralCard({
                 type="button"
                 onClick={handleDismiss}
                 className="min-h-[44px] flex-1 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-accent)]"
-                aria-label="Dismiss nearby alert"
+                aria-label="Dismiss all nearby alerts"
               >
                 Dismiss
               </button>
