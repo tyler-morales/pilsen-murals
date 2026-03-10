@@ -1,5 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import {
+  CheckMuralModal,
   isMatchInDb,
   MATCH_THRESHOLD,
   MIN_RELEVANCE_SCORE,
@@ -90,5 +93,93 @@ describe("MIN_RELEVANCE_SCORE (override candidate filtering)", () => {
       results: [{ id: "mural-1", score: 0.80, payload: {} }],
     };
     expect(isMatchInDb(response)).toBe(true);
+  });
+});
+
+describe("CheckMuralModal persistence (explicit upload only)", () => {
+  const noMatchSearchResponse = { results: [] };
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(() => ({
+        matches: false,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+        onchange: null,
+        media: "",
+      }))
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string | URL) => {
+        const path = typeof url === "string" ? url : url.toString();
+        if (path.includes("/api/search")) {
+          return Promise.resolve(
+            new Response(JSON.stringify(noMatchSearchResponse), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            })
+          );
+        }
+        return Promise.reject(new Error(`Unexpected fetch: ${path}`));
+      })
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("calls only /api/search when user uploads a photo; never /api/murals/submit until Add to database", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<CheckMuralModal isOpen onClose={onClose} />);
+
+    const fileInput = screen.getByLabelText(/Upload photo from device/i);
+    const file = new File(["x"], "capture.jpg", { type: "image/jpeg" });
+
+    await user.upload(fileInput, file);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Add to database/i)).toBeInTheDocument();
+    });
+
+    const fetchCalls = vi.mocked(fetch).mock.calls;
+    const searchCalls = fetchCalls.filter(([url]) => {
+      const p = typeof url === "string" ? url : (url as URL).toString();
+      return p.includes("/api/search");
+    });
+    const submitCalls = fetchCalls.filter(([url]) => {
+      const p = typeof url === "string" ? url : (url as URL).toString();
+      return p.includes("/api/murals/submit");
+    });
+
+    expect(searchCalls.length).toBe(1);
+    expect(submitCalls.length).toBe(0);
+  });
+
+  it("does not call /api/murals/submit when user retakes photo after result", async () => {
+    const user = userEvent.setup();
+    render(<CheckMuralModal isOpen onClose={vi.fn()} />);
+
+    const fileInput = screen.getByLabelText(/Upload photo from device/i);
+    await user.upload(fileInput, new File(["x"], "capture.jpg", { type: "image/jpeg" }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Add to database/i)).toBeInTheDocument();
+    });
+
+    const retakeButton = screen.getByRole("button", { name: /Retake photo/i, hidden: true });
+    await user.click(retakeButton);
+
+    const submitCalls = vi.mocked(fetch).mock.calls.filter(([url]) => {
+      const p = typeof url === "string" ? url : (url as URL).toString();
+      return p.includes("/api/murals/submit");
+    });
+    expect(submitCalls.length).toBe(0);
   });
 });

@@ -1,11 +1,9 @@
 /**
- * Process uploaded image: WebP display + thumbnail, dominant color, optional EXIF metadata.
- * Mirrors sync-murals/generate-map-data pipeline for consistency.
+ * Process uploaded image: full-resolution WebP display + thumbnail, dominant color, optional EXIF metadata.
  */
 import ExifReader, { type ExpandedTags } from "exifreader";
 import sharp from "sharp";
 
-const DISPLAY_MAX_LONG_EDGE = 1600;
 const THUMB_MAX_WIDTH = 400;
 const WEBP_QUALITY_DISPLAY = 85;
 const WEBP_QUALITY_THUMB = 82;
@@ -43,6 +41,30 @@ function getCoordinatesFromTags(tags: ExpandedTags): [number, number] | null {
   return [lng, lat];
 }
 
+function getTagDescription(tag: unknown): string | null {
+  if (!tag || typeof tag !== "object") return null;
+  if (!("description" in tag)) return null;
+  const raw = (tag as { description?: unknown }).description;
+  if (raw == null) return null;
+  const value = String(raw).trim();
+  return value === "" ? null : value;
+}
+
+function setMetadataValue(
+  out: Record<string, string>,
+  key: string,
+  value: string,
+  group: string
+): void {
+  const existing = out[key];
+  if (!existing) {
+    out[key] = value;
+    return;
+  }
+  if (existing === value) return;
+  out[`${key} (${group})`] = value;
+}
+
 function buildImageMetadata(tags: ExpandedTags): Record<string, string> | undefined {
   const out: Record<string, string> = {};
   const groups = ["exif", "file", "iptc", "xmp"] as const;
@@ -50,12 +72,10 @@ function buildImageMetadata(tags: ExpandedTags): Record<string, string> | undefi
     const groupTags = tags?.[group] as Record<string, { description?: string }> | undefined;
     if (!groupTags || typeof groupTags !== "object") continue;
     for (const [key, tag] of Object.entries(groupTags)) {
-      const label = METADATA_LABELS[key];
-      if (!label) continue;
-      const desc = tag && typeof tag === "object" && "description" in tag ? tag.description : null;
-      if (desc != null && String(desc).trim() !== "") {
-        out[label] = String(desc).trim();
-      }
+      const description = getTagDescription(tag);
+      if (!description) continue;
+      const normalizedKey = METADATA_LABELS[key] ?? key;
+      setMetadataValue(out, normalizedKey, description, group);
     }
   }
   return Object.keys(out).length > 0 ? out : undefined;
@@ -122,10 +142,6 @@ export async function processUploadedImage(input: Buffer): Promise<ProcessedImag
   const [displayBuffer, thumbBuffer] = await Promise.all([
     pipeline
       .clone()
-      .resize(DISPLAY_MAX_LONG_EDGE, DISPLAY_MAX_LONG_EDGE, {
-        fit: "inside",
-        withoutEnlargement: true,
-      })
       .webp({ quality: WEBP_QUALITY_DISPLAY })
       .toBuffer(),
     pipeline

@@ -3,14 +3,14 @@
  * Community submission: Turnstile-verified multipart upload. Processes image to WebP,
  * uploads to storage, inserts canonical mural in DB, and upserts embedding into Qdrant.
  *
- * FormData: turnstileToken (required), image (file), optional title, artist, lat, lng.
+ * FormData: turnstileToken (required), image (file), lat, lng (required), optional title, artist.
  */
 import { NextResponse } from "next/server";
 import { getQdrantClient, COLLECTION_NAME } from "@/lib/qdrant/client";
 import { getImageEmbedding } from "@/lib/ai/embedding";
 import { insertMural } from "@/lib/db/client";
 import { supabaseMuralStorage } from "@/lib/storage/supabase";
-import { processUploadedImage, FALLBACK_COORDINATES } from "@/lib/upload/processImage";
+import { processUploadedImage } from "@/lib/upload/processImage";
 import { verifyTurnstile } from "@/lib/turnstile";
 
 const FALLBACK_TITLE = "Community Mural";
@@ -76,10 +76,13 @@ export async function POST(request: Request) {
 
     const lat = parseCoord(formData.get("lat"));
     const lng = parseCoord(formData.get("lng"));
-    const coordinates: [number, number] =
-      lat != null && lng != null
-        ? [lng, lat]
-        : processed.coordinatesFromExif ?? FALLBACK_COORDINATES;
+    if (lat == null || lng == null) {
+      return NextResponse.json(
+        { error: "Location is required to add a mural. Please allow location access and try again." },
+        { status: 400 }
+      );
+    }
+    const coordinates: [number, number] = [lng, lat];
 
     const titleRaw = formData.get("title");
     const artistRaw = formData.get("artist");

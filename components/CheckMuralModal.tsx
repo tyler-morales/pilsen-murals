@@ -62,7 +62,22 @@ const TURNSTILE_WIDGET_ID = "check-mural-turnstile";
 const TURNSTILE_CALLBACK_NAME = "checkMuralTurnstileCallback";
 const TURNSTILE_SCRIPT_URL = "https://challenges.cloudflare.com/turnstile/v0/api.js";
 
+/** Digital zoom max when device has no hardware zoom. */
+const DIGITAL_ZOOM_MAX = 4;
+const CAMERA_IDEAL_WIDTH = 4096;
+const CAMERA_IDEAL_HEIGHT = 3072;
+
+type ImageCaptureLike = {
+  takePhoto: () => Promise<Blob>;
+};
+
 type Phase = "capture" | "checking" | "result" | "error";
+
+interface ZoomCapability {
+  min: number;
+  max: number;
+  step: number;
+}
 
 type SelectedResult = SearchResultItem | "none" | null;
 
@@ -73,6 +88,9 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastSubmittedBlobRef = useRef<Blob | null>(null);
   const addToDbWithTokenRef = useRef<((token: string) => void) | null>(null);
+  const zoomLevelRef = useRef(1);
+  const pinchStartRef = useRef<{ distance: number; zoom: number } | null>(null);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
 
   const turnstileSiteKey =
     typeof process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY === "string" &&
@@ -82,6 +100,8 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
 
   const [phase, setPhase] = useState<Phase>("capture");
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [zoomCapability, setZoomCapability] = useState<ZoomCapability | null>(null);
+  const [zoomLevel, setZoomLevel] = useState(1);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searchResult, setSearchResult] = useState<SearchResponse | null>(null);
   const [selectedResult, setSelectedResult] = useState<SelectedResult>(null);
@@ -92,6 +112,8 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const variants = isDesktop ? CENTER : SHEET;
   const userCoords = useLocationStore((s) => s.userCoords);
+  const locationPermission = useLocationStore((s) => s.permission);
+  const requestLocation = useLocationStore((s) => s.requestLocation);
   const dragControls = useDragControls();
   const haptics = useHaptics();
 
@@ -113,18 +135,116 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
     }
   }, []);
 
+  const applyZoom = useCallback((level: number) => {
+    if (zoomCapability) {
+      const track = streamRef.current?.getVideoTracks()[0];
+      if (track) {
+        track
+          .applyConstraints({ advanced: [{ zoom: level }] } as unknown as MediaTrackConstraints)
+          .catch(() => { });
+      }
+    }
+    setZoomLevel(level);
+  }, [zoomCapability]);
+
+  useEffect(() => {
+    zoomLevelRef.current = zoomLevel;
+  }, [zoomLevel]);
+
+  const getPinchZoomBounds = useCallback(() => {
+    if (zoomCapability) return { min: zoomCapability.min, max: zoomCapability.max };
+    return { min: 1, max: DIGITAL_ZOOM_MAX };
+  }, [zoomCapability]);
+
+  const handlePinchStart = useCallback(
+    (e: React.TouchEvent) => {
+      if (e.touches.length !== 2) return;
+      const distance = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      pinchStartRef.current = { distance, zoom: zoomLevelRef.current };
+    },
+    []
+  );
+
+  const handlePinchMove = useCallback(
+    (e: React.TouchEvent) => {
+      if (e.touches.length !== 2 || !pinchStartRef.current) return;
+      e.preventDefault();
+      const distance = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const scale = distance / pinchStartRef.current.distance;
+      const { min, max } = getPinchZoomBounds();
+      let next = pinchStartRef.current.zoom * scale;
+      next = Math.max(min, Math.min(max, next));
+      if (zoomCapability) {
+        const step = zoomCapability.step;
+        next = Math.round(next / step) * step;
+      } else {
+        next = Math.round(next * 10) / 10;
+      }
+      next = Math.max(min, Math.min(max, next));
+      applyZoom(next);
+    },
+    [zoomCapability, getPinchZoomBounds, applyZoom]
+  );
+
+  const handlePinchEnd = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length < 2) pinchStartRef.current = null;
+  }, []);
+
   const startCamera = useCallback(() => {
     setCameraError(null);
+    setZoomCapability(null);
+    setZoomLevel(1);
     if (!navigator.mediaDevices?.getUserMedia) {
       setCameraError("Camera not supported. Use \"Upload photo\" instead.");
       return;
     }
-    navigator.mediaDevices
-      .getUserMedia({ video: { facingMode: "environment" } })
+    const supported = navigator.mediaDevices.getSupportedConstraints();
+    const supportsZoom =
+      typeof supported === "object" && supported !== null && (supported as { zoom?: boolean }).zoom === true;
+    const constraints: MediaStreamConstraints = {
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: CAMERA_IDEAL_WIDTH },
+        height: { ideal: CAMERA_IDEAL_HEIGHT },
+      },
+    };
+    navigator.mediaDevices.getUserMedia(constraints)
       .then((stream) => {
         streamRef.current = stream;
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
+        }
+        const track = stream.getVideoTracks()[0];
+        if (track) {
+          const hasGetCapabilities = typeof (track as MediaStreamTrack & { getCapabilities?: unknown }).getCapabilities === "function";
+          const hasGetSettings = typeof (track as MediaStreamTrack & { getSettings?: unknown }).getSettings === "function";
+          const caps = hasGetCapabilities
+            ? (track.getCapabilities() as Record<string, { min?: number; max?: number; step?: number }>)
+            : {};
+          const settings = hasGetSettings ? (track.getSettings() as Record<string, number>) : {};
+          if (typeof caps.zoom === "object" && caps.zoom?.min != null && caps.zoom?.max != null) {
+            const step = caps.zoom.step ?? 1;
+            const current = settings.zoom;
+            const clampedCurrent =
+              typeof current === "number" ? Math.max(caps.zoom.min, Math.min(caps.zoom.max, current)) : caps.zoom.min;
+            if (supportsZoom) {
+              track
+                .applyConstraints({ advanced: [{ zoom: clampedCurrent }] } as unknown as MediaTrackConstraints)
+                .catch(() => { });
+            }
+            setZoomCapability({
+              min: caps.zoom.min,
+              max: caps.zoom.max,
+              step,
+            });
+            setZoomLevel(clampedCurrent);
+          }
         }
       })
       .catch(() => {
@@ -137,6 +257,8 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
       stopCamera();
       setPhase("capture");
       setCameraError(null);
+      setZoomCapability(null);
+      setZoomLevel(1);
       setSearchError(null);
       setSearchResult(null);
       setSelectedResult(null);
@@ -190,6 +312,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
     }
   }, [isOpen, onClose]);
 
+  /** Check phase is read-only: we only call /api/search. No Supabase or DB writes until the user explicitly chooses "Add to database" (POST /api/murals/submit). */
   const submitImage = useCallback(async (blob: Blob) => {
     haptics.shutter();
     lastSubmittedBlobRef.current = blob;
@@ -233,12 +356,59 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
   const captureFromVideo = useCallback(() => {
     const video = videoRef.current;
     if (!video || !streamRef.current || video.readyState !== 4) return;
+    const track = streamRef.current.getVideoTracks()[0];
+    const supportsImageCapture =
+      typeof window !== "undefined" &&
+      "ImageCapture" in window &&
+      typeof (window as unknown as { ImageCapture?: new (t: MediaStreamTrack) => ImageCaptureLike }).ImageCapture ===
+      "function";
+    const useDigitalZoom = !zoomCapability && zoomLevel > 1;
+
+    // Prefer ImageCapture to preserve camera metadata when available.
+    if (track && supportsImageCapture && !useDigitalZoom) {
+      const ImageCaptureCtor = (
+        window as unknown as { ImageCapture: new (t: MediaStreamTrack) => ImageCaptureLike }
+      ).ImageCapture;
+      const imageCapture = new ImageCaptureCtor(track);
+      imageCapture
+        .takePhoto()
+        .then((blob) => submitImage(blob))
+        .catch(() => {
+          const canvas = document.createElement("canvas");
+          const w = video.videoWidth;
+          const h = video.videoHeight;
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return;
+          ctx.drawImage(video, 0, 0);
+          canvas.toBlob(
+            (blob) => {
+              if (blob) submitImage(blob);
+            },
+            "image/jpeg",
+            0.9
+          );
+        });
+      return;
+    }
+
     const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    const w = video.videoWidth;
+    const h = video.videoHeight;
+    canvas.width = w;
+    canvas.height = h;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    ctx.drawImage(video, 0, 0);
+    if (useDigitalZoom) {
+      const cropW = w / zoomLevel;
+      const cropH = h / zoomLevel;
+      const sx = (w - cropW) / 2;
+      const sy = (h - cropH) / 2;
+      ctx.drawImage(video, sx, sy, cropW, cropH, 0, 0, w, h);
+    } else {
+      ctx.drawImage(video, 0, 0);
+    }
     canvas.toBlob(
       (blob) => {
         if (blob) submitImage(blob);
@@ -246,7 +416,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
       "image/jpeg",
       0.9
     );
-  }, [submitImage]);
+  }, [submitImage, zoomCapability, zoomLevel]);
 
   const handleFileChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -292,6 +462,10 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
       const fd = new FormData();
       fd.append("turnstileToken", token);
       fd.append("image", blob, "capture.jpg");
+      if (userCoords) {
+        fd.append("lat", String(userCoords[1]));
+        fd.append("lng", String(userCoords[0]));
+      }
       try {
         const res = await fetch("/api/murals/submit", { method: "POST", body: fd });
         if (res.ok) {
@@ -309,7 +483,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
         setAddToDbPending(false);
       }
     },
-    [handleCheckAnother]
+    [handleCheckAnother, userCoords]
   );
 
   useEffect(() => {
@@ -438,18 +612,46 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                     <p className="text-sm text-zinc-600">
                       Take a photo of a mural or upload an image to see if it&apos;s in our database.
                     </p>
-                    <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl bg-zinc-100">
+                    <div
+                      ref={previewContainerRef}
+                      className="relative aspect-[4/3] w-full overflow-hidden rounded-xl bg-zinc-100 touch-none"
+                      onTouchStart={handlePinchStart}
+                      onTouchMove={handlePinchMove}
+                      onTouchEnd={handlePinchEnd}
+                      onTouchCancel={handlePinchEnd}
+                    >
                       <video
                         ref={videoRef}
                         autoPlay
                         playsInline
                         muted
                         className="h-full w-full object-cover"
-                        aria-label="Camera preview"
+                        style={
+                          !zoomCapability && zoomLevel > 1
+                            ? {
+                              position: "absolute",
+                              left: "50%",
+                              top: "50%",
+                              width: "100%",
+                              height: "100%",
+                              objectFit: "cover",
+                              transform: `translate(-50%, -50%) scale(${zoomLevel})`,
+                            }
+                            : undefined
+                        }
+                        aria-label="Camera preview — pinch to zoom"
                       />
                       {cameraError && (
                         <div className="absolute inset-0 flex items-center justify-center bg-zinc-200/95 p-4 text-center text-sm text-zinc-700">
                           {cameraError}
+                        </div>
+                      )}
+                      {!cameraError && (
+                        <div
+                          className="absolute bottom-3 right-3 rounded-lg bg-black/50 px-2 py-1 text-xs text-white/90"
+                          aria-hidden
+                        >
+                          {zoomLevel.toFixed(1)}×
                         </div>
                       )}
                     </div>
@@ -583,6 +785,28 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                             aria-hidden
                           />
                         )}
+                        {!userCoords && (
+                          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
+                            <p className="font-medium">Location required</p>
+                            <p className="mt-0.5 text-amber-800">
+                              Allow location access to add this mural to the map. We use your exact position to place it.
+                            </p>
+                            {locationPermission !== "denied" ? (
+                              <button
+                                type="button"
+                                onClick={requestLocation}
+                                className="mt-2 rounded-lg bg-amber-500 px-3 py-1.5 text-sm font-semibold text-amber-950 transition-colors hover:bg-amber-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2"
+                                aria-label="Enable location access"
+                              >
+                                Enable location
+                              </button>
+                            ) : (
+                              <p className="mt-2 text-xs text-amber-700">
+                                Location was denied. Enable it in your browser or device settings to add murals.
+                              </p>
+                            )}
+                          </div>
+                        )}
                         <div className="flex min-h-[44px] w-full flex-row items-stretch gap-3">
                           <button
                             type="button"
@@ -596,10 +820,16 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                           <button
                             type="button"
                             onClick={handleAddToDb}
-                            disabled={addToDbPending || !turnstileSiteKey}
+                            disabled={addToDbPending || !turnstileSiteKey || !userCoords}
                             className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl border-2 border-green-600 bg-green-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-green-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                             aria-label="Add this mural to the database"
-                            title={!turnstileSiteKey ? "Captcha not configured" : undefined}
+                            title={
+                              !userCoords
+                                ? "Location required"
+                                : !turnstileSiteKey
+                                  ? "Captcha not configured"
+                                  : undefined
+                            }
                           >
                             <Database className="h-4 w-4 shrink-0" aria-hidden />
                             {addToDbPending ? "Submitting…" : "Add to database"}

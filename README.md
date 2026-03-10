@@ -70,7 +70,7 @@ Visual similarity search: upload a mural photo and find if it’s already in the
 4. **APIs**
    - **GET /api/murals** — Returns all murals from the canonical DB (app shape). 503 if DB unavailable.
    - **POST /api/murals** — Learning only: add another image vector to an existing mural (FormData: `image`, `muralId`) or index by JSON (embedding/imageUrl). Does not create map records; use **POST /api/murals/submit** for new community murals.
-   - **POST /api/murals/submit** — Community submission: FormData with `turnstileToken`, `image`, optional `title`, `artist`, `lat`, `lng`. Verifies Turnstile, processes image to WebP (display + thumbnail), uploads to storage, inserts mural in DB, and upserts embedding in Qdrant. Auto-publishes to the map.
+  - **POST /api/murals/submit** — Community submission: FormData with `turnstileToken`, `image`, optional `title`, `artist`, `lat`, `lng`. Verifies Turnstile, processes image to WebP (full-resolution display + thumbnail), uploads to storage, inserts mural in DB, and upserts embedding in Qdrant. Auto-publishes to the map.
    - **POST /api/search** — Search by image: send either `multipart/form-data` with an image file (field `image` or `file`) or JSON `{ "imageUrl": "https://..." }`. Returns top 3 similar murals as `{ results: [ { id, score, payload } ] }` (higher score = more similar).
 
 ## Community uploads and canonical data
@@ -85,7 +85,7 @@ Map content is read from **Supabase** (murals table + storage). When Supabase is
 
 2. **DB and storage** — Run the migration in `supabase/migrations/20250310000000_murals.sql` (Supabase SQL editor or `supabase db push`). Create a **public** storage bucket named `murals` in the Supabase dashboard.
 
-3. **Flow** — User taps “Check a mural”, captures or uploads a photo. If the mural isn’t in the system, “Add to database” runs Turnstile (invisible), then **POST /api/murals/submit** processes the image (WebP display + thumb, dominant color, optional EXIF), uploads to Supabase Storage, inserts a row in `murals`, and upserts the CLIP embedding into Qdrant. The new mural appears on the map on next load (or when the map data is refetched).
+3. **Flow** — User taps “Check a mural”, captures or uploads a photo. The photo is sent only to **POST /api/search** (visual similarity); nothing is written to Supabase or the DB at this step. Persistence happens only when the user explicitly taps "Add to database": Turnstile (invisible) runs, then **POST /api/murals/submit** processes the image (WebP display + thumb, dominant color, optional EXIF), uploads to Supabase Storage, inserts a row in `murals`, and upserts the CLIP embedding into Qdrant. The new mural appears on the map on next load (or when the map data is refetched).
 
 4. **Seed DB from JSON** — To populate the Supabase `murals` table from `data/murals.json`, run **`npm run seed-murals-db`** (requires `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`). Uses upsert on `id` so re-runs are safe.
 
