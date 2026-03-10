@@ -16,6 +16,8 @@ interface MuralState {
   clearPendingFlyTo: () => void;
   goPrev: () => void;
   goNext: () => void;
+  /** Set active mural by index (clamped). Used for enlarged-view loop navigation. */
+  goToIndex: (index: number) => void;
 }
 
 export const useMuralStore = create<MuralState>((set) => ({
@@ -64,6 +66,18 @@ export const useMuralStore = create<MuralState>((set) => ({
       return {
         activeIndex: newIndex,
         activeMural: state.muralsOrder[newIndex],
+      };
+    }),
+  goToIndex: (index) =>
+    set((state) => {
+      if (state.muralsOrder.length === 0) return state;
+      const clamped = Math.max(
+        0,
+        Math.min(index, state.muralsOrder.length - 1)
+      );
+      return {
+        activeIndex: clamped,
+        activeMural: state.muralsOrder[clamped],
       };
     }),
 }));

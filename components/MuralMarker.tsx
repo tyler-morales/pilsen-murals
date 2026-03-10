@@ -9,6 +9,8 @@ const HEIGHT_AT_ZOOM_MIN = 28;
 const HEIGHT_AT_ZOOM_MAX = 88;
 
 const REVEAL_DURATION_MS = 220;
+const DIM_LIFT_DURATION_MS = 180;
+const LIFT_TRANSLATE_PX = -8;
 
 /** Mural IDs that have already played their entrance animation this session. Prevents re-fade on map pan/zoom. */
 const revealedMuralIds = new Set<string>();
@@ -62,6 +64,20 @@ interface MuralMarkerProps {
   tourRole?: "start" | "end";
   /** When true, user is within geofence of this mural; show distinct border and "You're near" title. */
   isNearby?: boolean;
+  /** When true, hide the pin (e.g. when using a shared pin). */
+  hidePin?: boolean;
+  /** When true, lower opacity (e.g. when another card in the fan is hovered). */
+  isDimmed?: boolean;
+  /** When true, lift the card visually (e.g. when this card is hovered/focused in a fan). */
+  isLifted?: boolean;
+  /** Called when the card button receives focus (for hover sync). */
+  onFocus?: () => void;
+  /** Called when the card button loses focus (for hover sync). */
+  onBlur?: () => void;
+  /** Called when pointer enters the marker (map-wide hover). */
+  onPointerEnter?: () => void;
+  /** Called when pointer leaves the marker (map-wide hover). */
+  onPointerLeave?: () => void;
 }
 
 export function MuralMarker({
@@ -73,6 +89,13 @@ export function MuralMarker({
   tourIndex,
   tourRole,
   isNearby = false,
+  hidePin = false,
+  isDimmed = false,
+  isLifted = false,
+  onFocus,
+  onBlur,
+  onPointerEnter,
+  onPointerLeave,
 }: MuralMarkerProps) {
   const hasRevealedRef = useRef(false);
   const skipAnimation =
@@ -105,13 +128,19 @@ export function MuralMarker({
   const touchWidth = Math.max(minTouch, widthPx);
   const offset = getStableCardOffset(mural.id);
 
+  const opacity = visible ? (isDimmed ? 0.55 : 1) : 0;
+  const liftTransform =
+    isLifted && !prefersReducedMotion
+      ? `translateY(${LIFT_TRANSLATE_PX}px)`
+      : "none";
+
   return (
     <span
-      className="relative inline-block ease-out"
+      className="relative inline-flex flex-col items-center ease-out"
       style={{
-        opacity: visible ? 1 : 0,
+        opacity,
         transform: `rotate(${offset.rotationDeg}deg) translate(${offset.translateX}px, ${offset.translateY}px) ${visible ? "scale(1)" : "scale(0.92)"}`,
-        transition: `opacity ${REVEAL_DURATION_MS}ms ease-out, transform ${REVEAL_DURATION_MS}ms ease-out`,
+        transition: `opacity ${DIM_LIFT_DURATION_MS}ms ease-out, transform ${REVEAL_DURATION_MS}ms ease-out`,
       }}
       aria-hidden
     >
@@ -133,12 +162,26 @@ export function MuralMarker({
           {tourRole === "start" ? "Start" : "End"}
         </span>
       )}
+      <span
+        className="block transition-[transform,box-shadow] duration-[180ms] ease-out"
+        style={{
+          transform: liftTransform,
+          boxShadow:
+            isLifted && !prefersReducedMotion
+              ? "0 8px 24px -4px rgba(0,0,0,0.25)"
+              : undefined,
+        }}
+      >
       <button
         type="button"
         onClick={(e) => {
           e.stopPropagation();
           onClick(mural);
         }}
+        onFocus={onFocus}
+        onBlur={onBlur}
+        onPointerEnter={onPointerEnter}
+        onPointerLeave={onPointerLeave}
         className="mural-marker group relative flex items-center justify-center overflow-visible focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 ring-offset-dynamic-surface"
         style={{
           minHeight: minTouch,
@@ -192,6 +235,22 @@ export function MuralMarker({
           )}
         </span>
       </button>
+      </span>
+      {!hidePin && (
+        <span
+          className="pointer-events-none flex flex-col items-center"
+          aria-hidden
+        >
+          <span
+            className="h-3 w-1 shrink-0 bg-white/90 shadow-[0_1px_2px_rgba(0,0,0,0.2)]"
+            style={{ minHeight: 10 }}
+          />
+          <span
+            className="h-2 w-2 -translate-y-px rounded-full border border-white/80 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.25)]"
+            aria-hidden
+          />
+        </span>
+      )}
     </span>
   );
 }

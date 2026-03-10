@@ -100,26 +100,6 @@ export const useProximityStore = create<ProximityState>((set, get) => ({
       if (idx >= 0) showIndex = idx;
     }
     const { mural, distanceM } = getCurrent(newQueue, showIndex);
-    // #region agent log
-    if (typeof fetch !== "undefined") {
-      fetch("http://127.0.0.1:7834/ingest/75c1fc41-3a14-4be5-8874-6f7c19a23dc4", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "2991a5" },
-        body: JSON.stringify({
-          sessionId: "2991a5",
-          location: "proximityStore.ts:setNearbyFromCoords",
-          message: "setNearbyFromCoords running",
-          data: {
-            currentNearbyIdBefore: stateBefore.currentNearby?.id ?? null,
-            newQueueLen: newQueue.length,
-            willSetCurrentNearbyId: mural?.id ?? null,
-          },
-          timestamp: Date.now(),
-          hypothesisId: "H1",
-        }),
-      }).catch(() => {});
-    }
-    // #endregion
     set({
       nearbyQueue: newQueue,
       showIndex,
@@ -133,27 +113,6 @@ export const useProximityStore = create<ProximityState>((set, get) => ({
     const { nearbyQueue, showIndex } = get();
     const nextIndex = showIndex + 1;
     const { mural, distanceM } = getCurrent(nearbyQueue, nextIndex);
-    // #region agent log
-    if (typeof fetch !== "undefined") {
-      fetch("http://127.0.0.1:7834/ingest/75c1fc41-3a14-4be5-8874-6f7c19a23dc4", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "2991a5" },
-        body: JSON.stringify({
-          sessionId: "2991a5",
-          location: "proximityStore.ts:showNext",
-          message: "showNext result",
-          data: {
-            showIndex,
-            queueLen: nearbyQueue.length,
-            nextIndex,
-            resultCurrentNearbyId: mural?.id ?? null,
-          },
-          timestamp: Date.now(),
-          hypothesisId: "H3",
-        }),
-      }).catch(() => {});
-    }
-    // #endregion
     set({
       exitDirection: "left",
       showIndex: nextIndex,

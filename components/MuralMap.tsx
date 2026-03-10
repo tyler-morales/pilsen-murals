@@ -6,7 +6,6 @@ import { createRoot } from "react-dom/client";
 import Supercluster from "supercluster";
 import { MuralMarker } from "./MuralMarker";
 import { ClusterMarker } from "./ClusterMarker";
-import { FannedMuralCards } from "./FannedMuralCards";
 import { useLocationStore } from "@/store/locationStore";
 import { useMuralStore } from "@/store/muralStore";
 import { useMapStore } from "@/store/mapStore";
@@ -74,7 +73,7 @@ function createFitMapControl(getCoords: () => [number, number][]) {
       container.appendChild(btn);
       return container;
     }
-    onRemove() {}
+    onRemove() { }
   };
 }
 
@@ -205,6 +204,8 @@ interface PlacementMarkersProps {
   onClick: (mural: Mural) => void;
   prefersReducedMotion: boolean;
   nearbyMuralId: string | null;
+  hoveredMuralId: string | null;
+  onHover: (muralId: string | null) => void;
 }
 
 function PlacementMarkers({
@@ -214,38 +215,33 @@ function PlacementMarkers({
   onClick,
   prefersReducedMotion,
   nearbyMuralId,
+  hoveredMuralId,
+  onHover,
 }: PlacementMarkersProps) {
   return (
     <>
       {placements.map((placement, i) => {
         const wrapper = wrappers[i];
         if (!wrapper) return null;
-        const { murals } = placement;
-        if (murals.length === 1) {
-          const revealDelay = (i % MARKER_CHUNK_SIZE) * REVEAL_STAGGER_MS;
-          return createPortal(
-            <MuralMarker
-              mural={murals[0]}
-              zoom={zoom}
-              onClick={onClick}
-              revealDelay={revealDelay}
-              prefersReducedMotion={prefersReducedMotion}
-              isNearby={murals[0].id === nearbyMuralId}
-            />,
-            wrapper,
-            murals[0].id
-          );
-        }
+        const mural = placement.murals[0];
+        if (!mural) return null;
+        const revealDelay = (i % MARKER_CHUNK_SIZE) * REVEAL_STAGGER_MS;
+        const isHovered = hoveredMuralId === mural.id;
         return createPortal(
-          <FannedMuralCards
-            murals={murals}
+          <MuralMarker
+            mural={mural}
             zoom={zoom}
             onClick={onClick}
+            revealDelay={revealDelay}
             prefersReducedMotion={prefersReducedMotion}
-            nearbyMuralId={nearbyMuralId}
+            isNearby={mural.id === nearbyMuralId}
+            isDimmed={hoveredMuralId != null && !isHovered}
+            isLifted={isHovered}
+            onPointerEnter={() => onHover(mural.id)}
+            onPointerLeave={() => onHover(null)}
           />,
           wrapper,
-          `fan-${murals.map((m) => m.id).join("-")}`
+          mural.id
         );
       })}
     </>
@@ -260,62 +256,24 @@ interface ClusterInstance {
 const INITIAL_ZOOM = 14;
 
 const CLUSTER_INDEX_OPTIONS = {
-  radius: 60,
-  maxZoom: 16,
+  radius: 100,
+  maxZoom: 17,
   minPoints: 2,
 };
-
-/** Pixel distance under which leaf markers are grouped into a fanned deck (when zoom < FAN_DISABLE_ZOOM). */
-const OVERLAP_GROUP_PX = 50;
-
-/** At this zoom and above, leaves are not grouped—each mural gets its own marker so all are clickable. */
-const FAN_DISABLE_ZOOM = 16;
 
 interface Placement {
   center: [number, number];
   murals: Mural[];
 }
 
-/** Group leaves by screen proximity; each group becomes one placement (single marker or fanned deck). When zoom >= FAN_DISABLE_ZOOM, no grouping so every leaf is one placement. */
+/** One placement per leaf (one marker per mural). Overlapping placements are spread via spreadOverlappingPlacements. */
 function groupLeavesIntoPlacements(
   leaves: { mural: Mural; coordinates: [number, number] }[],
-  project: (coords: [number, number]) => { x: number; y: number },
-  zoom: number
+  _project: (coords: [number, number]) => { x: number; y: number },
+  _zoom: number
 ): Placement[] {
   if (leaves.length === 0) return [];
-  if (zoom >= FAN_DISABLE_ZOOM) {
-    return leaves.map((l) => ({ center: l.coordinates, murals: [l.mural] }));
-  }
-  const points = leaves.map((l) => ({ ...l, point: project(l.coordinates) }));
-  const n = points.length;
-  const parent = Array.from({ length: n }, (_, i) => i);
-  function find(i: number): number {
-    if (parent[i] !== i) parent[i] = find(parent[i]);
-    return parent[i];
-  }
-  function union(i: number, j: number): void {
-    parent[find(i)] = find(j);
-  }
-  for (let i = 0; i < n; i++) {
-    for (let j = i + 1; j < n; j++) {
-      const dx = points[i].point.x - points[j].point.x;
-      const dy = points[i].point.y - points[j].point.y;
-      if (dx * dx + dy * dy < OVERLAP_GROUP_PX * OVERLAP_GROUP_PX) union(i, j);
-    }
-  }
-  const byRoot = new Map<number, (typeof points)[0][]>();
-  for (let i = 0; i < n; i++) {
-    const r = find(i);
-    if (!byRoot.has(r)) byRoot.set(r, []);
-    byRoot.get(r)!.push(points[i]);
-  }
-  return Array.from(byRoot.values()).map((group) => {
-    const lngSum = group.reduce((s, p) => s + p.coordinates[0], 0);
-    const latSum = group.reduce((s, p) => s + p.coordinates[1], 0);
-    const center: [number, number] = [lngSum / group.length, latSum / group.length];
-    const murals = group.map((p) => p.mural);
-    return { center, murals };
-  });
+  return leaves.map((l) => ({ center: l.coordinates, murals: [l.mural] }));
 }
 
 /** When zoomed in, placements with the same or very close center are spread in a circle (screen space) so each marker is clickable. */
@@ -420,10 +378,10 @@ function addCustomSourcesAndLayers(
     type: "geojson",
     data: userCoords
       ? {
-          type: "Feature",
-          properties: {},
-          geometry: { type: "Point", coordinates: userCoords },
-        }
+        type: "Feature",
+        properties: {},
+        geometry: { type: "Point", coordinates: userCoords },
+      }
       : emptyFC,
   });
   map.addLayer({
@@ -492,6 +450,43 @@ export function MuralMap({
   const hasFlownToUserFromStoreRef = useRef(false);
   const mapStyleRef = useRef<MapStyleKind>(useMapStore.getState().mapStyle);
   const muralsCoordsRef = useRef<[number, number][]>([]);
+  const [hoveredMuralId, setHoveredMuralId] = useState<string | null>(null);
+  const setHoveredMuralIdRef = useRef(setHoveredMuralId);
+  setHoveredMuralIdRef.current = setHoveredMuralId;
+  const hoveredMuralIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    hoveredMuralIdRef.current = hoveredMuralId;
+  }, [hoveredMuralId]);
+
+  const placementRenderPropsRef = useRef<{
+    wrappers: HTMLDivElement[];
+    placements: Placement[];
+    zoom: number;
+    onClick: (mural: Mural) => void;
+    prefersReducedMotion: boolean;
+    nearbyMuralId: string | null;
+  } | null>(null);
+
+  useEffect(() => {
+    const props = placementRenderPropsRef.current;
+    const root = singleRootRef.current;
+    if (!props || !root) return;
+    markerRefsRef.current.forEach((ref) => {
+      const murals = "murals" in ref ? ref.murals : [ref.mural];
+      const isHovered = murals.some((m) => m.id === hoveredMuralId);
+      const isNearby = murals.some((m) => m.id === nearbyMuralIdRef.current);
+      (ref.wrapperEl as HTMLDivElement).style.zIndex =
+        isHovered || isNearby ? "1000" : "10";
+    });
+    root.render(
+      <PlacementMarkers
+        {...props}
+        nearbyMuralId={nearbyMuralIdRef.current}
+        hoveredMuralId={hoveredMuralId}
+        onHover={(id) => setHoveredMuralIdRef.current?.(id)}
+      />
+    );
+  }, [hoveredMuralId]);
   const [zoom, setZoom] = useState(INITIAL_ZOOM);
   const [mapReady, setMapReady] = useState(false);
   const [loadProgress, setLoadProgress] = useState(0);
@@ -728,7 +723,7 @@ export function MuralMap({
               return el;
             });
             leafMurals.forEach((mural, i) => {
-              const marker = new mapboxgl.Marker({ element: leafWrappers[i] })
+              const marker = new mapboxgl.Marker({ element: leafWrappers[i], anchor: "bottom" })
                 .setLngLat(mural.coordinates)
                 .addTo(map);
               markerRefsRef.current.push({ marker, wrapperEl: leafWrappers[i], mural });
@@ -784,9 +779,9 @@ export function MuralMap({
                   }}
                 />
               );
-              const marker = new mapboxgl.Marker({ element: el })
-                .setLngLat([lng, lat])
-                .addTo(map);
+const marker = new mapboxgl.Marker({ element: el, anchor: "bottom" })
+              .setLngLat([lng, lat])
+              .addTo(map);
               clusterRefsRef.current.push({ marker, root: clusterRoot });
             } else {
               const muralId = props.muralId;
@@ -800,22 +795,20 @@ export function MuralMap({
             map.project(coords),
             z
           );
-          if (z >= FAN_DISABLE_ZOOM) {
-            spreadOverlappingPlacements(
-              placements,
-              (coords) => map.project(coords),
-              (point) => {
-                const ll = map.unproject([point.x, point.y]);
-                return [ll.lng, ll.lat];
-              }
-            );
-          }
+          spreadOverlappingPlacements(
+            placements,
+            (coords) => map.project(coords),
+            (point) => {
+              const ll = map.unproject([point.x, point.y]);
+              return [ll.lng, ll.lat];
+            }
+          );
           const placementWrappers: HTMLDivElement[] = [];
 
           for (const placement of placements) {
             const el = document.createElement("div");
             el.className = "mural-marker-wrapper";
-            const marker = new mapboxgl.Marker({ element: el })
+            const marker = new mapboxgl.Marker({ element: el, anchor: "bottom" })
               .setLngLat(placement.center)
               .addTo(map);
             markerRefsRef.current.push({
@@ -827,20 +820,28 @@ export function MuralMap({
           }
 
           const nearbyId = nearbyMuralIdRef.current;
+          placementRenderPropsRef.current = {
+            wrappers: placementWrappers,
+            placements,
+            zoom: z,
+            onClick: handleMarkerClick,
+            prefersReducedMotion,
+            nearbyMuralId: nearbyId,
+          };
           placementWrappers.forEach((el, i) => {
             const placementMurals = placements[i]?.murals ?? [];
             const isNearby = placementMurals.some((m) => m.id === nearbyId);
-            el.style.zIndex = isNearby ? "1000" : "1";
+            const isHovered = placementMurals.some(
+              (m) => m.id === hoveredMuralIdRef.current
+            );
+            el.style.zIndex = isNearby || isHovered ? "1000" : "10";
           });
 
           root.render(
             <PlacementMarkers
-              wrappers={placementWrappers}
-              placements={placements}
-              zoom={z}
-              onClick={handleMarkerClick}
-              prefersReducedMotion={prefersReducedMotion}
-              nearbyMuralId={nearbyMuralIdRef.current}
+              {...placementRenderPropsRef.current}
+              hoveredMuralId={hoveredMuralIdRef.current}
+              onHover={(id) => setHoveredMuralIdRef.current?.(id)}
             />
           );
           updateMarkersRef.current = updateMarkers;
@@ -946,10 +947,10 @@ export function MuralMap({
       geofenceSource.setData(
         userCoords
           ? {
-              type: "Feature",
-              properties: {},
-              geometry: circlePolygon(userCoords, GEOFENCE_RADIUS_M),
-            }
+            type: "Feature",
+            properties: {},
+            geometry: circlePolygon(userCoords, GEOFENCE_RADIUS_M),
+          }
           : empty
       );
     }
@@ -978,6 +979,15 @@ export function MuralMap({
 
     const { mural, openModalAfterFly } = pendingFlyTo;
     const bearing = typeof mural.bearing === "number" ? mural.bearing : 0;
+
+    const onMoveEnd = () => {
+      map.setBearing(bearing);
+      if (openModalAfterFly) openModal(mural, murals);
+      clearPendingFlyTo();
+    };
+
+    // Resize so the map repaints when modal was covering it (avoids black canvas).
+    map.resize();
     map.flyTo({
       center: mural.coordinates,
       zoom: FLY_OPTIONS.zoom,
@@ -986,12 +996,6 @@ export function MuralMap({
       duration: flyDuration,
       essential: FLY_OPTIONS.essential,
     });
-
-    const onMoveEnd = () => {
-      map.setBearing(bearing);
-      if (openModalAfterFly) openModal(mural, murals);
-      clearPendingFlyTo();
-    };
     map.once("moveend", onMoveEnd);
     return () => {
       map.off("moveend", onMoveEnd);
