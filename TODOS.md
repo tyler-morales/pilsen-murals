@@ -53,6 +53,7 @@
 ## UI improvements (done)
 
 - **MapHeader camera icon**: Use `lucide-react` `Camera` icon; button h-11 min-w-11, icon h-8 w-8.
+- **MapHeader tabs**: Map | Browse | Tours with icons (Map, List, Route); single segmented control with sliding filled pill that animates (200ms ease-out) to the active tab; Map tab closes list and tour list; role="tablist"/tab, aria-selected, ResizeObserver for pill measurement.
 - **CheckMuralModal centering**: Wrapped dialog in a non-animated `div` that owns `fixed` + `left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2` on desktop so Framer Motion’s `transform` (scale) no longer overrides centering.
 - **CheckMuralModal result grid**: Potential options use 3×y CSS grid (murals only); "None of these" outside grid; larger modal (520px) and thumbnails (112px); grid max-height capped so modal height stays bounded. Grid items centered; images fill cell (aspect-square + object-cover). Single "Confirm selection" button (mural → view on map + learning; "None of these" → add to DB); Close button removed from result section.
 - **CheckMuralModal dynamic match count**: When top result ≥ MATCH_THRESHOLD (0.80), only results at or above threshold are shown; when no match, up to 5 override candidates above MIN_RELEVANCE_SCORE. Grid cols 1/2/3 (or 2+3 for 4–5) by display count.

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Camera } from "lucide-react";
+import { Camera, List, Map, Route } from "lucide-react";
 import { useThemeStore } from "@/store/themeStore";
 import { useMuralStore } from "@/store/muralStore";
 import type { Mural } from "@/types/mural";
@@ -92,8 +92,11 @@ function SunInSkyIcon({
   );
 }
 
+type TabId = "map" | "browse" | "tours";
+
 interface MapHeaderProps {
   murals: Mural[];
+  onMapClick?: () => void;
   onBrowseClick?: () => void;
   isListOpen?: boolean;
   /** When set, header shows "Leave tour" and optional tour name. */
@@ -107,6 +110,7 @@ interface MapHeaderProps {
 
 export function MapHeader({
   murals,
+  onMapClick,
   onBrowseClick,
   isListOpen = false,
   activeTour = null,
@@ -127,6 +131,33 @@ export function MapHeader({
   const [burstOnly, setBurstOnly] = useState(false);
   const animRef = useRef<number | null>(null);
   const burstTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const activeTab: TabId =
+    isListOpen ? "browse" : activeTour || isTourListOpen ? "tours" : "map";
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const [pill, setPill] = useState({ left: 0, width: 0 });
+  const measurePill = useCallback(() => {
+    const idx = activeTab === "map" ? 0 : activeTab === "browse" ? 1 : 2;
+    const el = tabRefs.current[idx];
+    if (el) {
+      setPill({ left: el.offsetLeft, width: el.offsetWidth });
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    measurePill();
+    const t = requestAnimationFrame(() => measurePill());
+    return () => cancelAnimationFrame(t);
+  }, [measurePill]);
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(measurePill);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [measurePill]);
 
   const isSunAboveHorizon = sunAltitudeDeg >= 0;
 
@@ -170,9 +201,6 @@ export function MapHeader({
     const index = Math.floor(Math.random() * murals.length);
     requestFlyTo(murals[index]);
   };
-
-  const isBrowseActive = isListOpen;
-  const isToursActive = isTourListOpen;
 
   const tourCurrentIndex =
     activeTour && murals.length > 0 && activeMural
@@ -247,118 +275,89 @@ export function MapHeader({
         </div>
       </div>
 
-      {/* Mobile: segmented control; desktop: inline buttons */}
-      <div className="flex w-full sm:w-auto sm:flex-wrap sm:gap-2">
+      {/* Tabs: Map | Browse | Tours — sliding fill indicates active */}
+      <div className="flex w-full min-w-0 flex-1 items-center gap-2 sm:w-auto sm:flex-wrap">
         <div
-          className="flex min-h-[44px] w-full flex-1 overflow-hidden rounded-xl bg-zinc-100/90 p-1 sm:hidden"
-          role="group"
-          aria-label="Main actions"
+          ref={containerRef}
+          className="relative flex min-h-[44px] min-w-0 flex-1 flex-row overflow-hidden rounded-xl bg-zinc-100/90 p-1 sm:min-w-[200px] sm:flex-initial"
+          role="tablist"
+          aria-label="Main navigation"
         >
-          {onBrowseClick && (
+          {/* Sliding pill — animates to active tab */}
+          <div
+            className="pointer-events-none absolute top-1 bottom-1 rounded-lg bg-[var(--color-accent)] shadow-sm transition-[left,width] duration-200 ease-out"
+            style={{ left: pill.left + 4, width: pill.width - 8 }}
+            aria-hidden
+          />
+          {onMapClick && (
             <button
+              ref={(el) => { tabRefs.current[0] = el; }}
               type="button"
-              onClick={onBrowseClick}
-              aria-expanded={isListOpen}
-              aria-label="Browse all murals"
-              aria-pressed={isBrowseActive}
-              className={`min-h-[40px] flex-1 rounded-lg text-sm font-semibold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 ${isBrowseActive
-                ? "bg-[var(--color-accent)] text-[var(--color-accent-foreground)] shadow-sm"
-                : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"
-                }`}
+              role="tab"
+              aria-selected={activeTab === "map"}
+              aria-label="Map view"
+              onClick={onMapClick}
+              className={`relative z-10 flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 disabled:pointer-events-none sm:flex-initial sm:px-4 ${activeTab === "map" ? "text-[var(--color-accent-foreground)]" : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"}`}
             >
-              Browse
+              <Map className="h-4 w-4 shrink-0" aria-hidden />
+              <span>Map</span>
             </button>
           )}
-          {activeTour ? (
-            onLeaveTour && (
-              <button
-                type="button"
-                onClick={onLeaveTour}
-                className="min-h-[40px] flex-1 rounded-lg text-sm font-semibold text-zinc-600 transition-all hover:bg-white/70 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100"
-                aria-label="Leave tour and show all murals"
-              >
-                Leave tour
-              </button>
-            )
-          ) : (
-            onToursClick && (
-              <button
-                type="button"
-                onClick={onToursClick}
-                aria-expanded={isTourListOpen}
-                aria-label="Walking tours"
-                aria-pressed={isToursActive}
-                className={`min-h-[40px] flex-1 rounded-lg text-sm font-semibold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 ${isToursActive
-                  ? "bg-[var(--color-accent)] text-[var(--color-accent-foreground)] shadow-sm"
-                  : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"
-                  }`}
-              >
-                Tours
-              </button>
-            )
+          {onBrowseClick && (
+            <button
+              ref={(el) => { tabRefs.current[1] = el; }}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "browse"}
+              aria-expanded={isListOpen}
+              aria-label="Browse all murals"
+              onClick={onBrowseClick}
+              className={`relative z-10 flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 disabled:pointer-events-none sm:flex-initial sm:px-4 ${activeTab === "browse" ? "text-[var(--color-accent-foreground)]" : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"}`}
+            >
+              <List className="h-4 w-4 shrink-0" aria-hidden />
+              <span>Browse</span>
+            </button>
           )}
+          {activeTour && onLeaveTour ? (
+            <button
+              ref={(el) => { tabRefs.current[2] = el; }}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "tours"}
+              aria-label="Leave tour and show all murals"
+              onClick={onLeaveTour}
+              className={`relative z-10 flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 sm:flex-initial sm:px-4 ${activeTab === "tours" ? "text-[var(--color-accent-foreground)]" : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"}`}
+            >
+              <Route className="h-4 w-4 shrink-0" aria-hidden />
+              <span>Leave tour</span>
+            </button>
+          ) : onToursClick ? (
+            <button
+              ref={(el) => { tabRefs.current[2] = el; }}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "tours"}
+              aria-expanded={isTourListOpen}
+              aria-label="Walking tours"
+              onClick={onToursClick}
+              className={`relative z-10 flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 sm:flex-initial sm:px-4 ${activeTab === "tours" ? "text-[var(--color-accent-foreground)]" : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"}`}
+            >
+              <Route className="h-4 w-4 shrink-0" aria-hidden />
+              <span>Tours</span>
+            </button>
+          ) : null}
         </div>
         {onCheckMuralClick && (
           <button
             type="button"
             onClick={onCheckMuralClick}
-            className="flex h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl text-[var(--color-accent)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent sm:hidden"
+            className="flex h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl text-[var(--color-accent)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
             aria-label="Check a mural — take or upload a photo to see if it's in our database"
             title="Check a mural"
           >
             <Camera className="h-8 w-8 shrink-0" aria-hidden />
           </button>
         )}
-
-        {/* Desktop: pill buttons */}
-        <div className="hidden gap-2 sm:flex sm:flex-wrap">
-          {onBrowseClick && (
-            <button
-              type="button"
-              onClick={onBrowseClick}
-              aria-expanded={isListOpen}
-              aria-label="Browse all murals"
-              className="min-h-[44px] shrink-0 rounded-xl border-2 border-[var(--color-accent)] bg-transparent px-4 py-2.5 text-sm font-semibold text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent)] hover:text-[var(--color-accent-foreground)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 ring-offset-white"
-            >
-              Browse
-            </button>
-          )}
-          {activeTour ? (
-            onLeaveTour && (
-              <button
-                type="button"
-                onClick={onLeaveTour}
-                className="min-h-[44px] shrink-0 rounded-xl border border-zinc-300 bg-zinc-100 px-4 py-2.5 text-sm font-semibold text-zinc-700 transition-colors hover:bg-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 ring-offset-white"
-                aria-label="Leave tour and show all murals"
-              >
-                Leave tour
-              </button>
-            )
-          ) : (
-            onToursClick && (
-              <button
-                type="button"
-                onClick={onToursClick}
-                aria-expanded={isTourListOpen}
-                aria-label="Walking tours"
-                className="min-h-[44px] shrink-0 rounded-xl border-2 border-[var(--color-accent)] bg-transparent px-4 py-2.5 text-sm font-semibold text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent)] hover:text-[var(--color-accent-foreground)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 ring-offset-white"
-              >
-                Tours
-              </button>
-            )
-          )}
-          {onCheckMuralClick && (
-            <button
-              type="button"
-              onClick={onCheckMuralClick}
-              className="flex h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl text-[var(--color-accent)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
-              aria-label="Check a mural — take or upload a photo to see if it's in our database"
-              title="Check a mural"
-            >
-              <Camera className="h-8 w-8 shrink-0" aria-hidden />
-            </button>
-          )}
-        </div>
       </div>
     </header>
   );
