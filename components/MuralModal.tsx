@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { motion, AnimatePresence, useDragControls } from "framer-motion";
 import { useMuralStore } from "@/store/muralStore";
+import { useMapStore } from "@/store/mapStore";
+import { useLocationStore } from "@/store/locationStore";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
@@ -11,7 +13,20 @@ import type { Mural } from "@/types/mural";
 import { getDirectionsUrl } from "@/lib/directions";
 import { getArtistInstagramUrl } from "@/lib/instagram";
 
+const MINIMAP_MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
+const MINIMAP_STYLE_STANDARD = "mapbox://styles/mapbox/standard";
+const MINIMAP_STYLE_SATELLITE = "mapbox://styles/mapbox/satellite-streets-v12";
+const MINIMAP_ZOOM = 15;
+const MINIMAP_MURAL_SOURCE_ID = "minimap-mural";
+const MINIMAP_MURAL_LAYER_ID = "minimap-mural-dot";
+const MINIMAP_USER_SOURCE_ID = "minimap-user";
+const MINIMAP_USER_LAYER_ID = "minimap-user-dot";
+
 const BACKDROP = { hidden: { opacity: 0 }, visible: { opacity: 1 }, exit: { opacity: 0 } };
+
+/** Duration for fade from enlarged photo to map (matches map fly duration). */
+const TRANSITION_TO_MAP_DURATION_MS = 2000;
+const TRANSITION_TO_MAP_DURATION_REDUCED_MS = 400;
 const PANEL_RIGHT = {
   hidden: { opacity: 0, x: "100%" },
   visible: { opacity: 1, x: 0 },
@@ -71,16 +86,21 @@ export function MuralModal() {
     activeIndex,
     goPrev,
     goNext,
+    goToIndex,
     requestFlyTo,
   } = useMuralStore();
+  const mapStyle = useMapStore((s) => s.mapStyle);
   const [isImageExpanded, setIsImageExpanded] = useState(false);
   const [isImageLoaded, setIsImageLoaded] = useState(false);
   const [isEnlargedImageLoaded, setIsEnlargedImageLoaded] = useState(false);
+  const [isTransitioningToMap, setIsTransitioningToMap] = useState(false);
   const prefersReducedMotion = usePrefersReducedMotion();
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const dragControls = useDragControls();
   const panelRef = useRef<HTMLElement>(null);
   const enlargedRef = useRef<HTMLDivElement>(null);
+  const minimapContainerRef = useRef<HTMLDivElement>(null);
+  const minimapRef = useRef<import("mapbox-gl").Map | null>(null);
 
   useFocusTrap(panelRef, isModalOpen && !!activeMural && !isImageExpanded);
   useFocusTrap(enlargedRef, isImageExpanded);
@@ -106,26 +126,91 @@ export function MuralModal() {
     goNext();
   };
 
+  const handleEnlargedPrev = useCallback(() => {
+    if (muralsOrder.length === 0) return;
+    const newIndex =
+      activeIndex === 0 ? muralsOrder.length - 1 : activeIndex - 1;
+    goToIndex(newIndex);
+    requestFlyTo(muralsOrder[newIndex], { openModalAfterFly: false });
+  }, [muralsOrder, activeIndex, goToIndex, requestFlyTo]);
+  const handleEnlargedNext = useCallback(() => {
+    if (muralsOrder.length === 0) return;
+    const newIndex =
+      activeIndex === muralsOrder.length - 1 ? 0 : activeIndex + 1;
+    goToIndex(newIndex);
+    requestFlyTo(muralsOrder[newIndex], { openModalAfterFly: false });
+  }, [muralsOrder, activeIndex, goToIndex, requestFlyTo]);
+
+  const handleMinimapClick = useCallback(() => {
+    if (!activeMural) return;
+    // Start map fly and fade modal so user sees smooth transition from photo to map.
+    requestFlyTo(activeMural, { openModalAfterFly: false });
+    setIsTransitioningToMap(true);
+  }, [activeMural, requestFlyTo]);
+
+  const transitionToMapDuration = prefersReducedMotion
+    ? TRANSITION_TO_MAP_DURATION_REDUCED_MS / 1000
+    : TRANSITION_TO_MAP_DURATION_MS / 1000;
+
+  const handleTransitionToMapComplete = useCallback(() => {
+    if (!isTransitioningToMap) return;
+    setIsTransitioningToMap(false);
+    setIsImageExpanded(false);
+    closeModal();
+  }, [isTransitioningToMap]);
+
   const panelTransition = prefersReducedMotion
     ? { duration: 0 }
     : { type: "spring" as const, damping: 28, stiffness: 300 };
   const backdropTransition = prefersReducedMotion ? { duration: 0 } : { duration: 0.2 };
 
   useEffect(() => {
-    const onEscape = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      if (isImageExpanded) setIsImageExpanded(false);
-      else closeModal();
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (isImageExpanded) setIsImageExpanded(false);
+        else closeModal();
+        return;
+      }
+      if (isImageExpanded && muralsOrder.length > 1) {
+        if (e.key === "ArrowLeft") {
+          e.preventDefault();
+          handleEnlargedPrev();
+        } else if (e.key === "ArrowRight") {
+          e.preventDefault();
+          handleEnlargedNext();
+        }
+        return;
+      }
+      if (!isImageExpanded && muralsOrder.length > 1) {
+        if (e.key === "ArrowLeft" && canGoPrev) {
+          e.preventDefault();
+          handlePrev();
+        } else if (e.key === "ArrowRight" && canGoNext) {
+          e.preventDefault();
+          handleNext();
+        }
+      }
     };
     if (isModalOpen) {
-      document.addEventListener("keydown", onEscape);
+      document.addEventListener("keydown", onKeyDown);
       document.body.style.overflow = "hidden";
     }
     return () => {
-      document.removeEventListener("keydown", onEscape);
+      document.removeEventListener("keydown", onKeyDown);
       document.body.style.overflow = "";
     };
-  }, [isModalOpen, closeModal, isImageExpanded]);
+  }, [
+    isModalOpen,
+    closeModal,
+    isImageExpanded,
+    muralsOrder.length,
+    canGoPrev,
+    canGoNext,
+    handleEnlargedPrev,
+    handleEnlargedNext,
+    handlePrev,
+    handleNext,
+  ]);
 
   useEffect(() => {
     if (!isModalOpen) {
@@ -146,13 +231,160 @@ export function MuralModal() {
     }
   }, [activeMural?.id]);
 
+  useEffect(() => {
+    if (!isImageExpanded && minimapRef.current) {
+      minimapRef.current.remove();
+      minimapRef.current = null;
+    }
+    return () => {
+      if (minimapRef.current) {
+        minimapRef.current.remove();
+        minimapRef.current = null;
+      }
+    };
+  }, [isImageExpanded]);
+
+  useEffect(() => {
+    const container = minimapContainerRef.current;
+    const hasToken = !!MINIMAP_MAPBOX_TOKEN;
+    if (!isImageExpanded || !activeMural || !container || !hasToken) return;
+    const coords = activeMural.coordinates;
+    const styleUrl =
+      mapStyle === "satellite" ? MINIMAP_STYLE_SATELLITE : MINIMAP_STYLE_STANDARD;
+
+    let cancelled = false;
+    import("mapbox-gl").then((mapboxglModule) => {
+      if (cancelled || !container) return;
+      if (typeof document !== "undefined") {
+        const existing = document.querySelector('link[href="/mapbox-gl.css"]');
+        if (!existing) {
+          const link = document.createElement("link");
+          link.rel = "stylesheet";
+          link.href = "/mapbox-gl.css";
+          document.head.appendChild(link);
+        }
+      }
+      const mapboxgl = mapboxglModule.default;
+      const existingMap = minimapRef.current;
+      if (existingMap) {
+        existingMap.setCenter(coords);
+        existingMap.setZoom(MINIMAP_ZOOM);
+        const muralSource = existingMap.getSource(
+          MINIMAP_MURAL_SOURCE_ID
+        ) as import("mapbox-gl").GeoJSONSource | undefined;
+        if (muralSource) {
+          muralSource.setData({
+            type: "Feature",
+            properties: {},
+            geometry: { type: "Point", coordinates: coords },
+          });
+        }
+        const userCoords = useLocationStore.getState().userCoords;
+        const userSource = existingMap.getSource(
+          MINIMAP_USER_SOURCE_ID
+        ) as import("mapbox-gl").GeoJSONSource | undefined;
+        if (userSource) {
+          userSource.setData(
+            userCoords
+              ? {
+                  type: "Feature",
+                  properties: {},
+                  geometry: { type: "Point", coordinates: userCoords },
+                }
+              : { type: "FeatureCollection", features: [] }
+          );
+        }
+        return;
+      }
+      const map = new mapboxgl.Map({
+        container,
+        style: styleUrl,
+        center: coords,
+        zoom: MINIMAP_ZOOM,
+        pitch: 0,
+        bearing: 0,
+        accessToken: MINIMAP_MAPBOX_TOKEN,
+        interactive: false,
+      });
+      map.on("load", () => {
+        if (cancelled) return;
+        const emptyFC = { type: "FeatureCollection" as const, features: [] };
+        map.addSource(MINIMAP_MURAL_SOURCE_ID, {
+          type: "geojson",
+          data: {
+            type: "Feature",
+            properties: {},
+            geometry: { type: "Point", coordinates: coords },
+          },
+        });
+        map.addLayer({
+          id: MINIMAP_MURAL_LAYER_ID,
+          type: "circle",
+          source: MINIMAP_MURAL_SOURCE_ID,
+          paint: {
+            "circle-radius": 8,
+            "circle-color": "#d97706",
+            "circle-stroke-width": 2,
+            "circle-stroke-color": "#fff",
+          },
+        });
+        map.addSource(MINIMAP_USER_SOURCE_ID, {
+          type: "geojson",
+          data: emptyFC,
+        });
+        map.addLayer({
+          id: MINIMAP_USER_LAYER_ID,
+          type: "circle",
+          source: MINIMAP_USER_SOURCE_ID,
+          paint: {
+            "circle-radius": 6,
+            "circle-color": "#4285F4",
+            "circle-stroke-width": 2,
+            "circle-stroke-color": "#fff",
+          },
+        });
+        const userCoords = useLocationStore.getState().userCoords;
+        const userSource = map.getSource(
+          MINIMAP_USER_SOURCE_ID
+        ) as import("mapbox-gl").GeoJSONSource | undefined;
+        if (userSource && userCoords) {
+          userSource.setData({
+            type: "Feature",
+            properties: {},
+            geometry: { type: "Point", coordinates: userCoords },
+          });
+        }
+        minimapRef.current = map;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isImageExpanded,
+    activeMural?.id,
+    activeMural?.coordinates,
+    mapStyle,
+  ]);
+
   return (
     <AnimatePresence mode="wait">
       {isModalOpen && activeMural && (
-        <>
+        <motion.div
+          className="fixed inset-0 z-40"
+          initial={{ opacity: 1 }}
+          animate={{ opacity: isTransitioningToMap ? 0 : 1 }}
+          transition={{
+            duration: transitionToMapDuration,
+            ease: "easeInOut",
+          }}
+          onAnimationComplete={handleTransitionToMapComplete}
+          style={{ pointerEvents: isTransitioningToMap ? "none" : "auto" }}
+        >
           <motion.div
             role="presentation"
-            className="fixed inset-0 z-40 bg-black/60"
+            className="fixed inset-0 z-0 bg-black/60"
             variants={BACKDROP}
             initial="hidden"
             animate="visible"
@@ -213,10 +445,40 @@ export function MuralModal() {
                       onClick={(e) => e.stopPropagation()}
                     />
                   </div>
+                  {muralsOrder.length > 1 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEnlargedPrev();
+                        }}
+                        className="absolute left-2 top-1/2 z-10 min-h-[44px] min-w-[44px] -translate-y-1/2 rounded-full bg-white/10 p-2 text-white backdrop-blur-sm transition-colors hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent md:left-4"
+                        aria-label="Previous mural"
+                      >
+                        <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEnlargedNext();
+                        }}
+                        className="absolute right-2 top-1/2 z-10 min-h-[44px] min-w-[44px] -translate-y-1/2 rounded-full bg-white/10 p-2 text-white backdrop-blur-sm transition-colors hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent md:right-4"
+                        aria-label="Next mural"
+                      >
+                        <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </button>
+                    </>
+                  )}
                   <button
                     type="button"
                     onClick={() => setIsImageExpanded(false)}
-                    className="absolute right-4 top-4 min-h-[44px] min-w-[44px] rounded-full bg-white/10 p-2 text-white backdrop-blur-sm transition-colors hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+                    className="absolute right-4 top-4 z-10 min-h-[44px] min-w-[44px] rounded-full bg-white/10 p-2 text-white backdrop-blur-sm transition-colors hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
                     aria-label="Close enlarged image"
                   >
                     <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
@@ -224,6 +486,23 @@ export function MuralModal() {
                     </svg>
                   </button>
                 </motion.div>
+                {MINIMAP_MAPBOX_TOKEN && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleMinimapClick();
+                    }}
+                    className="fixed left-4 bottom-4 z-[80] h-[140px] w-[200px] overflow-hidden rounded-lg border border-white/20 bg-zinc-900/80 shadow-lg backdrop-blur-sm cursor-pointer transition-[border-color,box-shadow] hover:border-amber-400/50 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+                    aria-label="View this mural on the main map"
+                    title="View on map"
+                  >
+                    <div
+                      ref={minimapContainerRef}
+                      className="h-full w-full pointer-events-none"
+                    />
+                  </button>
+                )}
               </>
             )}
           </AnimatePresence>
@@ -429,7 +708,7 @@ export function MuralModal() {
               </div>
             </div>
           </motion.aside>
-        </>
+        </motion.div>
       )}
     </AnimatePresence>
   );

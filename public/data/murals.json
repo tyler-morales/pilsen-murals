@@ -1713,5 +1713,439 @@
       "Height": "6144px",
       "Width": "8160px"
     }
+  },
+  {
+    "id": "mural-58",
+    "title": "Pilsen Mural 1",
+    "artist": "Unknown Artist",
+    "coordinates": [
+      -87.66073333333334,
+      41.857305555555556
+    ],
+    "bearing": 0,
+    "image": "/images/murals/display/PXL_20260309_195300137.RAW-01.COVER.webp",
+    "thumbnail": "/images/murals/thumbnails/PXL_20260309_195300137.RAW-01.COVER.webp",
+    "dominantColor": "#a09088",
+    "originalFile": "PXL_20260309_195300137.RAW-01.COVER.jpg",
+    "imageUrl": "/images/murals/display/PXL_20260309_195300137.RAW-01.COVER.webp",
+    "address": "",
+    "imageMetadata": {
+      "Camera make": "Google",
+      "Camera model": "Pixel 9 Pro",
+      "Orientation": "top-left",
+      "Software": "HDR+ 1.0.854411184nd",
+      "Exposure": "1/1297",
+      "Aperture": "f/1.7",
+      "Exposure program": "Normal program",
+      "Date taken": "2026:03:09 14:53:00",
+      "Focal length": "6.9 mm",
+      "White balance": "Auto white balance",
+      "Lens": "Pixel 9 Pro back camera 6.9mm f/1.68",
+      "Height": "6144px",
+      "Width": "8160px"
+    }
+  },
+  {
+    "id": "mural-59",
+    "title": "Pilsen Mural 2",
+    "artist": "Unknown Artist",
+    "coordinates": [
+      -87.66073333333334,
+      41.857305555555556
+    ],
+    "bearing": 0,
+    "image": "/images/murals/display/PXL_20260309_195317684.RAW-01.COVER.webp",
+    "thumbnail": "/images/murals/thumbnails/PXL_20260309_195317684.RAW-01.COVER.webp",
+    "dominantColor": "#101018",
+    "originalFile": "PXL_20260309_195317684.RAW-01.COVER.jpg",
+    "imageUrl": "/images/murals/display/PXL_20260309_195317684.RAW-01.COVER.webp",
+    "address": "",
+    "imageMetadata": {
+      "Camera make": "Google",
+      "Camera model": "Pixel 9 Pro",
+      "Orientation": "top-left",
+      "Software": "HDR+ 1.0.854411184nd",
+      "Exposure": "1/1309",
+      "Aperture": "f/1.7",
+      "Exposure program": "Normal program",
+      "Date taken": "2026:03:09 14:53:17",
+      "Focal length": "6.9 mm",
+      "White balance": "Auto white balance",
+      "Lens": "Pixel 9 Pro back camera 6.9mm f/1.68",
+      "Height": "6144px",
+      "Width": "8160px"
+    }
+  },
+  {
+    "id": "mural-60",
+    "title": "Pilsen Mural 3",
+    "artist": "Unknown Artist",
+    "coordinates": [
+      -87.66040555555556,
+      41.85741111111111
+    ],
+    "bearing": 0,
+    "image": "/images/murals/display/PXL_20260309_195328000.RAW-01.COVER.webp",
+    "thumbnail": "/images/murals/thumbnails/PXL_20260309_195328000.RAW-01.COVER.webp",
+    "dominantColor": "#807878",
+    "originalFile": "PXL_20260309_195328000.RAW-01.COVER.jpg",
+    "imageUrl": "/images/murals/display/PXL_20260309_195328000.RAW-01.COVER.webp",
+    "address": "",
+    "imageMetadata": {
+      "Camera make": "Google",
+      "Camera model": "Pixel 9 Pro",
+      "Orientation": "top-left",
+      "Software": "HDR+ 1.0.854411184nd",
+      "Exposure": "1/915",
+      "Aperture": "f/1.7",
+      "Exposure program": "Normal program",
+      "Date taken": "2026:03:09 14:53:28",
+      "Focal length": "6.9 mm",
+      "White balance": "Auto white balance",
+      "Lens": "Pixel 9 Pro back camera 6.9mm f/1.68",
+      "Height": "8160px",
+      "Width": "6144px"
+    }
+  },
+  {
+    "id": "mural-61",
+    "title": "Pilsen Mural 4",
+    "artist": "Unknown Artist",
+    "coordinates": [
+      -87.66040555555556,
+      41.85741111111111
+    ],
+    "bearing": 0,
+    "image": "/images/murals/display/PXL_20260309_195340085.RAW-01.COVER.webp",
+    "thumbnail": "/images/murals/thumbnails/PXL_20260309_195340085.RAW-01.COVER.webp",
+    "dominantColor": "#484848",
+    "originalFile": "PXL_20260309_195340085.RAW-01.COVER.jpg",
+    "imageUrl": "/images/murals/display/PXL_20260309_195340085.RAW-01.COVER.webp",
+    "address": "",
+    "imageMetadata": {
+      "Camera make": "Google",
+      "Camera model": "Pixel 9 Pro",
+      "Orientation": "top-left",
+      "Software": "HDR+ 1.0.854411184nd",
+      "Exposure": "1/2882",
+      "Aperture": "f/1.7",
+      "Exposure program": "Normal program",
+      "Date taken": "2026:03:09 14:53:40",
+      "Focal length": "2.02 mm",
+      "White balance": "Auto white balance",
+      "Lens": "Pixel 9 Pro back camera 2.02mm f/1.7",
+      "Height": "8160px",
+      "Width": "6144px"
+    }
+  },
+  {
+    "id": "mural-62",
+    "title": "Pilsen Mural 5",
+    "artist": "Unknown Artist",
+    "coordinates": [
+      -87.66040555555556,
+      41.85741111111111
+    ],
+    "bearing": 0,
+    "image": "/images/murals/display/PXL_20260309_195357090.RAW-01.COVER.webp",
+    "thumbnail": "/images/murals/thumbnails/PXL_20260309_195357090.RAW-01.COVER.webp",
+    "dominantColor": "#887870",
+    "originalFile": "PXL_20260309_195357090.RAW-01.COVER.jpg",
+    "imageUrl": "/images/murals/display/PXL_20260309_195357090.RAW-01.COVER.webp",
+    "address": "",
+    "imageMetadata": {
+      "Camera make": "Google",
+      "Camera model": "Pixel 9 Pro",
+      "Orientation": "top-left",
+      "Software": "HDR+ 1.0.854411184nd",
+      "Exposure": "1/4673",
+      "Aperture": "f/1.7",
+      "Exposure program": "Normal program",
+      "Date taken": "2026:03:09 14:53:57",
+      "Focal length": "2.02 mm",
+      "White balance": "Auto white balance",
+      "Lens": "Pixel 9 Pro back camera 2.02mm f/1.7",
+      "Height": "6144px",
+      "Width": "8160px"
+    }
+  },
+  {
+    "id": "mural-63",
+    "title": "Pilsen Mural 6",
+    "artist": "Unknown Artist",
+    "coordinates": [
+      -87.66040555555556,
+      41.85741111111111
+    ],
+    "bearing": 0,
+    "image": "/images/murals/display/PXL_20260309_195410205.RAW-01.COVER.webp",
+    "thumbnail": "/images/murals/thumbnails/PXL_20260309_195410205.RAW-01.COVER.webp",
+    "dominantColor": "#5090e0",
+    "originalFile": "PXL_20260309_195410205.RAW-01.COVER.jpg",
+    "imageUrl": "/images/murals/display/PXL_20260309_195410205.RAW-01.COVER.webp",
+    "address": "",
+    "imageMetadata": {
+      "Camera make": "Google",
+      "Camera model": "Pixel 9 Pro",
+      "Orientation": "top-left",
+      "Software": "HDR+ 1.0.854411184nd",
+      "Exposure": "1/3497",
+      "Aperture": "f/1.7",
+      "Exposure program": "Normal program",
+      "Date taken": "2026:03:09 14:54:10",
+      "Focal length": "2.02 mm",
+      "White balance": "Auto white balance",
+      "Lens": "Pixel 9 Pro back camera 2.02mm f/1.7",
+      "Height": "6144px",
+      "Width": "8160px"
+    }
+  },
+  {
+    "id": "mural-64",
+    "title": "Pilsen Mural 7",
+    "artist": "Unknown Artist",
+    "coordinates": [
+      -87.66040555555556,
+      41.85741111111111
+    ],
+    "bearing": 0,
+    "image": "/images/murals/display/PXL_20260309_195425129.RAW-01.COVER.webp",
+    "thumbnail": "/images/murals/thumbnails/PXL_20260309_195425129.RAW-01.COVER.webp",
+    "dominantColor": "#485068",
+    "originalFile": "PXL_20260309_195425129.RAW-01.COVER.jpg",
+    "imageUrl": "/images/murals/display/PXL_20260309_195425129.RAW-01.COVER.webp",
+    "address": "",
+    "imageMetadata": {
+      "Camera make": "Google",
+      "Camera model": "Pixel 9 Pro",
+      "Orientation": "top-left",
+      "Software": "HDR+ 1.0.854411184nd",
+      "Exposure": "1/2513",
+      "Aperture": "f/1.7",
+      "Exposure program": "Normal program",
+      "Date taken": "2026:03:09 14:54:25",
+      "Focal length": "2.02 mm",
+      "White balance": "Auto white balance",
+      "Lens": "Pixel 9 Pro back camera 2.02mm f/1.7",
+      "Height": "8160px",
+      "Width": "6144px"
+    }
+  },
+  {
+    "id": "mural-65",
+    "title": "Pilsen Mural 8",
+    "artist": "Unknown Artist",
+    "coordinates": [
+      -87.66040555555556,
+      41.85741111111111
+    ],
+    "bearing": 0,
+    "image": "/images/murals/display/PXL_20260309_195439129.RAW-01.COVER.webp",
+    "thumbnail": "/images/murals/thumbnails/PXL_20260309_195439129.RAW-01.COVER.webp",
+    "dominantColor": "#081018",
+    "originalFile": "PXL_20260309_195439129.RAW-01.COVER.jpg",
+    "imageUrl": "/images/murals/display/PXL_20260309_195439129.RAW-01.COVER.webp",
+    "address": "",
+    "imageMetadata": {
+      "Camera make": "Google",
+      "Camera model": "Pixel 9 Pro",
+      "Orientation": "top-left",
+      "Software": "HDR+ 1.0.854411184nd",
+      "Exposure": "1/2278",
+      "Aperture": "f/1.7",
+      "Exposure program": "Normal program",
+      "Date taken": "2026:03:09 14:54:39",
+      "Focal length": "2.02 mm",
+      "White balance": "Auto white balance",
+      "Lens": "Pixel 9 Pro back camera 2.02mm f/1.7",
+      "Height": "8160px",
+      "Width": "6144px"
+    }
+  },
+  {
+    "id": "mural-66",
+    "title": "Pilsen Mural 1",
+    "artist": "Unknown Artist",
+    "coordinates": [
+      -87.67106666666668,
+      41.85581944444444
+    ],
+    "bearing": 0,
+    "image": "/images/murals/display/PXL_20250505_164131411.RAW-01.COVER.webp",
+    "thumbnail": "/images/murals/thumbnails/PXL_20250505_164131411.RAW-01.COVER.webp",
+    "dominantColor": "#b8b0b0",
+    "originalFile": "PXL_20250505_164131411.RAW-01.COVER.jpg",
+    "imageUrl": "/images/murals/display/PXL_20250505_164131411.RAW-01.COVER.webp",
+    "address": "",
+    "imageMetadata": {
+      "Camera make": "Google",
+      "Camera model": "Pixel 9 Pro",
+      "Orientation": "top-left",
+      "Software": "HDR+ 1.0.748116481nd",
+      "Exposure": "1/379",
+      "Aperture": "f/1.7",
+      "Exposure program": "Normal program",
+      "Date taken": "2025:05:05 11:41:31",
+      "Focal length": "6.9 mm",
+      "White balance": "Auto white balance",
+      "Lens": "Pixel 9 Pro back camera 6.9mm f/1.68",
+      "Height": "8160px",
+      "Width": "6144px"
+    }
+  },
+  {
+    "id": "mural-67",
+    "title": "Pilsen Mural 2",
+    "artist": "Unknown Artist",
+    "coordinates": [
+      -87.67106666666668,
+      41.85581944444444
+    ],
+    "bearing": 0,
+    "image": "/images/murals/display/PXL_20250505_164222604.RAW-01.COVER.webp",
+    "thumbnail": "/images/murals/thumbnails/PXL_20250505_164222604.RAW-01.COVER.webp",
+    "dominantColor": "#283848",
+    "originalFile": "PXL_20250505_164222604.RAW-01.COVER.jpg",
+    "imageUrl": "/images/murals/display/PXL_20250505_164222604.RAW-01.COVER.webp",
+    "address": "",
+    "imageMetadata": {
+      "Camera make": "Google",
+      "Camera model": "Pixel 9 Pro",
+      "Orientation": "top-left",
+      "Software": "HDR+ 1.0.748116481nd",
+      "Exposure": "1/1555",
+      "Aperture": "f/1.7",
+      "Exposure program": "Normal program",
+      "Date taken": "2025:05:05 11:42:22",
+      "Focal length": "2.02 mm",
+      "White balance": "Auto white balance",
+      "Lens": "Pixel 9 Pro back camera 2.02mm f/1.7",
+      "Height": "5929px",
+      "Width": "5690px"
+    }
+  },
+  {
+    "id": "mural-68",
+    "title": "Pilsen Mural 3",
+    "artist": "Unknown Artist",
+    "coordinates": [
+      -87.68088611111112,
+      41.85803333333333
+    ],
+    "bearing": 0,
+    "image": "/images/murals/display/PXL_20250505_170218297.RAW-01.COVER.webp",
+    "thumbnail": "/images/murals/thumbnails/PXL_20250505_170218297.RAW-01.COVER.webp",
+    "dominantColor": "#a8a098",
+    "originalFile": "PXL_20250505_170218297.RAW-01.COVER.jpg",
+    "imageUrl": "/images/murals/display/PXL_20250505_170218297.RAW-01.COVER.webp",
+    "address": "",
+    "imageMetadata": {
+      "Camera make": "Google",
+      "Camera model": "Pixel 9 Pro",
+      "Orientation": "top-left",
+      "Software": "HDR+ 1.0.748116481nd",
+      "Exposure": "1/663",
+      "Aperture": "f/1.7",
+      "Exposure program": "Normal program",
+      "Date taken": "2025:05:05 12:02:18",
+      "Focal length": "6.9 mm",
+      "White balance": "Auto white balance",
+      "Lens": "Pixel 9 Pro back camera 6.9mm f/1.68",
+      "Height": "6144px",
+      "Width": "8160px"
+    }
+  },
+  {
+    "id": "mural-69",
+    "title": "Pilsen Mural 4",
+    "artist": "Unknown Artist",
+    "coordinates": [
+      -87.66605833333334,
+      41.857480555555554
+    ],
+    "bearing": 0,
+    "image": "/images/murals/display/PXL_20250512_215819715.MP.webp",
+    "thumbnail": "/images/murals/thumbnails/PXL_20250512_215819715.MP.webp",
+    "dominantColor": "#9898a0",
+    "originalFile": "PXL_20250512_215819715.MP.jpg",
+    "imageUrl": "/images/murals/display/PXL_20250512_215819715.MP.webp",
+    "address": "",
+    "imageMetadata": {
+      "Camera make": "Google",
+      "Camera model": "Pixel 9 Pro",
+      "Orientation": "top-left",
+      "Software": "HDR+ 1.0.748116481zd",
+      "Exposure": "1/272",
+      "Aperture": "f/1.7",
+      "Exposure program": "Normal program",
+      "Date taken": "2025:05:12 16:58:19",
+      "Focal length": "6.9 mm",
+      "White balance": "Auto white balance",
+      "Lens": "Pixel 9 Pro back camera 6.9mm f/1.68",
+      "Height": "4080px",
+      "Width": "3072px"
+    }
+  },
+  {
+    "id": "mural-70",
+    "title": "Pilsen Mural 5",
+    "artist": "Unknown Artist",
+    "coordinates": [
+      -87.66935277777779,
+      41.85781388888889
+    ],
+    "bearing": 0,
+    "image": "/images/murals/display/PXL_20250512_225725915.webp",
+    "thumbnail": "/images/murals/thumbnails/PXL_20250512_225725915.webp",
+    "dominantColor": "#585048",
+    "originalFile": "PXL_20250512_225725915.jpg",
+    "imageUrl": "/images/murals/display/PXL_20250512_225725915.webp",
+    "address": "",
+    "imageMetadata": {
+      "Camera make": "Google",
+      "Camera model": "Pixel 9 Pro",
+      "Orientation": "top-left",
+      "Software": "HDR+ 1.0.748116481zd",
+      "Exposure": "1/120",
+      "Aperture": "f/1.7",
+      "Exposure program": "Normal program",
+      "Date taken": "2025:05:12 17:57:25",
+      "Focal length": "6.9 mm",
+      "White balance": "Auto white balance",
+      "Lens": "Pixel 9 Pro back camera 6.9mm f/1.68",
+      "Height": "3072px",
+      "Width": "4080px"
+    }
+  },
+  {
+    "id": "mural-71",
+    "title": "Pilsen Mural 6",
+    "artist": "Unknown Artist",
+    "coordinates": [
+      -87.66935277777779,
+      41.85781388888889
+    ],
+    "bearing": 0,
+    "image": "/images/murals/display/PXL_20250512_225735759.webp",
+    "thumbnail": "/images/murals/thumbnails/PXL_20250512_225735759.webp",
+    "dominantColor": "#606060",
+    "originalFile": "PXL_20250512_225735759.jpg",
+    "imageUrl": "/images/murals/display/PXL_20250512_225735759.webp",
+    "address": "",
+    "imageMetadata": {
+      "Camera make": "Google",
+      "Camera model": "Pixel 9 Pro",
+      "Orientation": "top-left",
+      "Software": "HDR+ 1.0.748116481zd",
+      "Exposure": "1/120",
+      "Aperture": "f/1.7",
+      "Exposure program": "Normal program",
+      "Date taken": "2025:05:12 17:57:35",
+      "Focal length": "6.9 mm",
+      "White balance": "Auto white balance",
+      "Lens": "Pixel 9 Pro back camera 6.9mm f/1.68",
+      "Height": "4080px",
+      "Width": "3072px"
+    }
   }
 ]

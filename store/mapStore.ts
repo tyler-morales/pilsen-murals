@@ -6,18 +6,22 @@ interface MapState {
   pendingFitBounds: [number, number][] | null;
   mapStyle: MapStyleKind;
   mapReady: boolean;
+  heatmapVisible: boolean;
   requestFitBounds: (coords: [number, number][]) => void;
   clearPendingFitBounds: () => void;
   setMapStyle: (style: MapStyleKind) => void;
   setMapReady: (ready: boolean) => void;
+  setHeatmapVisible: (visible: boolean) => void;
 }
 
 export const useMapStore = create<MapState>((set) => ({
   pendingFitBounds: null,
   mapStyle: "standard",
   mapReady: false,
+  heatmapVisible: false,
   requestFitBounds: (coords) => set({ pendingFitBounds: coords }),
   clearPendingFitBounds: () => set({ pendingFitBounds: null }),
   setMapStyle: (style) => set({ mapStyle: style }),
   setMapReady: (ready) => set({ mapReady: ready }),
+  setHeatmapVisible: (visible) => set({ heatmapVisible: visible }),
 }));
