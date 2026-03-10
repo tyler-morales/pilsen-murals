@@ -145,7 +145,7 @@ describe("CheckMuralModal persistence (explicit upload only)", () => {
     const onClose = vi.fn();
     render(<CheckMuralModal isOpen onClose={onClose} />);
 
-    const fileInput = screen.getByLabelText(/Upload photo from device/i);
+    const fileInput = screen.getByLabelText(/Choose photo from device/i);
     const file = new File(["x"], "capture.jpg", { type: "image/jpeg" });
 
     await user.upload(fileInput, file);
@@ -172,7 +172,7 @@ describe("CheckMuralModal persistence (explicit upload only)", () => {
     const user = userEvent.setup();
     render(<CheckMuralModal isOpen onClose={vi.fn()} />);
 
-    const fileInput = screen.getByLabelText(/Upload photo from device/i);
+    const fileInput = screen.getByLabelText(/Choose photo from device/i);
     await user.upload(fileInput, new File(["x"], "capture.jpg", { type: "image/jpeg" }));
 
     await waitFor(() => {
@@ -196,7 +196,7 @@ describe("CheckMuralModal persistence (explicit upload only)", () => {
     const user = userEvent.setup();
     render(<CheckMuralModal isOpen onClose={vi.fn()} />);
 
-    const fileInput = screen.getByLabelText(/Upload photo from device/i);
+    const fileInput = screen.getByLabelText(/Choose photo from device/i);
     await user.upload(fileInput, new File(["x"], "large.jpg", { type: "image/jpeg" }));
 
     await waitFor(() => {
@@ -228,13 +228,176 @@ describe("CheckMuralModal persistence (explicit upload only)", () => {
     const user = userEvent.setup();
     render(<CheckMuralModal isOpen onClose={vi.fn()} />);
 
-    const fileInput = screen.getByLabelText(/Upload photo from device/i);
+    const fileInput = screen.getByLabelText(/Choose photo from device/i);
     await user.upload(fileInput, new File(["x"], "capture.jpg", { type: "image/jpeg" }));
 
     await waitFor(() => {
       expect(
         screen.getByText(/Image is too large; choose a smaller file or take a new photo/i)
       ).toBeInTheDocument();
+    });
+  });
+});
+
+describe("CheckMuralModal duplicate stack (same mural id)", () => {
+  const duplicateMatchResponse: SearchResponse = {
+    results: [
+      { id: "mural-1", score: 0.9, payload: { id: "mural-1", title: "Same Mural", thumbnail: "" } },
+      { id: "mural-1", score: 0.85, payload: { id: "mural-1", title: "Same Mural", thumbnail: "" } },
+    ],
+  };
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(() => ({
+        matches: false,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+        onchange: null,
+        media: "",
+      }))
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string | URL) => {
+        const path = typeof url === "string" ? url : url.toString();
+        if (path.includes("/api/search")) {
+          return Promise.resolve(
+            new Response(JSON.stringify(duplicateMatchResponse), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            })
+          );
+        }
+        return Promise.reject(new Error(`Unexpected fetch: ${path}`));
+      })
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("renders duplicate-id results as one stack card with count", async () => {
+    const user = userEvent.setup();
+    render(<CheckMuralModal isOpen onClose={vi.fn()} />);
+
+    const fileInput = screen.getByLabelText(/Choose photo from device/i);
+    await user.upload(fileInput, new File(["x"], "capture.jpg", { type: "image/jpeg" }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Looks like we might have this one/)).toBeInTheDocument();
+    });
+    const stackButton = screen.getByLabelText(/2 photos of this mural/);
+    expect(stackButton).toBeInTheDocument();
+  });
+
+  it("expands stack inline when stack card is clicked", async () => {
+    const user = userEvent.setup();
+    render(<CheckMuralModal isOpen onClose={vi.fn()} />);
+
+    const fileInput = screen.getByLabelText(/Choose photo from device/i);
+    await user.upload(fileInput, new File(["x"], "capture.jpg", { type: "image/jpeg" }));
+
+    await waitFor(() => expect(screen.getByText(/Looks like we might have this one/)).toBeInTheDocument());
+    const stackButton = screen.getByLabelText(/2 photos of this mural/);
+    await user.click(stackButton);
+
+    expect(await screen.findByLabelText(/photo 1 of 2/, { timeout: 2000 })).toBeInTheDocument();
+    expect(screen.getByLabelText(/photo 2 of 2/)).toBeInTheDocument();
+  });
+
+  it("selecting an expanded image collapses stack and keeps selection", async () => {
+    const user = userEvent.setup();
+    render(<CheckMuralModal isOpen onClose={vi.fn()} />);
+
+    const fileInput = screen.getByLabelText(/Choose photo from device/i);
+    await user.upload(fileInput, new File(["x"], "capture.jpg", { type: "image/jpeg" }));
+
+    await waitFor(() => expect(screen.getByText(/Looks like we might have this one/)).toBeInTheDocument());
+    const stackButton = screen.getByLabelText(/2 photos of this mural/);
+    await user.click(stackButton);
+
+    const photo1 = await screen.findByLabelText(/photo 1 of 2/, { timeout: 2000 });
+    await user.click(photo1);
+
+    expect(screen.getByLabelText(/2 photos of this mural/)).toBeInTheDocument();
+    expect(screen.getByText("Confirm selection")).toBeInTheDocument();
+  });
+
+  describe("when API returns distinct murals", () => {
+    beforeEach(() => {
+      vi.mocked(fetch).mockImplementation((url: string | URL) => {
+        const path = typeof url === "string" ? url : url.toString();
+        if (path.includes("/api/search")) {
+          const response: SearchResponse = {
+            results: [
+              { id: "mural-a", score: 0.9, payload: { id: "mural-a", title: "A" } },
+              { id: "mural-b", score: 0.85, payload: { id: "mural-b", title: "B" } },
+            ],
+          };
+          return Promise.resolve(
+            new Response(JSON.stringify(response), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            })
+          );
+        }
+        return Promise.reject(new Error(`Unexpected fetch: ${path}`));
+      });
+    });
+
+    it("non-duplicate results render as single tiles only (no stack)", async () => {
+      const user = userEvent.setup();
+      render(<CheckMuralModal isOpen onClose={vi.fn()} />);
+
+      const fileInput = screen.getByLabelText(/Choose photo from device/i);
+      await user.upload(fileInput, new File(["x"], "capture.jpg", { type: "image/jpeg" }));
+
+      await waitFor(() => expect(screen.getByText(/Looks like we might have this one/)).toBeInTheDocument());
+      expect(screen.getByLabelText("Select: A")).toBeInTheDocument();
+      expect(screen.getByLabelText("Select: B")).toBeInTheDocument();
+      expect(screen.queryByLabelText(/photos of this mural/)).not.toBeInTheDocument();
+    });
+  });
+
+  describe("when API returns mixed single and stack", () => {
+    beforeEach(() => {
+      vi.mocked(fetch).mockImplementation((url: string | URL) => {
+        const path = typeof url === "string" ? url : url.toString();
+        if (path.includes("/api/search")) {
+          const response: SearchResponse = {
+            results: [
+              { id: "mural-solo", score: 0.92, payload: { id: "mural-solo", title: "Solo" } },
+              { id: "mural-pair", score: 0.88, payload: { id: "mural-pair", title: "Pair" } },
+              { id: "mural-pair", score: 0.82, payload: { id: "mural-pair", title: "Pair" } },
+            ],
+          };
+          return Promise.resolve(
+            new Response(JSON.stringify(response), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            })
+          );
+        }
+        return Promise.reject(new Error(`Unexpected fetch: ${path}`));
+      });
+    });
+
+    it("mixed single and stack buckets show both in grid", async () => {
+      const user = userEvent.setup();
+      render(<CheckMuralModal isOpen onClose={vi.fn()} />);
+
+      const fileInput = screen.getByLabelText(/Choose photo from device/i);
+      await user.upload(fileInput, new File(["x"], "capture.jpg", { type: "image/jpeg" }));
+
+      await waitFor(() => expect(screen.getByText(/Looks like we might have this one/)).toBeInTheDocument());
+      expect(screen.getByLabelText("Select: Solo")).toBeInTheDocument();
+      expect(screen.getByLabelText(/2 photos of this mural/)).toBeInTheDocument();
     });
   });
 });
