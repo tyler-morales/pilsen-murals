@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Camera } from "lucide-react";
 import { useThemeStore } from "@/store/themeStore";
 import { useMuralStore } from "@/store/muralStore";
 import type { Mural } from "@/types/mural";
@@ -100,6 +101,8 @@ interface MapHeaderProps {
   onToursClick?: () => void;
   onLeaveTour?: () => void;
   isTourListOpen?: boolean;
+  /** Opens the "Check a mural" modal (camera/upload + search). */
+  onCheckMuralClick?: () => void;
 }
 
 export function MapHeader({
@@ -110,6 +113,7 @@ export function MapHeader({
   onToursClick,
   onLeaveTour,
   isTourListOpen = false,
+  onCheckMuralClick,
 }: MapHeaderProps) {
   const mapLightPreset = useThemeStore((s) => s.mapLightPreset);
   const sunAltitudeDeg = useThemeStore((s) => s.sunAltitudeDeg);
@@ -167,7 +171,6 @@ export function MapHeader({
     requestFlyTo(murals[index]);
   };
 
-  const isSurpriseActive = !isListOpen && !isTourListOpen;
   const isBrowseActive = isListOpen;
   const isToursActive = isTourListOpen;
 
@@ -189,9 +192,23 @@ export function MapHeader({
       <div className="flex min-w-0 shrink items-center justify-between gap-2 sm:flex-1 sm:justify-start">
         <div className="flex min-w-0 shrink flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2">
           <div className="flex min-w-0 items-baseline gap-2">
-            <h1 className="min-w-0 break-words text-base font-semibold tracking-tight text-zinc-900 sm:text-lg">
-              {activeTour ? activeTour.name : "The Pilsen Mural Project"}
-            </h1>
+            {activeTour ? (
+              <h1 className="min-w-0 break-words text-base font-semibold tracking-tight text-zinc-900 sm:text-lg">
+                {activeTour.name}
+              </h1>
+            ) : (
+              <h1 className="min-w-0 break-words text-base font-semibold tracking-tight text-zinc-900 sm:text-lg">
+                <button
+                  type="button"
+                  onClick={handleSurpriseMe}
+                  disabled={murals.length === 0}
+                  className="cursor-pointer text-left text-base font-semibold tracking-tight text-zinc-900 transition-opacity hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent disabled:cursor-not-allowed disabled:opacity-50 sm:text-lg"
+                  aria-label="The Pilsen Mural Project — click to show a random mural"
+                >
+                  The Pilsen Mural Project
+                </button>
+              </h1>
+            )}
             <span className="shrink-0 text-xs text-zinc-500 sm:text-sm sm:text-zinc-600" aria-label="Number of murals">
               {murals.length} mural{murals.length !== 1 ? "s" : ""}
             </span>
@@ -237,20 +254,6 @@ export function MapHeader({
           role="group"
           aria-label="Main actions"
         >
-          <button
-            type="button"
-            onClick={handleSurpriseMe}
-            disabled={murals.length === 0}
-            className={`min-h-[40px] flex-1 rounded-lg text-sm font-semibold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 disabled:pointer-events-none disabled:opacity-50 ${
-              isSurpriseActive
-                ? "bg-[var(--color-accent)] text-[var(--color-accent-foreground)] shadow-sm"
-                : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"
-            }`}
-            aria-label="Surprise me — fly to a random mural"
-            aria-pressed={isSurpriseActive}
-          >
-            Surprise me
-          </button>
           {onBrowseClick && (
             <button
               type="button"
@@ -258,11 +261,10 @@ export function MapHeader({
               aria-expanded={isListOpen}
               aria-label="Browse all murals"
               aria-pressed={isBrowseActive}
-              className={`min-h-[40px] flex-1 rounded-lg text-sm font-semibold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 ${
-                isBrowseActive
-                  ? "bg-[var(--color-accent)] text-[var(--color-accent-foreground)] shadow-sm"
-                  : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"
-              }`}
+              className={`min-h-[40px] flex-1 rounded-lg text-sm font-semibold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 ${isBrowseActive
+                ? "bg-[var(--color-accent)] text-[var(--color-accent-foreground)] shadow-sm"
+                : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"
+                }`}
             >
               Browse
             </button>
@@ -286,29 +288,30 @@ export function MapHeader({
                 aria-expanded={isTourListOpen}
                 aria-label="Walking tours"
                 aria-pressed={isToursActive}
-                className={`min-h-[40px] flex-1 rounded-lg text-sm font-semibold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 ${
-                  isToursActive
-                    ? "bg-[var(--color-accent)] text-[var(--color-accent-foreground)] shadow-sm"
-                    : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"
-                }`}
+                className={`min-h-[40px] flex-1 rounded-lg text-sm font-semibold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 ${isToursActive
+                  ? "bg-[var(--color-accent)] text-[var(--color-accent-foreground)] shadow-sm"
+                  : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"
+                  }`}
               >
                 Tours
               </button>
             )
           )}
         </div>
-
-        {/* Desktop: original pill buttons */}
-        <div className="hidden gap-2 sm:flex sm:flex-wrap">
+        {onCheckMuralClick && (
           <button
             type="button"
-            onClick={handleSurpriseMe}
-            disabled={murals.length === 0}
-            className="min-h-[44px] shrink-0 rounded-xl bg-[var(--color-accent)] px-4 py-2.5 text-sm font-semibold text-[var(--color-accent-foreground)] shadow-sm transition-colors hover:bg-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none ring-offset-white"
-            aria-label="Surprise me — fly to a random mural"
+            onClick={onCheckMuralClick}
+            className="flex h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl text-[var(--color-accent)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent sm:hidden"
+            aria-label="Check a mural — take or upload a photo to see if it's in our database"
+            title="Check a mural"
           >
-            Surprise me
+            <Camera className="h-8 w-8 shrink-0" aria-hidden />
           </button>
+        )}
+
+        {/* Desktop: pill buttons */}
+        <div className="hidden gap-2 sm:flex sm:flex-wrap">
           {onBrowseClick && (
             <button
               type="button"
@@ -343,6 +346,17 @@ export function MapHeader({
                 Tours
               </button>
             )
+          )}
+          {onCheckMuralClick && (
+            <button
+              type="button"
+              onClick={onCheckMuralClick}
+              className="flex h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl text-[var(--color-accent)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+              aria-label="Check a mural — take or upload a photo to see if it's in our database"
+              title="Check a mural"
+            >
+              <Camera className="h-8 w-8 shrink-0" aria-hidden />
+            </button>
           )}
         </div>
       </div>

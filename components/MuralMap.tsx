@@ -863,9 +863,9 @@ export function MuralMap({
                   }}
                 />
               );
-const marker = new mapboxgl.Marker({ element: el, anchor: "bottom" })
-              .setLngLat([lng, lat])
-              .addTo(map);
+              const marker = new mapboxgl.Marker({ element: el, anchor: "bottom" })
+                .setLngLat([lng, lat])
+                .addTo(map);
               clusterRefsRef.current.push({ marker, root: clusterRoot });
             } else {
               const muralId = props.muralId;
