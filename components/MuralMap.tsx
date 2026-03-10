@@ -126,6 +126,46 @@ function createStyleControl() {
   };
 }
 
+/** Heatmap icon: gradient/blur circles (24×24 viewBox, 14px display). */
+const HEATMAP_ICON_SVG =
+  '<svg class="mapboxgl-ctrl-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="14" r="3" opacity="0.8"/><circle cx="14" cy="10" r="4" opacity="0.6"/><circle cx="18" cy="16" r="2.5" opacity="0.9"/><circle cx="12" cy="6" r="2" opacity="0.5"/></svg>';
+
+/** Custom control: toggle mural density heatmap. */
+function createHeatmapControl() {
+  return class HeatmapControl {
+    private unsubscribe: (() => void) | null = null;
+
+    private updateButton(btn: HTMLButtonElement) {
+      const heatmapVisible = useMapStore.getState().heatmapVisible;
+      btn.setAttribute("aria-label", heatmapVisible ? "Hide heatmap" : "Show heatmap");
+      btn.setAttribute("title", heatmapVisible ? "Hide heatmap" : "Show heatmap");
+      btn.setAttribute("aria-pressed", String(heatmapVisible));
+    }
+
+    onAdd(_map: import("mapbox-gl").Map) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "mapboxgl-ctrl-toolbar-btn mapboxgl-ctrl-heatmap";
+      btn.setAttribute("aria-pressed", "false");
+      btn.innerHTML = HEATMAP_ICON_SVG;
+      this.updateButton(btn);
+      btn.addEventListener("click", () => {
+        const { heatmapVisible, setHeatmapVisible } = useMapStore.getState();
+        setHeatmapVisible(!heatmapVisible);
+      });
+      this.unsubscribe = useMapStore.subscribe(() => this.updateButton(btn));
+      const container = document.createElement("div");
+      container.className = "mapboxgl-ctrl mapboxgl-ctrl-group";
+      container.appendChild(btn);
+      return container;
+    }
+    onRemove() {
+      this.unsubscribe?.();
+      this.unsubscribe = null;
+    }
+  };
+}
+
 interface AllMarkersProps {
   wrappers: HTMLDivElement[];
   murals: Mural[];
@@ -269,6 +309,94 @@ const GEOFENCE_LINE_LAYER_ID = "geofence-radius-line";
 const PILSEN_BOUNDARY_SOURCE_ID = "pilsen-boundary";
 const PILSEN_BOUNDARY_FILL_LAYER_ID = "pilsen-boundary-fill";
 const PILSEN_BOUNDARY_LINE_LAYER_ID = "pilsen-boundary-line";
+
+const MURALS_HEATMAP_SOURCE_ID = "murals-heatmap";
+const MURALS_HEATMAP_LAYER_ID = "murals-heatmap-layer";
+
+function muralsToHeatmapGeoJSON(murals: Mural[]): GeoJSON.FeatureCollection<GeoJSON.Point> {
+  return {
+    type: "FeatureCollection",
+    features: murals.map((m) => ({
+      type: "Feature" as const,
+      properties: {},
+      geometry: { type: "Point" as const, coordinates: m.coordinates },
+    })),
+  };
+}
+
+/** Add or update heatmap source and layer; visibility driven by store. Call after addCustomSourcesAndLayers. */
+function addHeatmapLayer(
+  map: import("mapbox-gl").Map,
+  murals: Mural[],
+  heatmapVisible: boolean
+): void {
+  if (murals.length === 0) return;
+  const data = muralsToHeatmapGeoJSON(murals);
+  const existingSource = map.getSource(MURALS_HEATMAP_SOURCE_ID) as import("mapbox-gl").GeoJSONSource | undefined;
+  if (existingSource) {
+    existingSource.setData(data);
+    if (map.getLayer(MURALS_HEATMAP_LAYER_ID)) {
+      map.setLayoutProperty(
+        MURALS_HEATMAP_LAYER_ID,
+        "visibility",
+        heatmapVisible ? "visible" : "none"
+      );
+    }
+    return;
+  }
+  map.addSource(MURALS_HEATMAP_SOURCE_ID, { type: "geojson", data });
+  map.addLayer({
+    id: MURALS_HEATMAP_LAYER_ID,
+    type: "heatmap",
+    source: MURALS_HEATMAP_SOURCE_ID,
+    paint: {
+      "heatmap-weight": 1,
+      "heatmap-intensity": [
+        "interpolate",
+        ["linear"],
+        ["zoom"],
+        10,
+        0.5,
+        14,
+        1.5,
+        16,
+        2,
+        18,
+        2,
+      ],
+      "heatmap-color": [
+        "interpolate",
+        ["linear"],
+        ["heatmap-density"],
+        0,
+        "rgba(99, 102, 241, 0)",
+        0.25,
+        "rgba(99, 102, 241, 0.4)",
+        0.5,
+        "rgba(139, 92, 246, 0.5)",
+        0.75,
+        "rgba(217, 119, 6, 0.6)",
+        1,
+        "rgba(178, 24, 43, 0.7)",
+      ],
+      "heatmap-radius": [
+        "interpolate",
+        ["linear"],
+        ["zoom"],
+        10,
+        8,
+        14,
+        14,
+        16,
+        24,
+        18,
+        28,
+      ],
+      "heatmap-opacity": 0.65,
+    },
+    layout: { visibility: heatmapVisible ? "visible" : "none" },
+  });
+}
 
 /** Re-apply custom sources and layers after map load or style change (e.g. Standard ↔ Satellite). */
 function addCustomSourcesAndLayers(
@@ -469,6 +597,7 @@ export function MuralMap({
     muralsCoordsRef.current = murals.map((m) => m.coordinates);
   }, [murals]);
   const mapStyle = useMapStore((s) => s.mapStyle);
+  const heatmapVisible = useMapStore((s) => s.heatmapVisible);
   const openModal = useMuralStore((s) => s.openModal);
   const pendingFlyTo = useMuralStore((s) => s.pendingFlyTo);
   const clearPendingFlyTo = useMuralStore((s) => s.clearPendingFlyTo);
@@ -572,20 +701,22 @@ export function MuralMap({
       );
       map.addControl(new (createFitMapControl(() => muralsCoordsRef.current))(), "top-right");
       map.addControl(new (createStyleControl())(), "top-right");
+      map.addControl(new (createHeatmapControl())(), "top-right");
 
-      // Merge custom buttons into the NavigationControl group for one unified vertical toolbar.
-      // top-right uses appendChild so DOM order matches add order: [nav, fit, style].
+      // Merge fit and style into the NavigationControl group; keep heatmap as its own stacked group (compass stays in nav).
+      // top-right order: [nav, fit, style, heatmap] -> merge fit, style into nav; heatmap remains separate.
       const topRight = containerRef.current?.querySelector(".mapboxgl-ctrl-top-right");
       if (topRight) {
         const groups = Array.from(topRight.querySelectorAll<HTMLElement>(":scope > .mapboxgl-ctrl-group"));
-        if (groups.length === 3) {
-          const [navGroup, fitGroup, styleGroup] = groups;
+        if (groups.length === 4) {
+          const [navGroup, fitGroup, styleGroup, heatmapGroup] = groups;
           const fitBtn = fitGroup.querySelector("button");
           const styleBtn = styleGroup.querySelector("button");
           if (fitBtn) navGroup.appendChild(fitBtn);
           if (styleBtn) navGroup.appendChild(styleBtn);
           fitGroup.remove();
           styleGroup.remove();
+          // heatmapGroup stays as its own stacked group (north/compass remains in navGroup)
         }
       }
 
@@ -632,6 +763,7 @@ export function MuralMap({
 
         const userCoords = useLocationStore.getState().userCoords;
         addCustomSourcesAndLayers(map, routeCoordinates, userCoords);
+        addHeatmapLayer(map, murals, useMapStore.getState().heatmapVisible);
 
         const rootContainer = document.createElement("div");
         rootContainer.className = "mural-markers-root";
@@ -978,6 +1110,7 @@ const marker = new mapboxgl.Marker({ element: el, anchor: "bottom" })
     map.once("idle", () => {
       const userCoords = useLocationStore.getState().userCoords;
       addCustomSourcesAndLayers(map, routeCoordinates, userCoords);
+      addHeatmapLayer(map, murals, useMapStore.getState().heatmapVisible);
       if (mapStyle === "standard") {
         const preset = useThemeStore.getState().mapLightPreset;
         applyLightPreset(map, preset);
@@ -994,7 +1127,18 @@ const marker = new mapboxgl.Marker({ element: el, anchor: "bottom" })
       }
       mapStyleRef.current = mapStyle;
     });
-  }, [mapStyle, mapReady, routeCoordinates]);
+  }, [mapStyle, mapReady, routeCoordinates, murals]);
+
+  // Sync heatmap layer visibility when user toggles the control.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.getLayer(MURALS_HEATMAP_LAYER_ID)) return;
+    map.setLayoutProperty(
+      MURALS_HEATMAP_LAYER_ID,
+      "visibility",
+      heatmapVisible ? "visible" : "none"
+    );
+  }, [heatmapVisible]);
 
   return (
     <div className="relative h-full w-full">
