@@ -53,7 +53,9 @@
 ## UI improvements (done)
 
 - **MapHeader camera icon**: Use `lucide-react` `Camera` icon; button h-11 min-w-11, icon h-8 w-8.
-- **MapHeader tabs**: Map | Browse | Tours with icons (Map, List, Route); single segmented control with sliding filled pill that animates (200ms ease-out) to the active tab; Map tab closes list and tour list; role="tablist"/tab, aria-selected, ResizeObserver for pill measurement.
+- **MapHeader top padding + title size**: Header top padding set to match bottom (pt-3 / sm:pt-3); title "The Pilsen Mural Project" (and tour name) bumped to text-lg / sm:text-xl.
+- **MapHeader tabs**: Map | Browse | Tours with icons (Map, List, Footprints); single segmented control with sliding filled pill that animates (200ms ease-out) to the active tab; Map tab closes list and tour list; role="tablist"/tab, aria-selected, ResizeObserver for pill measurement.
+- **MapHeader layout**: Title/count use `sm:flex-initial` so they don’t grow; tab list uses `sm:flex-1` so it gets remaining space and Tours/camera aren’t clipped.
 - **CheckMuralModal centering**: Wrapped dialog in a non-animated `div` that owns `fixed` + `left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2` on desktop so Framer Motion’s `transform` (scale) no longer overrides centering.
 - **CheckMuralModal result grid**: Potential options use 3×y CSS grid (murals only); "None of these" outside grid; larger modal (520px) and thumbnails (112px); grid max-height capped so modal height stays bounded. Grid items centered; images fill cell (aspect-square + object-cover). Single "Confirm selection" button (mural → view on map + learning; "None of these" → add to DB); Close button removed from result section.
 - **CheckMuralModal dynamic match count**: When top result ≥ MATCH_THRESHOLD (0.80), only results at or above threshold are shown; when no match, up to 5 override candidates above MIN_RELEVANCE_SCORE. Grid cols 1/2/3 (or 2+3 for 4–5) by display count.
@@ -78,6 +80,8 @@
 - **Header UI**: Check mural (camera) icon moved to the right of Tours — removed from title row and from start of pill row; icon now appears after Tours on desktop and after the mobile segment on mobile.
 - **Header UI**: Removed onboarding hint ("Tap a mural…"). MapHeader buttons restyled: primary accent (amber) for "Surprise me", secondary outline for "Browse"; added `--color-accent` / `--color-accent-hover` / `--color-accent-foreground` in globals.css. Deleted `OnboardingBanner.tsx`.
 - **Header UI**: Removed "Surprise me" button; title "The Pilsen Mural Project" is now a button that flies to a random mural on click (same behavior). Disabled when no murals; focus ring and aria-label for a11y.
+- **MapHeader**: Removed sun-in-sky icon and arc animation to save header space; lighting still driven by Pilsen time via ThemeByPilsenTime and CSS variables. Deleted sun-ray-burst keyframes and .sun-icon-burst from globals.css.
+- **Header layout**: Desktop header forced to one line: `sm:flex-nowrap` on header and tab row; tab+camera block uses `shrink-0` so title block shrinks and all content stays on a single row.
 - **Header readability**: MapHeader uses solid white background and explicit zinc text (zinc-900 title, zinc-600 muted) so title and meta stay readable over any map; Browse button uses accent outline (border + text) and fill on hover for clear contrast.
 - **Location prompt after map load**: Enable-location popup (`LocationPrompt`) only shows after the map has loaded; `mapStore.mapReady` set in `MuralMap` on `map.on("load")` and cleared on cleanup; `LocationPrompt` gates visibility on `mapReady`.
 - **Map markers (single React root)**: Replaced 37 per-marker React roots with one shared root and `createPortal`; `zoomend` triggers a single reconciliation instead of 37 full re-renders. `AllMarkers` in `MuralMap.tsx` portals each `<MuralMarker>` into the existing Mapbox marker wrapper divs.
@@ -160,6 +164,7 @@
 - **Map controls toolbar**: Controls moved to `top-right` with CSS offset below header (130px mobile, 80px sm+). One merged group: Zoom+, Zoom−, Compass (built-in), Fit, Satellite. Removed duplicate custom compass. Custom icons 14px, stroke 1.5; centered in 29×29 box matching Mapbox UI.
 - **Map clustering (scale to more murals)**: Supercluster radius 60→100 and maxZoom 16→17 so clusters hold until zoom 17 (fewer individual thumbnails at mid zoom). Keeps map readable as mural count grows; overlapping leaves are spread in a circle (one marker per mural).
 - **Thumbnail hover (all markers)**: Hovered thumbnail is full opacity and z-index 1000; others dim (opacity 0.55). MuralMarker accepts `isDimmed`, `isLifted`, `onPointerEnter`/`onPointerLeave`, `onFocus`/`onBlur` for a11y. Reduced motion: no lift translate, dim and z-index still apply.
+- **Hover ground circle**: On thumbnail hover, a green circle is drawn on the map surface at the mural’s coordinates (Mapbox fill + line layer, 55 m radius). Same green as geofence; circle is in map space so it sits on the ground and scales with zoom/pitch. MuralMap manages hover circle source/layers and clears on unhover; DOM circle in MuralMarker removed.
 
 ## Community upload pipeline (done)
 
@@ -185,6 +190,17 @@
 - **Mapbox CSS non-blocking**: Removed top-level `import "mapbox-gl/dist/mapbox-gl.css"` from `MuralMap.tsx`; Mapbox CSS is now injected via a `<link rel="stylesheet" href="/mapbox-gl.css">` inside the `import("mapbox-gl").then(...)` callback so first paint is not blocked. `public/mapbox-gl.css` is a copy of `node_modules/mapbox-gl/dist/mapbox-gl.css` (re-copy after mapbox-gl upgrades if needed).
 - **Next.js Image for murals**: Replaced raw `<img>` with `next/image` in `MuralList.tsx`, `NearbyMuralCard.tsx`, and `MuralModal.tsx` (list thumbnails, nearby card thumbnail, modal panel and enlarged view) for sizing, format, and lazy loading. Map markers stay as `<img>` (in Mapbox portal) with explicit width/height and `loading="lazy"` to avoid DOM/layout issues.
 - **SEO / Lighthouse note**: README documents that Lighthouse should be run against the production URL for SEO (Vercel previews send `x-robots-tag: noindex`). Added `metadata.robots: "index, follow"` in `app/layout.tsx` for clarity.
+
+## Web haptics (done)
+
+- **Library**: `web-haptics` (npm); `hooks/useHaptics.ts` wraps `useWebHaptics` from `web-haptics/react` and gates all triggers on `usePrefersReducedMotion()` so no vibration when the user opts out.
+- **MapHeader**: Tab switch (Map / Browse / Tours / Leave tour) → `nudge`; "Surprise me" (title tap) → `success`.
+- **MuralModal**: Modal open (when panel appears) → light `tapMedium`; drag-dismiss threshold (80px) → `nudge`; Prev/Next (footer and enlarged) → `tap`; image enlarge / close → `tapMedium`; swipe left/right in enlarged carousel → `tap`.
+- **MuralMap**: Fit Map → `nudge`; Satellite/Standard and Heatmap toggles → `toggle` (custom pattern). Controls receive optional `onHaptic` callback from `MuralMap` (useHaptics).
+- **MuralList**: Mural row tap → `tap`.
+- **TourList**: Tour card tap → `nudge`.
+- **NearbyMuralCard**: Card appears (new nearby mural) → `pulse`; Share (link copied or shared) → `success`.
+- **CheckMuralModal**: Capture photo (or upload) → `shutter`; results phase (match found) → `success`; "None of these" → `error`; Confirm selection (match) → `success`.
 
 ## Accessibility (done)
 

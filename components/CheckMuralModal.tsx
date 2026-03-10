@@ -5,6 +5,7 @@ import { motion, AnimatePresence, useDragControls } from "framer-motion";
 import { Database, RefreshCw } from "lucide-react";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
+import { useHaptics } from "@/hooks/useHaptics";
 import { useLocationStore } from "@/store/locationStore";
 
 /**
@@ -92,6 +93,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
   const variants = isDesktop ? CENTER : SHEET;
   const userCoords = useLocationStore((s) => s.userCoords);
   const dragControls = useDragControls();
+  const haptics = useHaptics();
 
   const handleDrawerDragEnd = useCallback(
     (_: unknown, info: { offset: { y: number }; velocity: { y: number } }) => {
@@ -189,6 +191,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
   }, [isOpen, onClose]);
 
   const submitImage = useCallback(async (blob: Blob) => {
+    haptics.shutter();
     lastSubmittedBlobRef.current = blob;
     stopCamera();
     setPhase("checking");
@@ -220,11 +223,12 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
         setSelectedResult(matches[0]);
       }
       setPhase("result");
+      haptics.success();
     } catch {
       setSearchError("Network error. Try again.");
       setPhase("error");
     }
-  }, [stopCamera, userCoords]);
+  }, [stopCamera, userCoords, haptics]);
 
   const captureFromVideo = useCallback(() => {
     const video = videoRef.current;
@@ -729,7 +733,10 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                         <div className="flex min-h-[44px] w-full flex-row items-stretch gap-3">
                           <button
                             type="button"
-                            onClick={() => setSelectedResult("none")}
+                            onClick={() => {
+                              haptics.error();
+                              setSelectedResult("none");
+                            }}
                             className={`flex flex-1 items-center justify-center rounded-xl border-2 p-2 text-center text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 ${selectedResult === "none"
                               ? "border-red-600 bg-red-600 text-white"
                               : "border-red-500 bg-white text-red-600 hover:bg-red-50"
@@ -745,6 +752,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                               if (selectedResult === "none") {
                                 handleAddToDb();
                               } else if (selectedResult) {
+                                haptics.success();
                                 submitLearningUpsert(selectedResult.id);
                                 onViewOnMap?.(selectedResult.id);
                                 onClose();

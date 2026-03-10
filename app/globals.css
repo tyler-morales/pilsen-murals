@@ -40,6 +40,7 @@
   border: 0;
   z-index: 9999;
 }
+
 .skip-link:focus-visible {
   width: auto;
   height: auto;
@@ -63,89 +64,75 @@ body {
 }
 
 body {
-  background: color-mix(
-    in srgb,
-    var(--color-night-bg) calc((1 - var(--sun-brightness)) * 100%),
-    var(--color-day-bg) calc(var(--sun-brightness) * 100%)
-  );
-  color: color-mix(
-    in srgb,
-    var(--color-night-text) calc((1 - var(--sun-brightness)) * 100%),
-    var(--color-day-text) calc(var(--sun-brightness) * 100%)
-  );
+  background: color-mix(in srgb,
+      var(--color-night-bg) calc((1 - var(--sun-brightness)) * 100%),
+      var(--color-day-bg) calc(var(--sun-brightness) * 100%));
+  color: color-mix(in srgb,
+      var(--color-night-text) calc((1 - var(--sun-brightness)) * 100%),
+      var(--color-day-text) calc(var(--sun-brightness) * 100%));
 }
 
 /* Dynamic lighting utility classes for components */
 .bg-dynamic {
-  background: color-mix(
-    in srgb,
-    var(--color-night-bg) calc((1 - var(--sun-brightness)) * 100%),
-    var(--color-day-bg) calc(var(--sun-brightness) * 100%)
-  );
+  background: color-mix(in srgb,
+      var(--color-night-bg) calc((1 - var(--sun-brightness)) * 100%),
+      var(--color-day-bg) calc(var(--sun-brightness) * 100%));
 }
 
 .bg-dynamic-surface {
-  background: color-mix(
-    in srgb,
-    var(--color-night-surface) calc((1 - var(--sun-brightness)) * 100%),
-    var(--color-day-surface) calc(var(--sun-brightness) * 100%)
-  );
+  background: color-mix(in srgb,
+      var(--color-night-surface) calc((1 - var(--sun-brightness)) * 100%),
+      var(--color-day-surface) calc(var(--sun-brightness) * 100%));
 }
 
 .border-dynamic {
-  border-color: color-mix(
-    in srgb,
-    var(--color-night-border) calc((1 - var(--sun-brightness)) * 100%),
-    var(--color-day-border) calc(var(--sun-brightness) * 100%)
-  );
+  border-color: color-mix(in srgb,
+      var(--color-night-border) calc((1 - var(--sun-brightness)) * 100%),
+      var(--color-day-border) calc(var(--sun-brightness) * 100%));
 }
 
 .text-dynamic {
-  color: color-mix(
-    in srgb,
-    var(--color-night-text) calc((1 - var(--sun-brightness)) * 100%),
-    var(--color-day-text) calc(var(--sun-brightness) * 100%)
-  );
+  color: color-mix(in srgb,
+      var(--color-night-text) calc((1 - var(--sun-brightness)) * 100%),
+      var(--color-day-text) calc(var(--sun-brightness) * 100%));
 }
 
 .text-dynamic-muted {
-  color: color-mix(
-    in srgb,
-    var(--color-night-muted) calc((1 - var(--sun-brightness)) * 100%),
-    var(--color-day-muted) calc(var(--sun-brightness) * 100%)
-  );
+  color: color-mix(in srgb,
+      var(--color-night-muted) calc((1 - var(--sun-brightness)) * 100%),
+      var(--color-day-muted) calc(var(--sun-brightness) * 100%));
 }
 
 .from-dynamic-surface {
-  --tw-gradient-from: color-mix(
-    in srgb,
-    var(--color-night-surface) calc((1 - var(--sun-brightness)) * 100%),
-    var(--color-day-surface) calc(var(--sun-brightness) * 100%)
-  );
+  --tw-gradient-from: color-mix(in srgb,
+      var(--color-night-surface) calc((1 - var(--sun-brightness)) * 100%),
+      var(--color-day-surface) calc(var(--sun-brightness) * 100%));
   --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to, rgb(0 0 0 / 0));
 }
 
 .ring-offset-dynamic-surface {
-  --tw-ring-offset-color: color-mix(
-    in srgb,
-    var(--color-night-surface) calc((1 - var(--sun-brightness)) * 100%),
-    var(--color-day-surface) calc(var(--sun-brightness) * 100%)
-  );
+  --tw-ring-offset-color: color-mix(in srgb,
+      var(--color-night-surface) calc((1 - var(--sun-brightness)) * 100%),
+      var(--color-day-surface) calc(var(--sun-brightness) * 100%));
 }
 
 /* Safe-area insets for notched devices (use with viewport-fit: cover) */
-.safe-top {
+/* .safe-top {
   padding-top: env(safe-area-inset-top, 0);
-}
+} */
+
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0);
 }
+
 .safe-left {
   padding-left: env(safe-area-inset-left, 0);
 }
+
 .safe-right {
   padding-right: env(safe-area-inset-right, 0);
 }
+
 .safe-bottom-footer {
   padding-bottom: max(1rem, env(safe-area-inset-bottom, 0));
 }
@@ -158,39 +145,14 @@ body {
   }
 }
 
-/* Sun icon click: burst of color + rays extend then settle (scale kept within bounds to avoid clipping) */
-@keyframes sun-ray-burst {
-  0% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  30% {
-    transform: scale(1.18);
-    opacity: 1;
-  }
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
-
-.sun-icon-burst .sun-icon-burst-group {
-  animation: sun-ray-burst 0.5s ease-out;
-  transform-origin: 15px 25px;
-}
-
-.sun-icon-burst .sun-icon-burst-group circle,
-.sun-icon-burst .sun-icon-burst-group line {
-  fill: var(--color-accent);
-  stroke: var(--color-accent);
-}
-
 /* Skeleton shimmer for modals and app/loading.tsx */
 @keyframes loading-shimmer-soft {
+
   0%,
   100% {
     opacity: 0.4;
   }
+
   50% {
     opacity: 0.7;
   }
@@ -217,6 +179,7 @@ body {
 .mapboxgl-ctrl-top-right {
   top: 130px !important;
 }
+
 @media (min-width: 640px) {
   .mapboxgl-ctrl-top-right {
     top: 80px !important;
@@ -224,7 +187,7 @@ body {
 }
 
 /* Unified toolbar column: remove first-child border for flush look */
-.mapboxgl-ctrl-top-right .mapboxgl-ctrl-group > button:first-child {
+.mapboxgl-ctrl-top-right .mapboxgl-ctrl-group>button:first-child {
   border-top: none;
 }
 
@@ -243,25 +206,30 @@ body {
   outline: none;
   color: #333;
 }
+
 .mapboxgl-ctrl-toolbar-btn:hover {
   background-color: rgba(0, 0, 0, 0.05);
   color: #1a1a1a;
 }
+
 .mapboxgl-ctrl-toolbar-btn:focus-visible {
   outline: 2px solid var(--color-accent, #e11d48);
   outline-offset: -2px;
 }
+
 .mapboxgl-ctrl-toolbar-btn .mapboxgl-ctrl-icon {
   display: block;
   flex-shrink: 0;
   color: inherit;
 }
+
 .mapboxgl-ctrl-toolbar-btn .mapboxgl-ctrl-icon path,
 .mapboxgl-ctrl-toolbar-btn .mapboxgl-ctrl-icon circle,
 .mapboxgl-ctrl-toolbar-btn .mapboxgl-ctrl-icon line,
 .mapboxgl-ctrl-toolbar-btn .mapboxgl-ctrl-icon polygon {
   color: inherit;
 }
+
 /* Satellite toggle: active state when satellite view is on */
 .mapboxgl-ctrl-toolbar-btn[data-style-active="satellite"] {
   background-color: rgba(0, 0, 0, 0.08);
@@ -272,12 +240,13 @@ body {
 .mapboxgl-map .mapboxgl-user-location {
   z-index: 2;
 }
+
 .mapboxgl-user-location-dot,
 .mapboxgl-user-location-dot::before,
 .mapboxgl-user-location-dot::after {
   z-index: 2;
 }
+
 .mapboxgl-user-location-accuracy-circle {
   z-index: 1;
 }
-
