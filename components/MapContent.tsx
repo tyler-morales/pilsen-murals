@@ -23,6 +23,9 @@ interface MapContentProps {
   collections: Collection[];
 }
 
+const enableCheckMural =
+  process.env.NEXT_PUBLIC_ENABLE_CHECK_MURAL === "true";
+
 export function MapContent({ murals, collections }: MapContentProps) {
   const [listOpen, setListOpen] = useState(false);
   const [tourListOpen, setTourListOpen] = useState(false);
@@ -90,7 +93,7 @@ export function MapContent({ murals, collections }: MapContentProps) {
         onToursClick={() => setTourListOpen(true)}
         onLeaveTour={() => setActiveTour(null)}
         isTourListOpen={tourListOpen}
-        onCheckMuralClick={() => setCheckMuralOpen(true)}
+        onCheckMuralClick={enableCheckMural ? () => setCheckMuralOpen(true) : undefined}
       />
       <MuralMap
         murals={displayMurals}
@@ -121,11 +124,13 @@ export function MapContent({ murals, collections }: MapContentProps) {
         isOpen={tourListOpen}
         onClose={() => setTourListOpen(false)}
       />
-      <CheckMuralModal
-        isOpen={checkMuralOpen}
-        onClose={() => setCheckMuralOpen(false)}
-        onViewOnMap={handleCheckMuralViewOnMap}
-      />
+      {enableCheckMural && (
+        <CheckMuralModal
+          isOpen={checkMuralOpen}
+          onClose={() => setCheckMuralOpen(false)}
+          onViewOnMap={handleCheckMuralViewOnMap}
+        />
+      )}
     </>
   );
 }

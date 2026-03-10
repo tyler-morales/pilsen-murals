@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { motion, AnimatePresence, useDragControls } from "framer-motion";
 import { useMuralStore } from "@/store/muralStore";
@@ -99,7 +99,14 @@ export function MuralModal() {
   const dragControls = useDragControls();
   const panelRef = useRef<HTMLElement>(null);
   const enlargedRef = useRef<HTMLDivElement>(null);
+  const touchStartXRef = useRef<number | null>(null);
+  const swipeContainerRef = useRef<HTMLDivElement>(null);
   const minimapContainerRef = useRef<HTMLDivElement>(null);
+
+  const [swipeOffset, setSwipeOffset] = useState(0);
+  const [slideWidth, setSlideWidth] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [pendingTransition, setPendingTransition] = useState<"next" | "prev" | null>(null);
   const minimapRef = useRef<import("mapbox-gl").Map | null>(null);
 
   useFocusTrap(panelRef, isModalOpen && !!activeMural && !isImageExpanded);
@@ -141,6 +148,97 @@ export function MuralModal() {
     requestFlyTo(muralsOrder[newIndex], { openModalAfterFly: false });
   }, [muralsOrder, activeIndex, goToIndex, requestFlyTo]);
 
+  const prevIndex =
+    muralsOrder.length > 0 ? (activeIndex === 0 ? muralsOrder.length - 1 : activeIndex - 1) : 0;
+  const nextIndex =
+    muralsOrder.length > 0 ? (activeIndex === muralsOrder.length - 1 ? 0 : activeIndex + 1) : 0;
+  const prevMuralEnlarged = muralsOrder[prevIndex] ?? null;
+  const nextMuralEnlarged = muralsOrder[nextIndex] ?? null;
+
+  useLayoutEffect(() => {
+    if (!isImageExpanded || muralsOrder.length <= 1) return;
+    const el = swipeContainerRef.current;
+    if (!el) return;
+    const update = () => setSlideWidth(el.clientWidth);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [isImageExpanded, muralsOrder.length]);
+
+  useEffect(() => {
+    if (!isImageExpanded) {
+      setSwipeOffset(0);
+      setPendingTransition(null);
+    }
+  }, [isImageExpanded]);
+
+  const SWIPE_THRESHOLD_PX = 50;
+  const handleEnlargedTouchStart = useCallback((e: React.TouchEvent) => {
+    if (muralsOrder.length <= 1) return;
+    touchStartXRef.current = e.touches[0].clientX;
+    setIsDragging(true);
+  }, [muralsOrder.length]);
+  const handleEnlargedTouchMove = useCallback(
+    (e: React.TouchEvent) => {
+      if (muralsOrder.length <= 1 || touchStartXRef.current == null) return;
+      const x = e.touches[0].clientX;
+      const delta = x - touchStartXRef.current;
+      const clamp = slideWidth > 0 ? Math.max(-slideWidth, Math.min(slideWidth, delta)) : 0;
+      setSwipeOffset(clamp);
+    },
+    [muralsOrder.length, slideWidth]
+  );
+  const handleEnlargedTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      if (muralsOrder.length <= 1 || touchStartXRef.current == null) return;
+      const endX = e.changedTouches[0].clientX;
+      const deltaX = endX - touchStartXRef.current;
+      touchStartXRef.current = null;
+      setIsDragging(false);
+      if (deltaX < -SWIPE_THRESHOLD_PX) {
+        setPendingTransition("next");
+        setSwipeOffset(slideWidth);
+      } else if (deltaX > SWIPE_THRESHOLD_PX) {
+        setPendingTransition("prev");
+        setSwipeOffset(-slideWidth);
+      } else {
+        setSwipeOffset(0);
+      }
+    },
+    [muralsOrder.length, slideWidth]
+  );
+
+  const handleEnlargedAnimationComplete = useCallback(() => {
+    if (pendingTransition === "next") {
+      handleEnlargedNext();
+      setSwipeOffset(0);
+      setPendingTransition(null);
+    } else if (pendingTransition === "prev") {
+      handleEnlargedPrev();
+      setSwipeOffset(0);
+      setPendingTransition(null);
+    }
+  }, [pendingTransition, handleEnlargedNext, handleEnlargedPrev]);
+
+  const handleEnlargedPrevWithAnimation = useCallback(() => {
+    if (muralsOrder.length <= 1 || slideWidth <= 0) {
+      handleEnlargedPrev();
+      return;
+    }
+    setPendingTransition("prev");
+    setSwipeOffset(-slideWidth);
+  }, [muralsOrder.length, slideWidth, handleEnlargedPrev]);
+
+  const handleEnlargedNextWithAnimation = useCallback(() => {
+    if (muralsOrder.length <= 1 || slideWidth <= 0) {
+      handleEnlargedNext();
+      return;
+    }
+    setPendingTransition("next");
+    setSwipeOffset(slideWidth);
+  }, [muralsOrder.length, slideWidth, handleEnlargedNext]);
+
   const handleMinimapClick = useCallback(() => {
     if (!activeMural) return;
     // Start map fly and fade modal so user sees smooth transition from photo to map.
@@ -174,10 +272,10 @@ export function MuralModal() {
       if (isImageExpanded && muralsOrder.length > 1) {
         if (e.key === "ArrowLeft") {
           e.preventDefault();
-          handleEnlargedPrev();
+          handleEnlargedPrevWithAnimation();
         } else if (e.key === "ArrowRight") {
           e.preventDefault();
-          handleEnlargedNext();
+          handleEnlargedNextWithAnimation();
         }
         return;
       }
@@ -206,8 +304,8 @@ export function MuralModal() {
     muralsOrder.length,
     canGoPrev,
     canGoNext,
-    handleEnlargedPrev,
-    handleEnlargedNext,
+    handleEnlargedPrevWithAnimation,
+    handleEnlargedNextWithAnimation,
     handlePrev,
     handleNext,
   ]);
@@ -287,10 +385,10 @@ export function MuralModal() {
           userSource.setData(
             userCoords
               ? {
-                  type: "Feature",
-                  properties: {},
-                  geometry: { type: "Point", coordinates: userCoords },
-                }
+                type: "Feature",
+                properties: {},
+                geometry: { type: "Point", coordinates: userCoords },
+              }
               : { type: "FeatureCollection", features: [] }
           );
         }
@@ -411,19 +509,16 @@ export function MuralModal() {
                   role="dialog"
                   aria-modal="true"
                   aria-label={`Enlarged view: ${activeMural.title}`}
-                  className="safe-top safe-right safe-bottom safe-left fixed inset-0 z-[70] flex items-center justify-center p-4 sm:p-6 md:p-8"
+                  className="safe-top safe-right safe-bottom safe-left fixed inset-0 z-[70] flex items-center justify-center p-4 sm:p-6 md:p-8 touch-pan-y"
                   initial={{ opacity: 0, scale: 0.98 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.98 }}
                   transition={{ duration: 0.2 }}
                   onClick={() => setIsImageExpanded(false)}
+                  onTouchStart={handleEnlargedTouchStart}
+                  onTouchMove={handleEnlargedTouchMove}
+                  onTouchEnd={handleEnlargedTouchEnd}
                 >
-                  {!isEnlargedImageLoaded && (
-                    <div
-                      className="absolute inset-0 m-auto h-48 w-48 max-h-[60vh] max-w-[60vw] loading-skeleton-soft rounded-lg bg-white/15"
-                      aria-hidden
-                    />
-                  )}
                   <div className="absolute inset-0">
                     <Image
                       src={activeMural.thumbnail ?? activeMural.imageUrl}
@@ -434,27 +529,73 @@ export function MuralModal() {
                       aria-hidden
                     />
                   </div>
-                  <div className="absolute inset-0">
-                    <Image
-                      src={activeMural.imageUrl}
-                      alt={`${activeMural.title} — full size`}
-                      fill
-                      sizes="90vw"
-                      className={`object-contain cursor-default transition-opacity duration-300 ease-out ${isEnlargedImageLoaded ? "opacity-100" : "opacity-0"}`}
-                      onLoad={() => setIsEnlargedImageLoaded(true)}
+                  {muralsOrder.length > 1 ? (
+                    <div
+                      ref={swipeContainerRef}
+                      className="absolute inset-0 overflow-hidden flex items-center justify-center"
                       onClick={(e) => e.stopPropagation()}
-                    />
-                  </div>
+                    >
+                      <motion.div
+                        className="flex absolute inset-0 items-center"
+                        style={{ width: "300%" }}
+                        animate={{ x: `calc(-33.333% + ${swipeOffset}px)` }}
+                        transition={{
+                          duration: isDragging ? 0 : 0.25,
+                          ease: "easeOut",
+                        }}
+                        onAnimationComplete={handleEnlargedAnimationComplete}
+                      >
+                        {[prevMuralEnlarged, activeMural, nextMuralEnlarged].map((mural) => (
+                          <div
+                            key={mural.id}
+                            className="relative flex-shrink-0"
+                            style={{ width: "33.333%", height: "100%" }}
+                          >
+                            <div className="absolute inset-0">
+                              <Image
+                                src={mural.imageUrl}
+                                alt={mural.id === activeMural.id ? `${mural.title} — full size` : ""}
+                                fill
+                                sizes="90vw"
+                                className="object-contain pointer-events-none"
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </motion.div>
+                    </div>
+                  ) : (
+                    <>
+                      {!isEnlargedImageLoaded && (
+                        <div
+                          className="absolute inset-0 m-auto h-48 w-48 max-h-[60vh] max-w-[60vw] loading-skeleton-soft rounded-lg bg-white/15"
+                          aria-hidden
+                        />
+                      )}
+                      <div className="absolute inset-0">
+                        <Image
+                          src={activeMural.imageUrl}
+                          alt={`${activeMural.title} — full size`}
+                          fill
+                          sizes="90vw"
+                          className={`object-contain cursor-default transition-opacity duration-300 ease-out ${isEnlargedImageLoaded ? "opacity-100" : "opacity-0"}`}
+                          onLoad={() => setIsEnlargedImageLoaded(true)}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </div>
+                    </>
+                  )}
                   {muralsOrder.length > 1 && (
                     <>
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleEnlargedPrev();
+                          handleEnlargedPrevWithAnimation();
                         }}
-                        className="absolute left-2 top-1/2 z-10 min-h-[44px] min-w-[44px] -translate-y-1/2 rounded-full bg-white/10 p-2 text-white backdrop-blur-sm transition-colors hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent md:left-4"
+                        className="absolute left-2 top-1/2 z-10 hidden min-h-[44px] min-w-[44px] -translate-y-1/2 items-center justify-center rounded-full bg-white/10 p-2 text-white backdrop-blur-sm transition-colors hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent md:left-4 md:flex"
                         aria-label="Previous mural"
+                        aria-hidden={!isDesktop}
                       >
                         <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -464,10 +605,11 @@ export function MuralModal() {
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleEnlargedNext();
+                          handleEnlargedNextWithAnimation();
                         }}
-                        className="absolute right-2 top-1/2 z-10 min-h-[44px] min-w-[44px] -translate-y-1/2 rounded-full bg-white/10 p-2 text-white backdrop-blur-sm transition-colors hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent md:right-4"
+                        className="absolute right-2 top-1/2 z-10 hidden min-h-[44px] min-w-[44px] -translate-y-1/2 items-center justify-center rounded-full bg-white/10 p-2 text-white backdrop-blur-sm transition-colors hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent md:right-4 md:flex"
                         aria-label="Next mural"
+                        aria-hidden={!isDesktop}
                       >
                         <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -493,7 +635,7 @@ export function MuralModal() {
                       e.stopPropagation();
                       handleMinimapClick();
                     }}
-                    className="fixed left-4 bottom-4 z-[80] h-[140px] w-[200px] overflow-hidden rounded-lg border border-white/20 bg-zinc-900/80 shadow-lg backdrop-blur-sm cursor-pointer transition-[border-color,box-shadow] hover:border-amber-400/50 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+                    className="fixed left-3 bottom-3 z-[80] h-[88px] w-[128px] overflow-hidden rounded-lg border border-white/20 bg-zinc-900/80 shadow-lg backdrop-blur-sm cursor-pointer transition-[border-color,box-shadow] hover:border-amber-400/50 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent sm:left-4 sm:bottom-4 sm:h-[140px] sm:w-[200px]"
                     aria-label="View this mural on the main map"
                     title="View on map"
                   >
@@ -585,7 +727,7 @@ export function MuralModal() {
                 <p className="mt-1 text-zinc-600">
                   by{" "}
                   {activeMural.artistInstagramHandle &&
-                  (!activeMural.artist?.trim() || activeMural.artist === "Unknown Artist") ? (
+                    (!activeMural.artist?.trim() || activeMural.artist === "Unknown Artist") ? (
                     <a
                       href={getArtistInstagramUrl(activeMural.artistInstagramHandle)}
                       target="_blank"
@@ -621,33 +763,33 @@ export function MuralModal() {
                   </p>
                 )}
                 <div className="mt-3 flex flex-wrap items-center gap-3">
-                <a
-                  href={getDirectionsUrl(activeMural)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex w-fit items-center gap-2 text-sm font-medium text-amber-700 underline decoration-amber-700/50 underline-offset-2 transition-colors hover:text-amber-800 hover:decoration-amber-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
-                  aria-label="Get directions to this mural in Google Maps"
-                >
-                  Get directions
-                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
-                </a>
-                <button
-                  type="button"
-                  onClick={() => {
-                    closeModal();
-                    requestFlyTo(activeMural, { openModalAfterFly: false });
-                  }}
-                  className="inline-flex items-center gap-2 text-sm font-medium text-zinc-700 underline decoration-zinc-400 underline-offset-2 transition-colors hover:text-zinc-900 hover:decoration-zinc-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
-                  aria-label="View this mural on the map"
-                >
-                  View on map
-                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                </button>
+                  <a
+                    href={getDirectionsUrl(activeMural)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex w-fit items-center gap-2 text-sm font-medium text-amber-700 underline decoration-amber-700/50 underline-offset-2 transition-colors hover:text-amber-800 hover:decoration-amber-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
+                    aria-label="Get directions to this mural in Google Maps"
+                  >
+                    Get directions
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      closeModal();
+                      requestFlyTo(activeMural, { openModalAfterFly: false });
+                    }}
+                    className="inline-flex items-center gap-2 text-sm font-medium text-zinc-700 underline decoration-zinc-400 underline-offset-2 transition-colors hover:text-zinc-900 hover:decoration-zinc-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
+                    aria-label="View this mural on the map"
+                  >
+                    View on map
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                  </button>
                 </div>
                 <details
                   id="mural-modal-desc"

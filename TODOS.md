@@ -12,6 +12,10 @@
 - `MuralModal`: Framer Motion slide-in, editorial layout (image, title, artist, color swatch, coordinates)
 - README + `.env.local.example` for Mapbox token
 
+## Feature flags
+
+- **Check a mural**: `NEXT_PUBLIC_ENABLE_CHECK_MURAL` gates the camera/Check a mural button and modal; set to `true` in Vercel (or `.env.local`) to enable. Omit or any other value hides the button and avoids mounting the modal.
+
 ## Refactor / Cleanup (done)
 
 - **Map**: Switched from `dark-v11` to Mapbox Standard style so light/dark and sun-based lighting (sky, shadows) are visible; removed custom 3D building layer and brightness overlay; theme store exposes `mapLightPreset` and `sunAzimuthDeg` for dawn vs dusk.
@@ -42,7 +46,9 @@
 - **Mural images on buildings**: Custom layer `lib/muralBuildingLayer.ts` draws each mural as a textured Three.js quad in 3D at the mural's coordinates (3 m altitude), rotated by `bearing` so the image sits on the correct building face; HTML markers remain for click.
 - **Mural modal image enlarge**: Modal image is clickable; opens an almost-fullscreen lightbox (90vh/95vw max, dark backdrop). Close via Escape, backdrop click, or close button; keyboard and focus states for a11y.
 - **Enlarged view prev/next with loop**: Lightbox has Previous/Next buttons (when multiple murals) and ArrowLeft/ArrowRight keyboard nav; navigation loops (last→first, first→last). Store has `goToIndex`; map flies to the selected mural when navigating in enlarged view.
-- **Enlarged view minimap**: Small Mapbox map in lower-left of the enlarged image view shows the neighborhood centered on the current mural (amber dot) and optionally the user’s location (blue dot) when available; style matches main map (standard/satellite). Clicking the minimap starts a smooth transition: map flies to the mural while the whole modal (enlarged view + panel) fades out over 2s (`isTransitioningToMap`); on fade complete, modal closes. Fly runs immediately (no rAF); modal wrapper uses `onAnimationComplete` to close. Minimap is a `<button>` with aria-label "View this mural on the main map". Hidden when no Mapbox token.
+- **Enlarged view minimap**: Small Mapbox map in lower-left of the enlarged image view shows the neighborhood centered on the current mural (amber dot) and optionally the user’s location (blue dot) when available; style matches main map (standard/satellite). Clicking the minimap starts a smooth transition: map flies to the mural while the whole modal (enlarged view + panel) fades out over 2s (`isTransitioningToMap`); on fade complete, modal closes. Fly runs immediately (no rAF); modal wrapper uses `onAnimationComplete` to close. Minimap is a `<button>` with aria-label "View this mural on the main map". Hidden when no Mapbox token. **Responsive**: 88×128px and left-3/bottom-3 on mobile; 140×200px and left-4/bottom-4 from `sm` (640px) up.
+- **Enlarged view swipe + slide animation**: When multiple murals, enlarged view uses a 3-slide track (prev/current/next); touch drag moves the track with the finger; on release past threshold, track animates to next/prev then index updates and offset resets. Arrow buttons and keyboard use the same slide animation. Single-mural view unchanged.
+- **Enlarged view arrows on desktop only**: Prev/next chevron buttons in enlarged view are hidden on mobile (`hidden md:flex`) so users rely on swipe; shown from 768px up. `aria-hidden={!isDesktop}` so screen readers skip them when hidden.
 
 ## UI improvements (done)
 
