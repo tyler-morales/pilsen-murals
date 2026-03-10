@@ -1,0 +1,141 @@
+/**
+ * POST /api/murals/submit
+ * Community submission: Turnstile-verified multipart upload. Processes image to WebP,
+ * uploads to storage, inserts canonical mural in DB, and upserts embedding into Qdrant.
+ *
+ * FormData: turnstileToken (required), image (file), optional title, artist, lat, lng.
+ */
+import { NextResponse } from "next/server";
+import { getQdrantClient, COLLECTION_NAME } from "@/lib/qdrant/client";
+import { getImageEmbedding } from "@/lib/ai/embedding";
+import { insertMural } from "@/lib/db/client";
+import { supabaseMuralStorage } from "@/lib/storage/supabase";
+import { processUploadedImage, FALLBACK_COORDINATES } from "@/lib/upload/processImage";
+import { verifyTurnstile } from "@/lib/turnstile";
+
+const FALLBACK_TITLE = "Community Mural";
+const FALLBACK_ARTIST = "Unknown Artist";
+
+function parseCoord(value: unknown): number | null {
+  if (value == null) return null;
+  const n = typeof value === "string" ? parseFloat(value) : Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+export async function POST(request: Request) {
+  try {
+    const contentType = request.headers.get("content-type") ?? "";
+    if (!contentType.includes("multipart/form-data")) {
+      return NextResponse.json(
+        { error: "Content-Type must be multipart/form-data." },
+        { status: 400 }
+      );
+    }
+
+    const formData = await request.formData();
+    const turnstileToken = formData.get("turnstileToken");
+    const token =
+      typeof turnstileToken === "string" && turnstileToken.trim()
+        ? turnstileToken.trim()
+        : null;
+    if (!token) {
+      return NextResponse.json(
+        { error: "Missing or invalid turnstileToken." },
+        { status: 400 }
+      );
+    }
+
+    const forwarded = request.headers.get("x-forwarded-for");
+    const remoteIp = forwarded?.split(",")[0]?.trim();
+    const verify = await verifyTurnstile(token, remoteIp);
+    if (!verify.success) {
+      return NextResponse.json(
+        {
+          error: "Captcha verification failed.",
+          errorCodes: verify.errorCodes,
+        },
+        { status: 400 }
+      );
+    }
+
+    const file = formData.get("image") ?? formData.get("file");
+    if (!(file instanceof File)) {
+      return NextResponse.json(
+        { error: "FormData must include an image file under 'image' or 'file'." },
+        { status: 400 }
+      );
+    }
+
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const processed = await processUploadedImage(buffer);
+
+    const [displayResult, thumbResult] = await Promise.all([
+      supabaseMuralStorage.upload("murals/display", processed.displayBuffer, "image/webp"),
+      supabaseMuralStorage.upload("murals/thumbnails", processed.thumbBuffer, "image/webp"),
+    ]);
+
+    const lat = parseCoord(formData.get("lat"));
+    const lng = parseCoord(formData.get("lng"));
+    const coordinates: [number, number] =
+      lat != null && lng != null
+        ? [lng, lat]
+        : processed.coordinatesFromExif ?? FALLBACK_COORDINATES;
+
+    const titleRaw = formData.get("title");
+    const artistRaw = formData.get("artist");
+    const title =
+      (typeof titleRaw === "string" && titleRaw.trim() !== "" ? titleRaw.trim() : null) ||
+      FALLBACK_TITLE;
+    const artist =
+      (typeof artistRaw === "string" && artistRaw.trim() !== "" ? artistRaw.trim() : null) ||
+      FALLBACK_ARTIST;
+
+    const muralId = crypto.randomUUID();
+
+    await insertMural({
+      id: muralId,
+      title,
+      artist,
+      coordinates,
+      bearing: null,
+      dominant_color: processed.dominantColor,
+      image_url: displayResult.url,
+      thumbnail_url: thumbResult.url,
+      image_metadata: processed.imageMetadata ?? null,
+      source: "user_submission",
+    });
+
+    const vector = await getImageEmbedding(displayResult.url);
+    const client = getQdrantClient();
+    await client.upsert(COLLECTION_NAME, {
+      points: [
+        {
+          id: muralId,
+          vector,
+          payload: {
+            id: muralId,
+            title,
+            artist,
+            coordinates,
+            imageUrl: displayResult.url,
+            thumbnail: thumbResult.url,
+            dominantColor: processed.dominantColor,
+            imageMetadata: processed.imageMetadata ?? undefined,
+            source: "user_submission",
+          },
+        },
+      ],
+    });
+
+    return NextResponse.json(
+      { id: muralId, ok: true, imageUrl: displayResult.url },
+      { status: 201 }
+    );
+  } catch (err) {
+    console.error("POST /api/murals/submit error:", err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Submission failed" },
+      { status: 500 }
+    );
+  }
+}

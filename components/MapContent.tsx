@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { CheckMuralModal } from "@/components/CheckMuralModal";
 import { LocationPrompt } from "@/components/LocationPrompt";
 import { MapHeader } from "@/components/MapHeader";
 import { MuralList } from "@/components/MuralList";
@@ -22,9 +23,13 @@ interface MapContentProps {
   collections: Collection[];
 }
 
+const enableCheckMural =
+  process.env.NEXT_PUBLIC_ENABLE_CHECK_MURAL === "true";
+
 export function MapContent({ murals, collections }: MapContentProps) {
   const [listOpen, setListOpen] = useState(false);
   const [tourListOpen, setTourListOpen] = useState(false);
+  const [checkMuralOpen, setCheckMuralOpen] = useState(false);
   const requestFlyTo = useMuralStore((s) => s.requestFlyTo);
   const activeTour = useTourStore((s) => s.activeTour);
   const setActiveTour = useTourStore((s) => s.setActiveTour);
@@ -57,6 +62,14 @@ export function MapContent({ murals, collections }: MapContentProps) {
     setListOpen(false);
   };
 
+  const handleCheckMuralViewOnMap = (muralId: string) => {
+    const mural = murals.find((m) => m.id === muralId);
+    if (mural) {
+      requestFlyTo(mural, { openModalAfterFly: false });
+    }
+    setCheckMuralOpen(false);
+  };
+
   const appliedDeepLinkRef = useRef(false);
   const searchParams = useSearchParams();
   useEffect(() => {
@@ -80,6 +93,7 @@ export function MapContent({ murals, collections }: MapContentProps) {
         onToursClick={() => setTourListOpen(true)}
         onLeaveTour={() => setActiveTour(null)}
         isTourListOpen={tourListOpen}
+        onCheckMuralClick={enableCheckMural ? () => setCheckMuralOpen(true) : undefined}
       />
       <MuralMap
         murals={displayMurals}
@@ -110,6 +124,13 @@ export function MapContent({ murals, collections }: MapContentProps) {
         isOpen={tourListOpen}
         onClose={() => setTourListOpen(false)}
       />
+      {enableCheckMural && (
+        <CheckMuralModal
+          isOpen={checkMuralOpen}
+          onClose={() => setCheckMuralOpen(false)}
+          onViewOnMap={handleCheckMuralViewOnMap}
+        />
+      )}
     </>
   );
 }
