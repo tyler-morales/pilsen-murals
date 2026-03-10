@@ -295,7 +295,21 @@ interface ClusterInstance {
   root: ReturnType<typeof createRoot>;
 }
 
-const INITIAL_ZOOM = 14;
+/** Camera positions for 3D intro: start high over Chicago, end at Pilsen. */
+const INTRO_START = {
+  center: [-87.63, 41.88] as [number, number],
+  zoom: 10,
+  pitch: 0,
+  bearing: 0,
+} as const;
+
+/** End view: All of Pilsen in frame, lower angle toward ground, downtown skyline in distance (NE). */
+const INTRO_END = {
+  center: [-87.657, 41.852] as [number, number],
+  zoom: 15.2,
+  pitch: 68,
+  bearing: 45,
+} as const;
 
 const CLUSTER_INDEX_OPTIONS = {
   radius: 100,
@@ -605,9 +619,11 @@ export function MuralMap({
       />
     );
   }, [hoveredMuralId]);
-  const [zoom, setZoom] = useState(INITIAL_ZOOM);
+  const [zoom, setZoom] = useState<number>(INTRO_END.zoom);
   const [mapReady, setMapReady] = useState(false);
   const [loadProgress, setLoadProgress] = useState(0);
+  const [introAnimating, setIntroAnimating] = useState(false);
+  const introAnimatingRef = useRef(false);
 
   /** Simplified Pilsen boundary path for loading SVG (from GeoJSON first ring, sampled and normalized). */
   const pilsenOutlinePath = useMemo(() => {
@@ -719,16 +735,17 @@ export function MuralMap({
       }
       const mapboxgl = mapboxglModule.default;
       const initialStyle = useMapStore.getState().mapStyle;
+      const initialView = prefersReducedMotion ? INTRO_END : INTRO_START;
       const map = new mapboxgl.Map({
         container: containerRef.current!,
         style: STYLE_URLS[initialStyle],
         config: {
           basemap: { show3dBuildings: false },
         },
-        center: [-87.657, 41.852],
-        zoom: 14,
-        pitch: 45,
-        bearing: 0,
+        center: initialView.center,
+        zoom: initialView.zoom,
+        pitch: initialView.pitch,
+        bearing: initialView.bearing,
         accessToken: MAPBOX_TOKEN,
         antialias: true,
       });
@@ -762,11 +779,6 @@ export function MuralMap({
       }
 
       map.on("load", () => {
-        try {
-          map.setConfigProperty("basemap", "show3dBuildings", false);
-        } catch {
-          // Style may not support this config
-        }
         const preset = useThemeStore.getState().mapLightPreset;
         applyLightPreset(map, preset);
         try {
@@ -779,28 +791,28 @@ export function MuralMap({
           applyLightPreset(map, next);
         });
 
+        try {
+          map.setConfigProperty("basemap", "show3dBuildings", true);
+        } catch {
+          // Style may not support this config (e.g. satellite)
+        }
+        try {
+          map.setFog({
+            range: [1, 12],
+            color: "white",
+            "high-color": "#add8e6",
+            "space-color": "#c9dff0",
+            "star-intensity": 0,
+            "horizon-blend": 0.03,
+          });
+        } catch {
+          // Fog may not be supported by style
+        }
+
         mapRef.current = map;
         mapStyleRef.current = initialStyle;
         setZoom(map.getZoom());
         setLoadProgress(100);
-        requestAnimationFrame(() => {
-          setMapReady(true);
-          useMapStore.getState().setMapReady(true);
-        });
-
-        // Progressive enhancement: load 3D buildings after initial paint so LCP stays fast
-        const enable3dBuildings = () => {
-          try {
-            map.setConfigProperty("basemap", "show3dBuildings", true);
-          } catch {
-            // Style may not support this config (e.g. satellite)
-          }
-        };
-        if (typeof requestIdleCallback !== "undefined") {
-          requestIdleCallback(enable3dBuildings, { timeout: 500 });
-        } else {
-          setTimeout(enable3dBuildings, 300);
-        }
 
         const userCoords = useLocationStore.getState().userCoords;
         addCustomSourcesAndLayers(map, routeCoordinates, userCoords);
@@ -825,6 +837,7 @@ export function MuralMap({
         }
 
         function updateMarkers() {
+          if (introAnimatingRef.current) return;
           const clustersToTeardown = clusterRefsRef.current;
           const markersToTeardown = markerRefsRef.current;
           clusterRefsRef.current = [];
@@ -969,7 +982,52 @@ export function MuralMap({
           updateMarkersRef.current = updateMarkers;
         }
 
-        updateMarkers();
+        if (prefersReducedMotion) {
+          requestAnimationFrame(() => {
+            setMapReady(true);
+            useMapStore.getState().setMapReady(true);
+          });
+          updateMarkers();
+        } else {
+          const INTRO_FLY_MS = 5000;
+          const OVERLAY_FADE_MS = 700;
+          map.once("idle", () => {
+            requestAnimationFrame(() => {
+              setMapReady(true);
+              useMapStore.getState().setMapReady(true);
+            });
+            setIntroAnimating(true);
+            introAnimatingRef.current = true;
+            map.dragPan?.disable();
+            map.scrollZoom?.disable();
+            map.touchZoomRotate?.disable();
+            map.doubleClickZoom?.disable();
+            map.boxZoom?.disable();
+            map.keyboard?.disable();
+            setTimeout(() => {
+              map.flyTo({
+                center: INTRO_END.center,
+                zoom: INTRO_END.zoom,
+                pitch: INTRO_END.pitch,
+                bearing: INTRO_END.bearing,
+                duration: INTRO_FLY_MS,
+                curve: 1.8,
+                essential: true,
+              });
+              map.once("moveend", () => {
+                setIntroAnimating(false);
+                introAnimatingRef.current = false;
+                map.dragPan?.enable();
+                map.scrollZoom?.enable();
+                map.touchZoomRotate?.enable();
+                map.doubleClickZoom?.enable();
+                map.boxZoom?.enable();
+                map.keyboard?.enable();
+                updateMarkers();
+              });
+            }, OVERLAY_FADE_MS);
+          });
+        }
 
         const onViewChange = () => {
           updateMarkers();
@@ -1158,7 +1216,7 @@ export function MuralMap({
   // When user enables location (e.g. via LocationPrompt), zoom map to their position once so they see themselves and nearby thumbnail context
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapReady || !userCoords || hasFlownToUserFromStoreRef.current) return;
+    if (!map || !mapReady || introAnimating || !userCoords || hasFlownToUserFromStoreRef.current) return;
     hasFlownToUserFromStoreRef.current = true;
     map.flyTo({
       center: userCoords,
@@ -1168,11 +1226,11 @@ export function MuralMap({
       duration: prefersReducedMotion ? 0 : 1500,
       essential: true,
     });
-  }, [userCoords, mapReady, prefersReducedMotion]);
+  }, [userCoords, mapReady, introAnimating, prefersReducedMotion]);
 
   // When another part of the app requests a fly-to (e.g. Surprise me, list, nearby rotation), run flyTo; optionally open modal on moveend.
   useEffect(() => {
-    if (!pendingFlyTo) return;
+    if (!pendingFlyTo || introAnimating) return;
     const map = mapRef.current;
     if (!map) return;
 
@@ -1199,7 +1257,7 @@ export function MuralMap({
     return () => {
       map.off("moveend", onMoveEnd);
     };
-  }, [pendingFlyTo, openModal, clearPendingFlyTo, murals, flyDuration, mapReady]);
+  }, [pendingFlyTo, openModal, clearPendingFlyTo, murals, flyDuration, mapReady, introAnimating]);
 
   // Fit map to bounds when requested from header (Fit map / Fit tour).
   const pendingFitBounds = useMapStore((s) => s.pendingFitBounds);
@@ -1264,7 +1322,7 @@ export function MuralMap({
       {/* Map loading overlay — full viewport so header is hidden; fades out when ready */}
       {MAPBOX_TOKEN && (
         <div
-          className={`fixed inset-0 z-[100] bg-white transition-opacity duration-500 ease-out ${mapReady ? "pointer-events-none opacity-0" : "opacity-100"
+          className={`fixed inset-0 z-[100] bg-white transition-opacity duration-700 ease-out ${mapReady ? "pointer-events-none opacity-0" : "opacity-100"
             }`}
           aria-hidden={mapReady}
         >
@@ -1320,6 +1378,17 @@ export function MuralMap({
               </p>
             </div>
           </div>
+        </div>
+      )}
+      {/* Cinematic title during 3D intro fly-in — above map, below loading overlay */}
+      {MAPBOX_TOKEN && introAnimating && (
+        <div
+          className="intro-title-overlay fixed inset-0 z-[90] flex items-center justify-center pointer-events-none"
+          aria-hidden
+        >
+          <span className="intro-title-text text-center text-4xl font-light tracking-[0.35em] text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)]">
+            PILSEN MURALS
+          </span>
         </div>
       )}
       {!MAPBOX_TOKEN && (
