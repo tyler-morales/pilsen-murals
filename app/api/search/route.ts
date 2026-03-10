@@ -1,11 +1,9 @@
 import { NextResponse } from "next/server";
 import { getQdrantClient, COLLECTION_NAME } from "@/lib/qdrant/client";
 import { getImageEmbedding } from "@/lib/ai/embedding";
-import { groupByMuralId } from "@/lib/searchUtils";
 import { haversineDistanceMeters } from "@/lib/geo";
 
-/** Return more candidates so same mural under different lighting/angle can appear in override list. */
-const TOP_K = 5;
+/** Return top N points (ungrouped) so client can show stack cards for same-mural duplicates. */
 const SEARCH_LIMIT = 20;
 
 /** Max proximity boost (added to visual score when user is at the mural). */
@@ -48,12 +46,11 @@ function applyProximityBoost(
 /**
  * POST /api/search
  * Visual similarity search: accept an image (file upload or imageUrl), compute its CLIP
- * embedding, and query Qdrant for visually similar murals. Results are grouped by mural id
- * (payload.id) so each returned item is one mural with its best score. Same CLIP model and
- * collection config (512, Cosine) are used so query and indexed vectors are comparable.
+ * embedding, and query Qdrant for visually similar murals. Returns top SEARCH_LIMIT points
+ * (ungrouped by mural id) so the client can show stack cards when multiple images match
+ * the same mural. Each result has id = payload.id (mural id) for client-side grouping.
  * When optional lat/lng are provided (user location), results are re-ranked with a proximity
- * boost so murals near the user rank higher and real-world photo matches are more likely to
- * cross the match threshold.
+ * boost so murals near the user rank higher.
  *
  * Body: either
  * - FormData with "image" or "file" (image file), and optional "lat", "lng", or
@@ -112,14 +109,16 @@ export async function POST(request: Request) {
       with_payload: true,
     });
 
-    let results = groupByMuralId(
-      raw.map((point) => ({
-        id: point.id,
+    let results = raw.map((point) => {
+      const payload = (point.payload ?? {}) as Record<string, unknown>;
+      const muralId =
+        typeof payload.id === "string" ? payload.id : String(point.id);
+      return {
+        id: muralId,
         score: point.score ?? 0,
-        payload: point.payload ?? {},
-      })),
-      TOP_K
-    );
+        payload,
+      };
+    });
 
     if (userCoords) {
       results = applyProximityBoost(results, userCoords);

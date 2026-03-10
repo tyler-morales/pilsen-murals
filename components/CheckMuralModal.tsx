@@ -8,6 +8,7 @@ import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { useHaptics } from "@/hooks/useHaptics";
 import { useLocationStore } from "@/store/locationStore";
 import { normalizeImageForUpload } from "@/lib/upload/normalizeImageForUpload";
+import { bucketResultsByMuralId } from "@/lib/searchUtils";
 
 /**
  * Cosine similarity threshold: score >= this means "mural is in DB".
@@ -96,6 +97,173 @@ interface ZoomCapability {
 
 type SelectedResult = SearchResultItem | "none" | null;
 
+type ResultVariant = "match" | "override";
+
+const RESULT_STYLES: Record<
+  ResultVariant,
+  { selected: string; ring: string; singleSelected: string }
+> = {
+  match: {
+    selected: "border-green-600 bg-green-600",
+    ring: "focus-visible:ring-green-500",
+    singleSelected: "border-green-600 bg-green-600",
+  },
+  override: {
+    selected: "border-amber-600 bg-amber-50",
+    ring: "focus-visible:ring-amber-500",
+    singleSelected: "border-amber-600 bg-amber-50",
+  },
+};
+
+function thumbImg({
+  src,
+  className = "h-full w-full object-cover",
+}: {
+  src: string | null;
+  className?: string;
+}) {
+  return src ? (
+    <img
+      src={src}
+      alt=""
+      className={className}
+      width={112}
+      height={112}
+    />
+  ) : (
+    <span className="block h-full w-full bg-zinc-100" />
+  );
+}
+
+interface ResultBucketGridProps {
+  variant: ResultVariant;
+  buckets: Array<{ muralId: string; items: SearchResultItem[] }>;
+  thumbSrc: (p: Record<string, unknown> | undefined) => string | null;
+  selectedResult: SelectedResult;
+  onSelect: (r: SearchResultItem) => void;
+  expandedStackId: string | null;
+  onExpandStack: (muralId: string) => void;
+  gridClass: string;
+  listAriaLabel: string;
+  selectLabel: string;
+  confirmLabel: string;
+}
+
+function ResultBucketGrid({
+  variant,
+  buckets,
+  thumbSrc,
+  selectedResult,
+  onSelect,
+  expandedStackId,
+  onExpandStack,
+  gridClass,
+  listAriaLabel,
+  selectLabel,
+  confirmLabel,
+}: ResultBucketGridProps) {
+  const style = RESULT_STYLES[variant];
+  const isMatch = variant === "match";
+  const actionLabel = isMatch ? selectLabel : confirmLabel;
+
+  return (
+    <ul role="list" className={gridClass} aria-label={listAriaLabel}>
+      {buckets.map(({ muralId, items }) => {
+        const title =
+          typeof items[0]?.payload?.title === "string"
+            ? (items[0].payload.title as string)
+            : muralId;
+        if (items.length === 1) {
+          const r = items[0];
+          const src = thumbSrc(r.payload);
+          const isSelected = selectedResult === r;
+          return (
+            <li key={muralId} className="w-full min-w-0 flex justify-center">
+              <button
+                type="button"
+                onClick={() => onSelect(r)}
+                className={`flex w-full max-w-[10rem] rounded-lg border-2 p-1 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${style.ring} ${isSelected ? style.singleSelected : "border-zinc-200 bg-white hover:border-zinc-300"}`}
+                aria-pressed={isSelected}
+                aria-label={`${actionLabel}: ${title}`}
+              >
+                <span className="relative block w-full aspect-square overflow-hidden rounded-md">
+                  {thumbImg({ src })}
+                </span>
+              </button>
+            </li>
+          );
+        }
+        const isExpanded = expandedStackId === muralId;
+        return (
+          <li key={muralId} className="w-full min-w-0 flex justify-center">
+            {isExpanded ? (
+              <div
+                className="grid grid-cols-2 sm:grid-cols-3 gap-1 w-full max-w-[10rem]"
+                role="group"
+                aria-label={`${items.length} photos of this mural`}
+              >
+                {items.map((r, idx) => {
+                  const src = thumbSrc(r.payload);
+                  const isSelected = selectedResult === r;
+                  return (
+                    <button
+                      key={`${muralId}-${idx}`}
+                      type="button"
+                      onClick={() => onSelect(r)}
+                      className={`flex rounded-lg border-2 p-1 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 aspect-square ${style.ring} ${isSelected ? style.singleSelected : "border-zinc-200 bg-white hover:border-zinc-300"}`}
+                      aria-pressed={isSelected}
+                      aria-label={`${actionLabel}: ${title} (photo ${idx + 1} of ${items.length})`}
+                    >
+                      <span className="relative block w-full h-full overflow-hidden rounded-md">
+                        {thumbImg({ src })}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onExpandStack(muralId)}
+                className={`flex w-full max-w-[10rem] rounded-lg border-2 border-zinc-200 bg-white p-1 transition-colors hover:border-zinc-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${style.ring}`}
+                aria-expanded={false}
+                aria-label={`${items.length} photos of this mural, tap to expand`}
+              >
+                <span className="relative block w-full aspect-square overflow-hidden rounded-md">
+                  {items.slice(0, 3).map((r, idx) => {
+                    const src = thumbSrc(r.payload);
+                    return (
+                      <span
+                        key={`${muralId}-${idx}`}
+                        className="absolute inset-0 block overflow-hidden rounded-md"
+                        style={{
+                          top: `${idx * 6}px`,
+                          left: `${idx * 6}px`,
+                          right: `${(2 - idx) * 6}px`,
+                          bottom: `${(2 - idx) * 6}px`,
+                          zIndex: idx,
+                        }}
+                      >
+                        {thumbImg({ src })}
+                      </span>
+                    );
+                  })}
+                  <span
+                    className="absolute bottom-1 right-1 rounded bg-black/70 px-1.5 py-0.5 text-xs font-medium text-white"
+                    aria-hidden
+                  >
+                    {items.length}
+                  </span>
+                </span>
+              </button>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -124,6 +292,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [checkingPreviewUrl, setCheckingPreviewUrl] = useState<string | null>(null);
   const [funFactIndex, setFunFactIndex] = useState(0);
+  const [expandedStackId, setExpandedStackId] = useState<string | null>(null);
 
   const isDesktop = useMediaQuery("(min-width: 768px)");
 
@@ -287,6 +456,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
       setSearchError(null);
       setSearchResult(null);
       setSelectedResult(null);
+      setExpandedStackId(null);
       setAddToDbPending(false);
       lastSubmittedBlobRef.current = null;
       if (previewUrl) {
@@ -380,8 +550,9 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
       const response = data as SearchResponse;
       setSearchResult(response);
       const matches = response.results.filter((r) => r.score >= MATCH_THRESHOLD);
-      if (matches.length === 1) {
-        setSelectedResult(matches[0]);
+      const matchBuckets = bucketResultsByMuralId(matches);
+      if (matchBuckets.length === 1 && matchBuckets[0].items.length === 1) {
+        setSelectedResult(matchBuckets[0].items[0]);
       }
       setPhase("result");
       haptics.success();
@@ -390,6 +561,20 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
       setPhase("error");
     }
   }, [stopCamera, userCoords, haptics]);
+
+  /** Normalize capture blob (resize/compress) so it stays under body limit; then submit. */
+  const submitCapture = useCallback(
+    (blob: Blob) => {
+      const file = new File([blob], "capture.jpg", { type: blob.type || "image/jpeg" });
+      normalizeImageForUpload(file)
+        .then((normalized) => submitImage(normalized))
+        .catch(() => {
+          setSearchError("Could not process image. Try again.");
+          setPhase("error");
+        });
+    },
+    [submitImage]
+  );
 
   const captureFromVideo = useCallback(() => {
     const video = videoRef.current;
@@ -410,7 +595,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
       const imageCapture = new ImageCaptureCtor(track);
       imageCapture
         .takePhoto()
-        .then((blob) => submitImage(blob))
+        .then((blob) => submitCapture(blob))
         .catch(() => {
           const canvas = document.createElement("canvas");
           const w = video.videoWidth;
@@ -421,9 +606,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
           if (!ctx) return;
           ctx.drawImage(video, 0, 0);
           canvas.toBlob(
-            (blob) => {
-              if (blob) submitImage(blob);
-            },
+            (blob) => blob && submitCapture(blob),
             "image/jpeg",
             0.9
           );
@@ -448,13 +631,11 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
       ctx.drawImage(video, 0, 0);
     }
     canvas.toBlob(
-      (blob) => {
-        if (blob) submitImage(blob);
-      },
+      (blob) => blob && submitCapture(blob),
       "image/jpeg",
       0.9
     );
-  }, [submitImage, zoomCapability, zoomLevel]);
+  }, [submitCapture, zoomCapability, zoomLevel]);
 
   const handleFileChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -577,12 +758,14 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
   const match = searchResult && isMatchInDb(searchResult);
   const results = searchResult?.results ?? [];
   const matchResults = results.filter((r) => r.score >= MATCH_THRESHOLD);
-  /** When we have a match, show only results at or above threshold (often 1 for exact image). When no match, show no candidates. */
+  /** When we have a match, show only results at or above threshold. When no match, show no candidates. */
   const displayResults = match ? matchResults : [];
-  /** When no match, show up to 5 above relevance floor so same mural in different conditions can still be chosen. */
+  /** When no match, show up to 5 buckets above relevance floor. */
   const overrideCandidates = !match && results.length > 0
-    ? results.filter((r) => r.score >= MIN_RELEVANCE_SCORE).slice(0, 5)
+    ? results.filter((r) => r.score >= MIN_RELEVANCE_SCORE)
     : [];
+  const displayBuckets = bucketResultsByMuralId(displayResults);
+  const overrideBuckets = bucketResultsByMuralId(overrideCandidates, { maxBuckets: 5 });
   const thumbSrc = (p: Record<string, unknown> | undefined) =>
     typeof p?.thumbnail === "string"
       ? (p.thumbnail as string)
@@ -721,12 +904,11 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                           ref={fileInputRef}
                           type="file"
                           accept="image/*"
-                          capture="environment"
                           onChange={handleFileChange}
                           className="sr-only"
-                          aria-label="Upload photo from device"
+                          aria-label="Choose photo from device (gallery or files)"
                         />
-                        Upload photo
+                        Choose from device
                       </label>
                     </div>
                   </div>
@@ -791,7 +973,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                             className="max-h-[min(40vh,280px)] w-auto max-w-full rounded-lg border border-zinc-200 object-contain"
                           />
                         </div>
-                        {displayResults.length > 0 && (
+                        {displayBuckets.length > 0 && (
                           <button
                             type="button"
                             onClick={handleCheckAnother}
@@ -804,7 +986,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                         )}
                       </div>
                     )}
-                    {previewUrl && displayResults.length > 0 && (
+                    {previewUrl && displayBuckets.length > 0 && (
                       <div
                         className="h-px w-full bg-zinc-200"
                         role="presentation"
@@ -873,7 +1055,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                             {addToDbPending ? "Submitting…" : "Add to database"}
                           </button>
                         </div>
-                        {overrideCandidates.length > 0 && (
+                        {overrideBuckets.length > 0 && (
                           <>
                             <div className="h-px w-full bg-zinc-200" aria-hidden />
                             <p className="text-sm text-zinc-600">
@@ -883,53 +1065,22 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                               Lighting and angle can affect matching. If you took this at the mural, pick it below.
                               {userCoords && " Results are ordered by similarity and distance from you."}
                             </p>
-                            <ul
-                              role="list"
-                              className={`grid max-h-[min(50vh,340px)] gap-3 overflow-y-auto justify-items-center ${overrideCandidates.length === 1
-                                ? "grid-cols-1"
-                                : overrideCandidates.length <= 3
-                                  ? "grid-cols-3"
-                                  : "grid-cols-2 sm:grid-cols-3"
-                                }`}
-                              aria-label="Possible matches to confirm"
-                            >
-                              {overrideCandidates.map((r) => {
-                                const src = thumbSrc(r.payload);
-                                const title =
-                                  typeof r.payload?.title === "string"
-                                    ? (r.payload.title as string)
-                                    : r.id;
-                                const isSelected = selectedResult === r;
-                                return (
-                                  <li key={r.id} className="w-full min-w-0 flex justify-center">
-                                    <button
-                                      type="button"
-                                      onClick={() => setSelectedResult(r)}
-                                      className={`flex w-full max-w-[10rem] rounded-lg border-2 p-1 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 ${isSelected
-                                        ? "border-amber-600 bg-amber-50"
-                                        : "border-zinc-200 bg-white hover:border-zinc-300"
-                                        }`}
-                                      aria-pressed={isSelected}
-                                      aria-label={`Confirm: ${title}`}
-                                    >
-                                      <span className="relative block w-full aspect-square overflow-hidden rounded-md">
-                                        {src ? (
-                                          <img
-                                            src={src}
-                                            alt=""
-                                            className="h-full w-full object-cover"
-                                            width={112}
-                                            height={112}
-                                          />
-                                        ) : (
-                                          <span className="block h-full w-full bg-zinc-100" />
-                                        )}
-                                      </span>
-                                    </button>
-                                  </li>
-                                );
-                              })}
-                            </ul>
+                            <ResultBucketGrid
+                              variant="override"
+                              buckets={overrideBuckets}
+                              thumbSrc={thumbSrc}
+                              selectedResult={selectedResult}
+                              onSelect={(r) => {
+                                setSelectedResult(r);
+                                setExpandedStackId(null);
+                              }}
+                              expandedStackId={expandedStackId}
+                              onExpandStack={setExpandedStackId}
+                              gridClass={`grid max-h-[min(50vh,340px)] gap-3 overflow-y-auto justify-items-center ${overrideBuckets.length === 1 ? "grid-cols-1" : overrideBuckets.length <= 3 ? "grid-cols-3" : "grid-cols-2 sm:grid-cols-3"}`}
+                              listAriaLabel="Possible matches to confirm"
+                              selectLabel="Select"
+                              confirmLabel="Confirm"
+                            />
                             <button
                               type="button"
                               onClick={() => {
@@ -949,55 +1100,24 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                         )}
                       </div>
                     )}
-                    {displayResults.length > 0 && (
+                    {displayBuckets.length > 0 && (
                       <>
-                        <ul
-                          role="list"
-                          className={`grid max-h-[min(55vh,360px)] gap-3 overflow-y-auto justify-items-center ${displayResults.length === 1
-                            ? "grid-cols-1"
-                            : displayResults.length === 2
-                              ? "grid-cols-2"
-                              : "grid-cols-3"
-                            }`}
-                          aria-label="Search results"
-                        >
-                          {displayResults.map((r) => {
-                            const src = thumbSrc(r.payload);
-                            const title =
-                              typeof r.payload?.title === "string"
-                                ? (r.payload.title as string)
-                                : r.id;
-                            const isSelected = selectedResult === r;
-                            return (
-                              <li key={r.id} className="w-full min-w-0 flex justify-center">
-                                <button
-                                  type="button"
-                                  onClick={() => setSelectedResult(r)}
-                                  className={`flex w-full max-w-[10rem] rounded-lg border-2 p-1 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2 ${isSelected
-                                    ? "border-green-600 bg-green-600"
-                                    : "border-zinc-200 bg-white hover:border-zinc-300"
-                                    }`}
-                                  aria-pressed={isSelected}
-                                  aria-label={`Select: ${title}`}
-                                >
-                                  <span className="relative block w-full aspect-square overflow-hidden rounded-md">
-                                    {src ? (
-                                      <img
-                                        src={src}
-                                        alt=""
-                                        className="h-full w-full object-cover"
-                                        width={112}
-                                        height={112}
-                                      />
-                                    ) : (
-                                      <span className="block h-full w-full bg-zinc-100" />
-                                    )}
-                                  </span>
-                                </button>
-                              </li>
-                            );
-                          })}
-                        </ul>
+                        <ResultBucketGrid
+                          variant="match"
+                          buckets={displayBuckets}
+                          thumbSrc={thumbSrc}
+                          selectedResult={selectedResult}
+                          onSelect={(r) => {
+                            setSelectedResult(r);
+                            setExpandedStackId(null);
+                          }}
+                          expandedStackId={expandedStackId}
+                          onExpandStack={setExpandedStackId}
+                          gridClass={`grid max-h-[min(55vh,360px)] gap-3 overflow-y-auto justify-items-center ${displayBuckets.length === 1 ? "grid-cols-1" : displayBuckets.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}
+                          listAriaLabel="Search results"
+                          selectLabel="Select"
+                          confirmLabel="Confirm"
+                        />
                         <div className="flex min-h-[44px] w-full flex-row items-stretch gap-3">
                           <button
                             type="button"
