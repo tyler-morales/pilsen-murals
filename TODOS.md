@@ -71,6 +71,9 @@
 
 ## Refactor / Cleanup (done, continued)
 
+- **Marker animation + placement extraction**: `lib/markerAnimation.ts` — reveal/stagger delay (`getRevealDelay`), entrance transform with 10px drop + fade (`getEntranceTransform`), lift transform for hover (`getLiftTransform`); constants `REVEAL_STAGGER_MS`, `MARKER_CHUNK_SIZE`, `DROP_OFFSET_PX`. `lib/markerPlacement.ts` — `muralToPoint`, `Placement` type, `groupLeavesIntoPlacements`, `spreadOverlappingPlacements`. MuralMap imports from both; `groupLeavesIntoPlacements` no longer takes unused `project`/`zoom`. Thumbnail pins now use drop (translateY 10px → 0) + opacity 0 → 1 for a natural entrance; session reveal cache unchanged (no re-animate on pan/zoom).
+- **TDD setup**: Vitest + React Testing Library + jsdom; `npm run test`, `test:watch`, `test:coverage`. Tests: `lib/__tests__/markerAnimation.test.ts`, `lib/__tests__/markerPlacement.test.ts`, `lib/__tests__/geo.test.ts`, `components/__tests__/MuralMarker.test.tsx` (thumbnailHeightFromZoom, getStableCardOffset, reveal delay, reduced-motion, session cache). `MuralMarker` exports `resetRevealedMurals()` for tests.
+
 - **Mural images → WebP**: Pipeline now outputs WebP for smaller size and faster loading. `generate-map-data.js` writes `.webp` paths; `sync-murals.js` converts source images to WebP (display at 1600px long edge / 85%, thumbnails at 400px max width / 82%). Cache version bumped so next sync regenerates murals.json with .webp paths.
 - **Modal/enlarged image load speed**: **display** size (max 1600px long edge, WebP 85%) used for modal and enlarged view via `imageUrl`; no full-res download. High-res assets and "Download full resolution" removed to reduce storage and keep the site fast.
 - **Deleted/consolidated**: Removed high-res WebP output and `highResUrl` from data/types; removed "Download full resolution" from MuralModal; sync produces only display + thumb; backfill-from-high-res removed; `public/images/murals/high-res/` deleted.

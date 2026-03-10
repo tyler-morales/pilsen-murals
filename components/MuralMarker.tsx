@@ -2,18 +2,25 @@
 
 import { useState, useEffect, useRef } from "react";
 import type { Mural } from "@/types/mural";
+import {
+  REVEAL_DURATION_MS,
+  DIM_LIFT_DURATION_MS,
+  getEntranceTransform,
+  getLiftTransform,
+} from "@/lib/markerAnimation";
 
 const ZOOM_MIN = 11;
 const ZOOM_MAX = 18;
 const HEIGHT_AT_ZOOM_MIN = 28;
 const HEIGHT_AT_ZOOM_MAX = 88;
 
-const REVEAL_DURATION_MS = 220;
-const DIM_LIFT_DURATION_MS = 180;
-const LIFT_TRANSLATE_PX = -8;
-
 /** Mural IDs that have already played their entrance animation this session. Prevents re-fade on map pan/zoom. */
 const revealedMuralIds = new Set<string>();
+
+/** For tests: reset session reveal cache so delay/visibility can be re-tested. */
+export function resetRevealedMurals(): void {
+  revealedMuralIds.clear();
+}
 
 function parsePx(value: string | undefined): number | null {
   if (!value) return null;
@@ -129,17 +136,14 @@ export function MuralMarker({
   const offset = getStableCardOffset(mural.id);
 
   const opacity = visible ? (isDimmed ? 0.55 : 1) : 0;
-  const liftTransform =
-    isLifted && !prefersReducedMotion
-      ? `translateY(${LIFT_TRANSLATE_PX}px)`
-      : "none";
+  const liftTransform = getLiftTransform(isLifted, prefersReducedMotion);
 
   return (
     <span
       className="relative inline-flex flex-col items-center ease-out"
       style={{
         opacity,
-        transform: `rotate(${offset.rotationDeg}deg) translate(${offset.translateX}px, ${offset.translateY}px) ${visible ? "scale(1)" : "scale(0.92)"}`,
+        transform: getEntranceTransform(offset, visible),
         transition: `opacity ${DIM_LIFT_DURATION_MS}ms ease-out, transform ${REVEAL_DURATION_MS}ms ease-out`,
       }}
       aria-hidden
@@ -171,6 +175,7 @@ export function MuralMarker({
               ? "0 8px 24px -4px rgba(0,0,0,0.25)"
               : undefined,
         }}
+        aria-hidden
       >
       <button
         type="button"
