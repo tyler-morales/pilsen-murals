@@ -3,6 +3,7 @@
 ## Done (PoC)
 
 - Next.js 15 App Router + Tailwind, Mapbox GL v3, Framer Motion, Zustand
+- **Vector search (Qdrant + CLIP)**: `lib/qdrant/client.ts` (getQdrantClient), `lib/qdrant/setup.ts` (create collection `pilsen_murals`, 512 Cosine); `lib/ai/embedding.ts` (getImageEmbedding via Xenova/clip-vit-base-patch32); POST `app/api/murals/route.ts` (upsert mural with optional metadata + embedding/imageUrl); POST `app/api/search/route.ts` (image or imageUrl → top 3 similar murals). `npm run qdrant:setup` to init collection; env: QDRANT_URL, QDRANT_API_KEY.
 - **Mural indicators**: Thumbnail image per mural (100–200px height, aspect ratio from image metadata); per-mural dominant color glow; no spinning shape.
 - **Dynamic lighting by sun position (Pilsen, Chicago)**: SunCalc for altitude; `lib/sunPilsen.ts`, `store/themeStore.ts`, `ThemeByPilsenTime` (60s interval); CSS variables `--sun-brightness`/`--sun-altitude-deg` and `color-mix()` for UI; modal/marker use dynamic classes.
 - `data/murals.json` — placeholder murals (Pilsen-area coordinates)
@@ -33,6 +34,7 @@
 - `scripts/generate-map-data.js`: EXIF GPS + full image metadata + **per-image dominant color** (sharp resize + quantize) → murals.json; outputs **.webp** paths for display and thumbnails only. Run with photos in `raw-photos`, output to `public/data/murals.json`. Fallback `#333333` if extraction fails. Copy to `data/murals.json` for app import. Image metadata appears in the mural slide-out. **imageUrl** = display size (fast modal load).
 - `scripts/sync-murals.js`: **raw-photos is staging only** — add new photos there, run `npm run sync-murals`. New photos are converted to WebP (display, thumb only) and **merged** into existing murals.json (new IDs; same `originalFile` replaces existing). **Existing mural images are never deleted.** Only sources that need conversion are processed. After sync, raw-photos is emptied. When raw-photos is empty, sync exits with "nothing to convert" (no backfill).
 - `scripts/image-stats.sh`: Image inventory — total count, size by extension and directory, average size, top 10 largest files. Run: `npm run image-stats` or `./scripts/image-stats.sh`.
+- `scripts/backfill-qdrant.ts`: Reads `data/murals.json`, computes CLIP embedding per mural (from `public/` or `BASE_URL`), upserts into Qdrant `pilsen_murals`. Qdrant point IDs are integers derived from mural id (e.g. mural-25 → 25); payload keeps original `id` for app use. Run: `npm run backfill-qdrant` (requires QDRANT_URL, QDRANT_API_KEY in .env.local).
 
 ## Refactor / Cleanup (done, continued)
 
@@ -44,6 +46,13 @@
 
 ## UI improvements (done)
 
+- **MapHeader camera icon**: Use `lucide-react` `Camera` icon; button h-11 min-w-11, icon h-8 w-8.
+- **CheckMuralModal centering**: Wrapped dialog in a non-animated `div` that owns `fixed` + `left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2` on desktop so Framer Motion’s `transform` (scale) no longer overrides centering.
+- **CheckMuralModal result grid**: Potential options use 3×y CSS grid (murals only); "None of these" outside grid; larger modal (520px) and thumbnails (112px); grid max-height capped so modal height stays bounded. Grid items centered; images fill cell (aspect-square + object-cover). Single "Confirm selection" button (mural → view on map + learning; "None of these" → add to DB); Close button removed from result section.
+- **CheckMuralModal dynamic match count**: When top result ≥ MATCH_THRESHOLD (0.85), only results at or above threshold are shown (often 1 for exact/same image); when no match, no candidate images — only "Add to database" + "Check another". Grid cols 1/2/3 by display count.
+- **CheckMuralModal match copy**: Result-phase helper text rewritten to friendlier copy ("Looks like we might have this one…"); gray (`text-zinc-600`) and larger (`text-base`). No-match copy aligned: same `text-base text-zinc-600`, human wording ("We don't have this one in our collection yet. Add it below and we'll learn it for next time.").
+- **CheckMuralModal result preview**: User's captured/uploaded image shown center-aligned in result phase so they see what they're adding before "Add to database"; object URL from blob, revoked on close or "Check another".
+- **CheckMuralModal result order + divider**: In matched results, helper copy now appears above the user's photo preview, and a subtle divider (`bg-zinc-200`) separates the preview from candidate thumbnails for clearer scan order.
 - **Phase 1**: `MapHeader` — floating header with app title, mural count, Pilsen time (America/Chicago), and lighting preset (Dawn/Day/Dusk/Night). Rendered in `MapContent`; page uses `MapContent` wrapper.
 - **Phase 2**: "Surprise me" button in header; `muralStore` extended with `pendingFlyTo`, `requestFlyTo`, `clearPendingFlyTo`. `MuralMap` reacts to `pendingFlyTo` (fly then open modal on moveend). List and Surprise me use same path.
 - **Phase 3**: Modal — "Get directions" link (address or coordinates → Google Maps), photo date from `imageMetadata["Date taken"]`, full-width dominant-color accent bar, "Image metadata" in `<details>` (collapsed by default).
@@ -56,7 +65,9 @@
 
 ## Refactor / Cleanup (done, continued)
 
+- **Header UI**: Check mural (camera) icon moved to the right of Tours — removed from title row and from start of pill row; icon now appears after Tours on desktop and after the mobile segment on mobile.
 - **Header UI**: Removed onboarding hint ("Tap a mural…"). MapHeader buttons restyled: primary accent (amber) for "Surprise me", secondary outline for "Browse"; added `--color-accent` / `--color-accent-hover` / `--color-accent-foreground` in globals.css. Deleted `OnboardingBanner.tsx`.
+- **Header UI**: Removed "Surprise me" button; title "The Pilsen Mural Project" is now a button that flies to a random mural on click (same behavior). Disabled when no murals; focus ring and aria-label for a11y.
 - **Header readability**: MapHeader uses solid white background and explicit zinc text (zinc-900 title, zinc-600 muted) so title and meta stay readable over any map; Browse button uses accent outline (border + text) and fill on hover for clear contrast.
 - **Location prompt after map load**: Enable-location popup (`LocationPrompt`) only shows after the map has loaded; `mapStore.mapReady` set in `MuralMap` on `map.on("load")` and cleared on cleanup; `LocationPrompt` gates visibility on `mapReady`.
 - **Map markers (single React root)**: Replaced 37 per-marker React roots with one shared root and `createPortal`; `zoomend` triggers a single reconciliation instead of 37 full re-renders. `AllMarkers` in `MuralMap.tsx` portals each `<MuralMarker>` into the existing Mapbox marker wrapper divs.
@@ -139,6 +150,23 @@
 - **Map controls toolbar**: Controls moved to `top-right` with CSS offset below header (130px mobile, 80px sm+). One merged group: Zoom+, Zoom−, Compass (built-in), Fit, Satellite. Removed duplicate custom compass. Custom icons 14px, stroke 1.5; centered in 29×29 box matching Mapbox UI.
 - **Map clustering (scale to more murals)**: Supercluster radius 60→100 and maxZoom 16→17 so clusters hold until zoom 17 (fewer individual thumbnails at mid zoom). Keeps map readable as mural count grows; overlapping leaves are spread in a circle (one marker per mural).
 - **Thumbnail hover (all markers)**: Hovered thumbnail is full opacity and z-index 1000; others dim (opacity 0.55). MuralMarker accepts `isDimmed`, `isLifted`, `onPointerEnter`/`onPointerLeave`, `onFocus`/`onBlur` for a11y. Reduced motion: no lift translate, dim and z-index still apply.
+
+## Community upload pipeline (done)
+
+- **Canonical DB + storage**: `lib/db/schema.ts` (MuralRow, MuralInsert, muralRowToApp), `lib/db/client.ts` (getSupabaseClient, insertMural, upsertMurals, selectAllMurals, selectMuralById), `lib/db/murals.ts` (getMuralsForMap with DB + JSON fallback). **Seed script**: `scripts/seed-murals-db.ts` reads `data/murals.json`, maps to MuralInsert, upserts into Supabase; run `npm run seed-murals-db`. `lib/storage/types.ts` (MuralStorage contract), `lib/storage/supabase.ts` (Supabase Storage for display/thumb WebP). Migration: `supabase/migrations/20250310000000_murals.sql`. Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
+- **Turnstile + submit API**: `lib/turnstile.ts` (verifyTurnstile). **POST /api/murals/submit** — FormData: turnstileToken (required), image, optional title, artist, lat, lng. Verifies Turnstile first; then processes image (`lib/upload/processImage.ts`: Sharp WebP display/thumb, dominant color, EXIF metadata/coordinates), uploads to Supabase Storage, inserts mural in DB, computes CLIP embedding and upserts Qdrant. Auto-publishes; no review queue.
+- **Image processing**: `lib/upload/processImage.ts` — processUploadedImage(buffer) returns displayBuffer, thumbBuffer, dominantColor, imageMetadata?, coordinatesFromExif. Mirrors sync-murals constants (1600 long edge, 400 thumb, WebP quality). Sharp + exifreader in dependencies for API.
+- **Map data source**: `app/page.tsx` uses getMuralsForMap() (async); DB as canonical, fallback to `data/murals.json` when DB unavailable or returns 0 rows (empty table). **GET /api/murals** returns all murals from DB (503 if unavailable). Map/list/modal receive same Mural shape.
+- **CheckMuralModal**: "Add to database" (new mural) uses invisible Turnstile widget and **POST /api/murals/submit**. Learning (existing mural) still uses **POST /api/murals** (FormData image + muralId). Turnstile script loaded when phase === result; widget div cf-turnstile with data-size="invisible". Env: NEXT_PUBLIC_TURNSTILE_SITE_KEY, TURNSTILE_SECRET_KEY.
+- **Tests**: `lib/__tests__/turnstile.test.ts` (verifyTurnstile success, failure, remoteip, missing secret). `lib/__tests__/processImage.test.ts` (valid image → buffers + dominant color, empty buffer throws).
+- **Deleted/consolidated**: Map mural source switched from static JSON import to getMuralsForMap() (DB with JSON fallback). No removal of sync-murals; still used for manual bulk import. README updated: Qdrant described as derived index; Community uploads and canonical data section added.
+
+## Check mural photo (done)
+
+- **Header button**: MapHeader has "Check mural" (desktop pill) and camera icon (mobile) that open the check-mural modal when `onCheckMuralClick` is passed. MapContent owns `checkMuralOpen` state and renders `CheckMuralModal`.
+- **CheckMuralModal**: Dialog (bottom sheet on mobile, centered on desktop) with camera preview via `getUserMedia` (facingMode: environment) and "Capture photo" / "Upload photo" (file input with `accept="image/*" capture="environment"`). Submits image as FormData to POST `/api/search`; uses client-side similarity threshold (`MATCH_THRESHOLD = 0.85`, cosine) to show "This mural is in our database" (with optional match title and "View on map" button) or "We don't have this mural in our database yet." Check another / Close / Try again actions; focus trap and Escape to close. Camera requires HTTPS; permission denied shows message and emphasizes upload. Unit tests: `components/__tests__/CheckMuralModal.test.tsx` for `isMatchInDb` (score ≥ threshold → true, below → false, empty results → false).
+- **CheckMuralModal "View on map"**: Uses `onViewOnMap(muralId)` callback from MapContent so the map flies to the matched mural and the modal closes without a full page refresh (same pattern as MuralModal; no `/?mural=id` link).
+- **Selection + learning**: When search returns multiple results, user can select the correct mural (or "None of these"). "View on map" uses the selected result’s id (canonical mural id from API). On "View on map", the modal sends the user’s photo to POST `/api/murals` (FormData: image + muralId) so Qdrant stores another vector for that mural — future similar photos match better. When no match or user selects "None of these", "Add to database" submits the photo to POST `/api/murals` (FormData: image only) as a new point (source: user_submission); improves search only (not on map until reviewed). Search API groups hits by mural id (`lib/searchUtils.groupByMuralId`) and returns top 3 murals with best score per mural; response id is canonical mural id for navigation. Murals API accepts FormData (image file, optional muralId); with muralId it scrolls Qdrant for that payload and upserts a new point (UUID) with the user’s embedding. Tests: `lib/__tests__/searchUtils.test.ts` (groupByMuralId dedupe, topK, fallback id); CheckMuralModal test for multi-result isMatchInDb.
 
 ## Performance / Lighthouse (done)
 
