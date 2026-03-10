@@ -6,6 +6,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { motion, AnimatePresence } from "framer-motion";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
+import { useHaptics } from "@/hooks/useHaptics";
 import type { Mural } from "@/types/mural";
 import { getArtistInstagramUrl } from "@/lib/instagram";
 
@@ -45,8 +46,15 @@ export function MuralList({
   const dialogRef = useRef<HTMLDivElement>(null);
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const variants = isDesktop ? SIDEBAR : SHEET;
+  const haptics = useHaptics();
 
   useFocusTrap(dialogRef, isOpen);
+
+  const handleSelect = (mural: Mural) => {
+    haptics.tap();
+    onSelectMural(mural);
+    onClose();
+  };
 
   const virtualizer = useVirtualizer({
     count: murals.length,
@@ -55,11 +63,6 @@ export function MuralList({
     overscan: 5,
     getItemKey: (index) => murals[index].id,
   });
-
-  const handleSelect = (mural: Mural) => {
-    onSelectMural(mural);
-    onClose();
-  };
 
   return (
     <AnimatePresence>
@@ -192,8 +195,8 @@ export function MuralList({
                           </p>
                           <p className="truncate text-sm text-zinc-600">
                             {mural.artistInstagramHandle &&
-                            (!mural.artist?.trim() ||
-                              mural.artist === "Unknown Artist") ? (
+                              (!mural.artist?.trim() ||
+                                mural.artist === "Unknown Artist") ? (
                               <a
                                 href={getArtistInstagramUrl(mural.artistInstagramHandle)}
                                 target="_blank"

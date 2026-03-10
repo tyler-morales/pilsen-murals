@@ -87,6 +87,7 @@ export function MapContent({ murals, collections }: MapContentProps) {
       <LocationPrompt />
       <MapHeader
         murals={displayMurals}
+        onMapClick={() => { setListOpen(false); setTourListOpen(false); }}
         onBrowseClick={() => setListOpen((o) => !o)}
         isListOpen={listOpen}
         activeTour={activeTour}

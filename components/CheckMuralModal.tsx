@@ -1,12 +1,26 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useDragControls } from "framer-motion";
+import { Database, RefreshCw } from "lucide-react";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
+import { useHaptics } from "@/hooks/useHaptics";
+import { useLocationStore } from "@/store/locationStore";
 
-/** Cosine similarity threshold: score >= this means "mural is in DB". */
-export const MATCH_THRESHOLD = 0.85;
+/**
+ * Cosine similarity threshold: score >= this means "mural is in DB".
+ * Lower than 0.85 to allow same-mural-under-different-conditions (lighting, angle)
+ * to still count as a match; trade-off is slightly more false positives.
+ */
+export const MATCH_THRESHOLD = 0.80;
+
+/**
+ * Minimum relevance floor for override candidates. CLIP cosine similarity below
+ * this is treated as noise (e.g. a selfie vs any mural). Set low enough that
+ * same mural in different lighting/angle can still appear in the "pick below" list.
+ */
+export const MIN_RELEVANCE_SCORE = 0.48;
 
 export interface SearchResultItem {
   id: string;
@@ -73,9 +87,22 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
   const [selectedResult, setSelectedResult] = useState<SelectedResult>(null);
   const [addToDbPending, setAddToDbPending] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [checkingPreviewUrl, setCheckingPreviewUrl] = useState<string | null>(null);
 
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const variants = isDesktop ? CENTER : SHEET;
+  const userCoords = useLocationStore((s) => s.userCoords);
+  const dragControls = useDragControls();
+  const haptics = useHaptics();
+
+  const handleDrawerDragEnd = useCallback(
+    (_: unknown, info: { offset: { y: number }; velocity: { y: number } }) => {
+      const threshold = 80;
+      const velocityThreshold = 300;
+      if (info.offset.y > threshold || info.velocity.y > velocityThreshold) onClose();
+    },
+    [onClose]
+  );
 
   useFocusTrap(dialogRef, isOpen);
 
@@ -119,8 +146,12 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
         URL.revokeObjectURL(previewUrl);
         setPreviewUrl(null);
       }
+      if (checkingPreviewUrl) {
+        URL.revokeObjectURL(checkingPreviewUrl);
+        setCheckingPreviewUrl(null);
+      }
     }
-  }, [isOpen, stopCamera, previewUrl]);
+  }, [isOpen, stopCamera, previewUrl, checkingPreviewUrl]);
 
   useEffect(() => {
     if (phase === "result" && lastSubmittedBlobRef.current) {
@@ -132,6 +163,13 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
       };
     }
   }, [phase]);
+
+  useEffect(() => {
+    if (phase !== "checking" && checkingPreviewUrl) {
+      URL.revokeObjectURL(checkingPreviewUrl);
+      setCheckingPreviewUrl(null);
+    }
+  }, [phase, checkingPreviewUrl]);
 
   useEffect(() => {
     if (isOpen && phase === "capture") {
@@ -153,14 +191,20 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
   }, [isOpen, onClose]);
 
   const submitImage = useCallback(async (blob: Blob) => {
+    haptics.shutter();
     lastSubmittedBlobRef.current = blob;
     stopCamera();
     setPhase("checking");
+    setCheckingPreviewUrl(URL.createObjectURL(blob));
     setSearchError(null);
     setSearchResult(null);
     setSelectedResult(null);
     const formData = new FormData();
     formData.append("image", blob, "capture.jpg");
+    if (userCoords) {
+      formData.append("lat", String(userCoords[1]));
+      formData.append("lng", String(userCoords[0]));
+    }
     try {
       const res = await fetch("/api/search", {
         method: "POST",
@@ -179,11 +223,12 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
         setSelectedResult(matches[0]);
       }
       setPhase("result");
+      haptics.success();
     } catch {
       setSearchError("Network error. Try again.");
       setPhase("error");
     }
-  }, [stopCamera]);
+  }, [stopCamera, userCoords, haptics]);
 
   const captureFromVideo = useCallback(() => {
     const video = videoRef.current;
@@ -310,6 +355,10 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
   const matchResults = results.filter((r) => r.score >= MATCH_THRESHOLD);
   /** When we have a match, show only results at or above threshold (often 1 for exact image). When no match, show no candidates. */
   const displayResults = match ? matchResults : [];
+  /** When no match, show up to 5 above relevance floor so same mural in different conditions can still be chosen. */
+  const overrideCandidates = !match && results.length > 0
+    ? results.filter((r) => r.score >= MIN_RELEVANCE_SCORE).slice(0, 5)
+    : [];
   const thumbSrc = (p: Record<string, unknown> | undefined) =>
     typeof p?.thumbnail === "string"
       ? (p.thumbnail as string)
@@ -349,12 +398,20 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
               exit="exit"
               transition={{ type: "spring", damping: 28, stiffness: 300 }}
               onClick={(e) => e.stopPropagation()}
+              {...(!isDesktop && {
+                drag: "y",
+                dragConstraints: { top: 0 },
+                dragElastic: { top: 0, bottom: 0.25 },
+                dragControls,
+                onDragEnd: handleDrawerDragEnd,
+              })}
             >
               <div
-                className="flex justify-center pt-3 pb-1 md:hidden"
+                className="flex min-h-[44px] cursor-grab active:cursor-grabbing flex-col items-center justify-center pt-3 pb-1 md:hidden"
                 aria-hidden
+                onPointerDown={!isDesktop ? (e) => dragControls.start(e) : undefined}
               >
-                <span className="h-1.5 w-12 shrink-0 rounded-full bg-zinc-300" />
+                <span className="h-1.5 w-12 shrink-0 rounded-full bg-zinc-300" aria-hidden />
               </div>
               <div className="flex shrink-0 items-center justify-between border-b border-zinc-200 bg-white px-4 py-3">
                 <h2
@@ -424,9 +481,53 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                 )}
 
                 {phase === "checking" && (
-                  <div className="flex flex-col items-center justify-center gap-4 py-8" role="status" aria-live="polite">
-                    <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-300 border-t-[var(--color-accent)]" aria-hidden />
-                    <p className="text-sm font-medium text-zinc-700">Checking…</p>
+                  <div
+                    className="flex flex-col items-center justify-center gap-4 py-6"
+                    role="status"
+                    aria-live="polite"
+                    aria-label="Checking your photo"
+                  >
+                    <p className="text-sm font-medium text-zinc-700">Checking your photo…</p>
+                    <p className="text-xs text-zinc-500">This may take a few seconds.</p>
+                    {checkingPreviewUrl && (
+                      <div className="relative w-full max-w-[280px] overflow-hidden rounded-xl bg-zinc-100">
+                        <img
+                          src={checkingPreviewUrl}
+                          alt="Photo being checked"
+                          className="max-h-[160px] w-full object-contain"
+                        />
+                        <motion.div
+                          className="absolute left-0 right-0 z-10 h-2 rounded-full bg-gradient-to-b from-transparent via-[var(--color-accent)] to-transparent opacity-90 shadow-[0_0_12px_2px_rgba(226,126,166,0.6)]"
+                          initial={{ top: "0%" }}
+                          animate={{ top: "100%" }}
+                          transition={{
+                            repeat: Infinity,
+                            duration: 2,
+                            ease: "easeInOut",
+                          }}
+                          style={{ position: "absolute" as const }}
+                          aria-hidden
+                        />
+                      </div>
+                    )}
+                    <motion.div
+                      animate={{ scale: [1, 1.08, 1], opacity: [0.7, 1, 0.7] }}
+                      transition={{ repeat: Infinity, duration: 1.8, ease: "easeInOut" }}
+                      aria-hidden
+                    >
+                      <svg
+                        className="h-8 w-8 text-[var(--color-accent)]"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <circle cx="11" cy="11" r="8" />
+                        <path d="m21 21-4.35-4.35" />
+                      </svg>
+                    </motion.div>
                   </div>
                 )}
 
@@ -442,12 +543,25 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                       </p>
                     )}
                     {previewUrl && (
-                      <div className="flex justify-center">
-                        <img
-                          src={previewUrl}
-                          alt="Photo you are adding to the database"
-                          className="max-h-[min(40vh,280px)] w-auto max-w-full rounded-lg border border-zinc-200 object-contain"
-                        />
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="flex justify-center">
+                          <img
+                            src={previewUrl}
+                            alt="Photo you are adding to the database"
+                            className="max-h-[min(40vh,280px)] w-auto max-w-full rounded-lg border border-zinc-200 object-contain"
+                          />
+                        </div>
+                        {displayResults.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={handleCheckAnother}
+                            className="min-h-[44px] inline-flex items-center justify-center gap-2 rounded-xl border-2 border-zinc-300 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700 transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
+                            aria-label="Retake photo"
+                          >
+                            <RefreshCw className="h-4 w-4 shrink-0" aria-hidden />
+                            Retake photo
+                          </button>
+                        )}
                       </div>
                     )}
                     {previewUrl && displayResults.length > 0 && (
@@ -469,16 +583,102 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                             aria-hidden
                           />
                         )}
-                        <button
-                          type="button"
-                          onClick={handleAddToDb}
-                          disabled={addToDbPending || !turnstileSiteKey}
-                          className="min-h-[44px] w-full rounded-xl border-2 border-green-600 bg-green-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-green-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                          aria-label="Add this mural to the database"
-                          title={!turnstileSiteKey ? "Captcha not configured" : undefined}
-                        >
-                          {addToDbPending ? "Submitting…" : "Add to database"}
-                        </button>
+                        <div className="flex min-h-[44px] w-full flex-row items-stretch gap-3">
+                          <button
+                            type="button"
+                            onClick={handleCheckAnother}
+                            className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl border-2 border-zinc-300 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700 transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
+                            aria-label="Retake photo"
+                          >
+                            <RefreshCw className="h-4 w-4 shrink-0" aria-hidden />
+                            Retake photo
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleAddToDb}
+                            disabled={addToDbPending || !turnstileSiteKey}
+                            className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl border-2 border-green-600 bg-green-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-green-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                            aria-label="Add this mural to the database"
+                            title={!turnstileSiteKey ? "Captcha not configured" : undefined}
+                          >
+                            <Database className="h-4 w-4 shrink-0" aria-hidden />
+                            {addToDbPending ? "Submitting…" : "Add to database"}
+                          </button>
+                        </div>
+                        {overrideCandidates.length > 0 && (
+                          <>
+                            <div className="h-px w-full bg-zinc-200" aria-hidden />
+                            <p className="text-sm text-zinc-600">
+                              Think it&apos;s in our collection? Pick the mural below.
+                            </p>
+                            <p className="text-xs text-zinc-500">
+                              Lighting and angle can affect matching. If you took this at the mural, pick it below.
+                              {userCoords && " Results are ordered by similarity and distance from you."}
+                            </p>
+                            <ul
+                              role="list"
+                              className={`grid max-h-[min(50vh,340px)] gap-3 overflow-y-auto justify-items-center ${overrideCandidates.length === 1
+                                ? "grid-cols-1"
+                                : overrideCandidates.length <= 3
+                                  ? "grid-cols-3"
+                                  : "grid-cols-2 sm:grid-cols-3"
+                                }`}
+                              aria-label="Possible matches to confirm"
+                            >
+                              {overrideCandidates.map((r) => {
+                                const src = thumbSrc(r.payload);
+                                const title =
+                                  typeof r.payload?.title === "string"
+                                    ? (r.payload.title as string)
+                                    : r.id;
+                                const isSelected = selectedResult === r;
+                                return (
+                                  <li key={r.id} className="w-full min-w-0 flex justify-center">
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedResult(r)}
+                                      className={`flex w-full max-w-[10rem] rounded-lg border-2 p-1 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 ${isSelected
+                                        ? "border-amber-600 bg-amber-50"
+                                        : "border-zinc-200 bg-white hover:border-zinc-300"
+                                        }`}
+                                      aria-pressed={isSelected}
+                                      aria-label={`Confirm: ${title}`}
+                                    >
+                                      <span className="relative block w-full aspect-square overflow-hidden rounded-md">
+                                        {src ? (
+                                          <img
+                                            src={src}
+                                            alt=""
+                                            className="h-full w-full object-cover"
+                                            width={112}
+                                            height={112}
+                                          />
+                                        ) : (
+                                          <span className="block h-full w-full bg-zinc-100" />
+                                        )}
+                                      </span>
+                                    </button>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (selectedResult && selectedResult !== "none") {
+                                  submitLearningUpsert(selectedResult.id);
+                                  onViewOnMap?.(selectedResult.id);
+                                  onClose();
+                                }
+                              }}
+                              disabled={!selectedResult || selectedResult === "none"}
+                              className="min-h-[44px] w-full rounded-xl border-2 border-amber-600 bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-amber-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                              aria-label="Or, confirm selected mural is in the database"
+                            >
+                              Or, confirm it&apos;s in database
+                            </button>
+                          </>
+                        )}
                       </div>
                     )}
                     {displayResults.length > 0 && (
@@ -533,7 +733,10 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                         <div className="flex min-h-[44px] w-full flex-row items-stretch gap-3">
                           <button
                             type="button"
-                            onClick={() => setSelectedResult("none")}
+                            onClick={() => {
+                              haptics.error();
+                              setSelectedResult("none");
+                            }}
                             className={`flex flex-1 items-center justify-center rounded-xl border-2 p-2 text-center text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 ${selectedResult === "none"
                               ? "border-red-600 bg-red-600 text-white"
                               : "border-red-500 bg-white text-red-600 hover:bg-red-50"
@@ -549,6 +752,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                               if (selectedResult === "none") {
                                 handleAddToDb();
                               } else if (selectedResult) {
+                                haptics.success();
                                 submitLearningUpsert(selectedResult.id);
                                 onViewOnMap?.(selectedResult.id);
                                 onClose();

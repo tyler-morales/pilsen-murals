@@ -11,6 +11,7 @@ import { useMuralStore } from "@/store/muralStore";
 import { useMapStore } from "@/store/mapStore";
 import { useThemeStore } from "@/store/themeStore";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
+import { useHaptics } from "@/hooks/useHaptics";
 import { getRevealDelay } from "@/lib/markerAnimation";
 import {
   groupLeavesIntoPlacements,
@@ -59,7 +60,10 @@ const FIT_ICON_SVG =
 /**
  * Custom Mapbox IControl: Fit map to murals (official icon, centered).
  */
-function createFitMapControl(getCoords: () => [number, number][]) {
+function createFitMapControl(
+  getCoords: () => [number, number][],
+  onHaptic?: () => void,
+) {
   return class FitMapControl {
     onAdd(_map: import("mapbox-gl").Map) {
       const btn = document.createElement("button");
@@ -69,6 +73,7 @@ function createFitMapControl(getCoords: () => [number, number][]) {
       btn.setAttribute("title", "Fit map");
       btn.innerHTML = FIT_ICON_SVG;
       btn.addEventListener("click", () => {
+        onHaptic?.();
         const coords = getCoords();
         if (coords.length) useMapStore.getState().requestFitBounds(coords);
       });
@@ -86,7 +91,7 @@ const SATELLITE_ICON_SVG =
   '<svg class="mapboxgl-ctrl-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><ellipse cx="12" cy="12" rx="10" ry="4"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>';
 
 /** Custom control: satellite/standard style toggle. Button label and active state sync with store. */
-function createStyleControl() {
+function createStyleControl(onHaptic?: () => void) {
   return class StyleControl {
     private unsubscribe: (() => void) | null = null;
 
@@ -110,6 +115,7 @@ function createStyleControl() {
       btn.innerHTML = SATELLITE_ICON_SVG;
       this.updateButton(btn);
       btn.addEventListener("click", () => {
+        onHaptic?.();
         const { mapStyle, setMapStyle } = useMapStore.getState();
         setMapStyle(mapStyle === "standard" ? "satellite" : "standard");
       });
@@ -131,7 +137,7 @@ const HEATMAP_ICON_SVG =
   '<svg class="mapboxgl-ctrl-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="14" r="3" opacity="0.8"/><circle cx="14" cy="10" r="4" opacity="0.6"/><circle cx="18" cy="16" r="2.5" opacity="0.9"/><circle cx="12" cy="6" r="2" opacity="0.5"/></svg>';
 
 /** Custom control: toggle mural density heatmap. */
-function createHeatmapControl() {
+function createHeatmapControl(onHaptic?: () => void) {
   return class HeatmapControl {
     private unsubscribe: (() => void) | null = null;
 
@@ -150,6 +156,7 @@ function createHeatmapControl() {
       btn.innerHTML = HEATMAP_ICON_SVG;
       this.updateButton(btn);
       btn.addEventListener("click", () => {
+        onHaptic?.();
         const { heatmapVisible, setHeatmapVisible } = useMapStore.getState();
         setHeatmapVisible(!heatmapVisible);
       });
@@ -312,6 +319,12 @@ const PILSEN_BOUNDARY_LINE_LAYER_ID = "pilsen-boundary-line";
 
 const MURALS_HEATMAP_SOURCE_ID = "murals-heatmap";
 const MURALS_HEATMAP_LAYER_ID = "murals-heatmap-layer";
+
+const HOVER_CIRCLE_SOURCE_ID = "hover-circle";
+const HOVER_CIRCLE_FILL_LAYER_ID = "hover-circle-fill";
+const HOVER_CIRCLE_LINE_LAYER_ID = "hover-circle-line";
+/** Radius in meters for the hover ground circle (drawn on map surface). */
+const HOVER_CIRCLE_RADIUS_M = 55;
 
 function muralsToHeatmapGeoJSON(murals: Mural[]): GeoJSON.FeatureCollection<GeoJSON.Point> {
   return {
@@ -504,6 +517,30 @@ function addCustomSourcesAndLayers(
       geometry: circlePolygon(userCoords, GEOFENCE_RADIUS_M),
     });
   }
+
+  map.addSource(HOVER_CIRCLE_SOURCE_ID, {
+    type: "geojson",
+    data: { type: "FeatureCollection", features: [] },
+  });
+  map.addLayer({
+    id: HOVER_CIRCLE_FILL_LAYER_ID,
+    type: "fill",
+    source: HOVER_CIRCLE_SOURCE_ID,
+    paint: {
+      "fill-color": "#22c55e",
+      "fill-opacity": 0.2,
+    },
+  });
+  map.addLayer({
+    id: HOVER_CIRCLE_LINE_LAYER_ID,
+    type: "line",
+    source: HOVER_CIRCLE_SOURCE_ID,
+    paint: {
+      "line-color": "#16a34a",
+      "line-width": 2,
+      "line-opacity": 0.5,
+    },
+  });
 }
 
 export function MuralMap({
@@ -517,6 +554,7 @@ export function MuralMap({
   routeCoordinates?: [number, number][] | null;
   nearbyMuralId?: string | null;
 }) {
+  const haptics = useHaptics();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<import("mapbox-gl").Map | null>(null);
   const markerRefsRef = useRef<LeafMarkerRef[]>([]);
@@ -699,9 +737,12 @@ export function MuralMap({
         new mapboxgl.NavigationControl({ showZoom: true, showCompass: true, visualizePitch: true }),
         "top-right"
       );
-      map.addControl(new (createFitMapControl(() => muralsCoordsRef.current))(), "top-right");
-      map.addControl(new (createStyleControl())(), "top-right");
-      map.addControl(new (createHeatmapControl())(), "top-right");
+      map.addControl(
+        new (createFitMapControl(() => muralsCoordsRef.current, haptics.nudge))(),
+        "top-right",
+      );
+      map.addControl(new (createStyleControl(haptics.toggle))(), "top-right");
+      map.addControl(new (createHeatmapControl(haptics.toggle))(), "top-right");
 
       // Merge fit and style into the NavigationControl group; keep heatmap as its own stacked group (compass stays in nav).
       // top-right order: [nav, fit, style, heatmap] -> merge fit, style into nav; heatmap remains separate.
@@ -978,6 +1019,15 @@ export function MuralMap({
         if (map?.getSource(USER_LOCATION_SOURCE_ID)) {
           map.removeSource(USER_LOCATION_SOURCE_ID);
         }
+        if (map?.getLayer(HOVER_CIRCLE_LINE_LAYER_ID)) {
+          map.removeLayer(HOVER_CIRCLE_LINE_LAYER_ID);
+        }
+        if (map?.getLayer(HOVER_CIRCLE_FILL_LAYER_ID)) {
+          map.removeLayer(HOVER_CIRCLE_FILL_LAYER_ID);
+        }
+        if (map?.getSource(HOVER_CIRCLE_SOURCE_ID)) {
+          map.removeSource(HOVER_CIRCLE_SOURCE_ID);
+        }
         if (map?.getLayer(GEOFENCE_LINE_LAYER_ID)) {
           map.removeLayer(GEOFENCE_LINE_LAYER_ID);
         }
@@ -1036,6 +1086,74 @@ export function MuralMap({
       );
     }
   }, [userCoords]);
+
+  // Hover ground circle: draw on map surface at mural coordinates when a thumbnail is hovered; animate from center out.
+  const hoverCircleRafRef = useRef<number | null>(null);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const source = map.getSource(HOVER_CIRCLE_SOURCE_ID) as import("mapbox-gl").GeoJSONSource | undefined;
+    if (!source) return;
+    const empty = { type: "FeatureCollection" as const, features: [] };
+
+    if (!hoveredMuralId) {
+      if (hoverCircleRafRef.current != null) {
+        cancelAnimationFrame(hoverCircleRafRef.current);
+        hoverCircleRafRef.current = null;
+      }
+      source.setData(empty);
+      return;
+    }
+
+    const mural = murals.find((m) => m.id === hoveredMuralId);
+    if (!mural) {
+      source.setData(empty);
+      return;
+    }
+
+    const center = mural.coordinates;
+    const durationMs = 280;
+    const start = performance.now();
+
+    const tick = (now: number) => {
+      const elapsed = now - start;
+      if (elapsed >= durationMs) {
+        source.setData({
+          type: "Feature",
+          properties: {},
+          geometry: circlePolygon(center, HOVER_CIRCLE_RADIUS_M),
+        });
+        hoverCircleRafRef.current = null;
+        return;
+      }
+      const t = elapsed / durationMs;
+      const easeOut = 1 - (1 - t) ** 2;
+      const r = easeOut * HOVER_CIRCLE_RADIUS_M;
+      source.setData({
+        type: "Feature",
+        properties: {},
+        geometry: circlePolygon(center, r),
+      });
+      hoverCircleRafRef.current = requestAnimationFrame(tick);
+    };
+
+    if (prefersReducedMotion) {
+      source.setData({
+        type: "Feature",
+        properties: {},
+        geometry: circlePolygon(center, HOVER_CIRCLE_RADIUS_M),
+      });
+    } else {
+      hoverCircleRafRef.current = requestAnimationFrame(tick);
+    }
+
+    return () => {
+      if (hoverCircleRafRef.current != null) {
+        cancelAnimationFrame(hoverCircleRafRef.current);
+        hoverCircleRafRef.current = null;
+      }
+    };
+  }, [hoveredMuralId, murals, prefersReducedMotion]);
 
   // When user enables location (e.g. via LocationPrompt), zoom map to their position once so they see themselves and nearby thumbnail context
   useEffect(() => {

@@ -9,6 +9,7 @@ import { useLocationStore } from "@/store/locationStore";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
+import { useHaptics } from "@/hooks/useHaptics";
 import type { Mural } from "@/types/mural";
 import { getDirectionsUrl } from "@/lib/directions";
 import { getArtistInstagramUrl } from "@/lib/instagram";
@@ -97,6 +98,7 @@ export function MuralModal() {
   const prefersReducedMotion = usePrefersReducedMotion();
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const dragControls = useDragControls();
+  const haptics = useHaptics();
   const panelRef = useRef<HTMLElement>(null);
   const enlargedRef = useRef<HTMLDivElement>(null);
   const touchStartXRef = useRef<number | null>(null);
@@ -117,7 +119,10 @@ export function MuralModal() {
   const handleDrawerDragEnd = (_: unknown, info: { offset: { y: number }; velocity: { y: number } }) => {
     const threshold = 80;
     const velocityThreshold = 300;
-    if (info.offset.y > threshold || info.velocity.y > velocityThreshold) closeModal();
+    if (info.offset.y > threshold || info.velocity.y > velocityThreshold) {
+      haptics.nudge();
+      closeModal();
+    }
   };
   const canGoNext =
     muralsOrder.length > 0 && activeIndex < muralsOrder.length - 1;
@@ -125,10 +130,12 @@ export function MuralModal() {
   const prevMural = canGoPrev ? muralsOrder[activeIndex - 1] : null;
 
   const handlePrev = () => {
+    haptics.tap();
     if (prevMural) requestFlyTo(prevMural, { openModalAfterFly: false });
     goPrev();
   };
   const handleNext = () => {
+    haptics.tap();
     if (nextMural) requestFlyTo(nextMural, { openModalAfterFly: false });
     goNext();
   };
@@ -197,16 +204,18 @@ export function MuralModal() {
       touchStartXRef.current = null;
       setIsDragging(false);
       if (deltaX < -SWIPE_THRESHOLD_PX) {
+        haptics.tap();
         setPendingTransition("next");
         setSwipeOffset(slideWidth);
       } else if (deltaX > SWIPE_THRESHOLD_PX) {
+        haptics.tap();
         setPendingTransition("prev");
         setSwipeOffset(-slideWidth);
       } else {
         setSwipeOffset(0);
       }
     },
-    [muralsOrder.length, slideWidth]
+    [muralsOrder.length, slideWidth, haptics]
   );
 
   const handleEnlargedAnimationComplete = useCallback(() => {
@@ -222,22 +231,24 @@ export function MuralModal() {
   }, [pendingTransition, handleEnlargedNext, handleEnlargedPrev]);
 
   const handleEnlargedPrevWithAnimation = useCallback(() => {
+    haptics.tap();
     if (muralsOrder.length <= 1 || slideWidth <= 0) {
       handleEnlargedPrev();
       return;
     }
     setPendingTransition("prev");
     setSwipeOffset(-slideWidth);
-  }, [muralsOrder.length, slideWidth, handleEnlargedPrev]);
+  }, [muralsOrder.length, slideWidth, handleEnlargedPrev, haptics]);
 
   const handleEnlargedNextWithAnimation = useCallback(() => {
+    haptics.tap();
     if (muralsOrder.length <= 1 || slideWidth <= 0) {
       handleEnlargedNext();
       return;
     }
     setPendingTransition("next");
     setSwipeOffset(slideWidth);
-  }, [muralsOrder.length, slideWidth, handleEnlargedNext]);
+  }, [muralsOrder.length, slideWidth, handleEnlargedNext, haptics]);
 
   const handleMinimapClick = useCallback(() => {
     if (!activeMural) return;
@@ -317,6 +328,13 @@ export function MuralModal() {
       setIsEnlargedImageLoaded(false);
     }
   }, [isModalOpen]);
+
+  const prevModalOpenRef = useRef(false);
+  useEffect(() => {
+    const justOpened = isModalOpen && !prevModalOpenRef.current;
+    prevModalOpenRef.current = isModalOpen;
+    if (justOpened && activeMural) haptics.tapMedium();
+  }, [isModalOpen, activeMural?.id, haptics]);
 
   useEffect(() => {
     if (!isImageExpanded) setIsEnlargedImageLoaded(false);
@@ -501,7 +519,10 @@ export function MuralModal() {
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
                   transition={{ duration: 0.2 }}
-                  onClick={() => setIsImageExpanded(false)}
+                  onClick={() => {
+                    haptics.tapMedium();
+                    setIsImageExpanded(false);
+                  }}
                   aria-hidden
                 />
                 <motion.div
@@ -514,7 +535,10 @@ export function MuralModal() {
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.98 }}
                   transition={{ duration: 0.2 }}
-                  onClick={() => setIsImageExpanded(false)}
+                  onClick={() => {
+                    haptics.tapMedium();
+                    setIsImageExpanded(false);
+                  }}
                   onTouchStart={handleEnlargedTouchStart}
                   onTouchMove={handleEnlargedTouchMove}
                   onTouchEnd={handleEnlargedTouchEnd}
@@ -619,7 +643,10 @@ export function MuralModal() {
                   )}
                   <button
                     type="button"
-                    onClick={() => setIsImageExpanded(false)}
+                    onClick={() => {
+                      haptics.tapMedium();
+                      setIsImageExpanded(false);
+                    }}
                     className="absolute right-4 top-4 z-10 min-h-[44px] min-w-[44px] rounded-full bg-white/10 p-2 text-white backdrop-blur-sm transition-colors hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
                     aria-label="Close enlarged image"
                   >
@@ -698,7 +725,10 @@ export function MuralModal() {
                 />
                 <button
                   type="button"
-                  onClick={() => setIsImageExpanded(true)}
+                  onClick={() => {
+                    haptics.tapMedium();
+                    setIsImageExpanded(true);
+                  }}
                   className="relative h-full w-full cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-inset"
                   aria-label={`View larger image of ${activeMural.title}`}
                 >

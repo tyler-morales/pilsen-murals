@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import { useMuralStore } from "@/store/muralStore";
 import { useProximityStore } from "@/store/proximityStore";
 import { useLocationStore } from "@/store/locationStore";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
+import { useHaptics } from "@/hooks/useHaptics";
 import {
   formatDistance,
   haversineDistanceMeters,
@@ -37,7 +38,7 @@ interface NearbyMuralCardProps {
 
 /**
  * Card shown when user is within radius of one or more murals. Shows the closest first;
- * View opens the modal and advances to the next nearby; Dismiss advances without opening.
+ * View opens the modal and advances to the next nearby; Dismiss closes the entire card until user leaves and re-enters range.
  */
 export function NearbyMuralCard({
   activeTour = null,
@@ -51,11 +52,23 @@ export function NearbyMuralCard({
     showPrev,
     currentDistanceM,
     exitDirection,
+    dismissed,
+    dismissAll,
     markSeen,
   } = useProximityStore();
   const userCoords = useLocationStore((s) => s.userCoords);
   const requestFlyTo = useMuralStore((s) => s.requestFlyTo);
   const prefersReducedMotion = usePrefersReducedMotion();
+  const haptics = useHaptics();
+  const prevNearbyIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (currentNearby && currentNearby.id !== prevNearbyIdRef.current) {
+      prevNearbyIdRef.current = currentNearby.id;
+      haptics.pulse();
+    }
+    if (!currentNearby) prevNearbyIdRef.current = null;
+  }, [currentNearby?.id, haptics]);
 
   const tourContext = useMemo(() => {
     if (!activeTour || !currentNearby || !orderedMurals.length) return null;
@@ -90,8 +103,8 @@ export function NearbyMuralCard({
   };
 
   const handleDismiss = () => {
-    if (currentNearby) markSeen(currentNearby.id);
-    showNext();
+    nearbyQueue.forEach(({ mural }) => markSeen(mural.id));
+    dismissAll();
   };
 
   const handlePrev = () => {
@@ -121,6 +134,7 @@ export function NearbyMuralCard({
     if (typeof navigator !== "undefined" && navigator.share) {
       try {
         await navigator.share({ title, text, url });
+        haptics.success();
         return;
       } catch {
         // fall through to copy
@@ -128,19 +142,20 @@ export function NearbyMuralCard({
     }
     try {
       await navigator.clipboard?.writeText(url);
+      haptics.success();
       setShareCopied(true);
       setTimeout(() => setShareCopied(false), 2000);
     } catch {
       // ignore
     }
-  }, [currentNearby]);
+  }, [currentNearby, haptics]);
 
   const transition = prefersReducedMotion ? { duration: 0 } : { type: "spring" as const, damping: 25, stiffness: 300 };
   const exitX = exitDirection === "left" ? "-100%" : exitDirection === "right" ? "100%" : 0;
 
   return (
     <AnimatePresence mode="wait">
-      {currentNearby && (
+      {currentNearby && !dismissed && (
         <motion.section
           key={currentNearby.id}
           role="region"
@@ -159,155 +174,155 @@ export function NearbyMuralCard({
             className="overflow-hidden rounded-xl border border-white/20 bg-white/95 shadow-xl backdrop-blur-sm border-t-4"
             style={{ borderTopColor: currentNearby.dominantColor }}
           >
-          <div className="flex gap-3 p-3">
-            <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-zinc-100">
-              <Image
-                src={currentNearby.thumbnail ?? currentNearby.imageUrl}
-                alt=""
-                width={56}
-                height={56}
-                sizes="56px"
-                className="h-full w-full object-cover"
-                loading="lazy"
-              />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 flex items-center gap-1 flex-wrap">
-                <span>You&apos;re near</span>
-                {nearbyQueue.length > 1 ? (
-                  <span className="normal-case font-normal flex items-center gap-0.5">
-                    <button
-                      type="button"
-                      onClick={handlePrev}
-                      disabled={showIndex === 0}
-                      className="rounded p-0.5 text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 disabled:opacity-40 disabled:pointer-events-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-1"
-                      aria-label="Previous nearby mural"
-                    >
-                      ←
-                    </button>
-                    <span className="min-w-[3.5rem] text-center" aria-live="polite">
-                      {showIndex + 1} of {nearbyQueue.length}
+            <div className="flex gap-3 p-3">
+              <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-zinc-100">
+                <Image
+                  src={currentNearby.thumbnail ?? currentNearby.imageUrl}
+                  alt=""
+                  width={56}
+                  height={56}
+                  sizes="56px"
+                  className="h-full w-full object-cover"
+                  loading="lazy"
+                />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 flex items-center gap-1 flex-wrap">
+                  <span>You&apos;re near</span>
+                  {nearbyQueue.length > 1 ? (
+                    <span className="normal-case font-normal flex items-center gap-0.5">
+                      <button
+                        type="button"
+                        onClick={handlePrev}
+                        disabled={showIndex === 0}
+                        className="rounded p-0.5 text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 disabled:opacity-40 disabled:pointer-events-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-1"
+                        aria-label="Previous nearby mural"
+                      >
+                        ←
+                      </button>
+                      <span className="min-w-[3.5rem] text-center" aria-live="polite">
+                        {showIndex + 1} of {nearbyQueue.length}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleNext}
+                        disabled={showIndex === nearbyQueue.length - 1}
+                        className="rounded p-0.5 text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 disabled:opacity-40 disabled:pointer-events-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-1"
+                        aria-label="Next nearby mural"
+                      >
+                        →
+                      </button>
                     </span>
-                    <button
-                      type="button"
-                      onClick={handleNext}
-                      disabled={showIndex === nearbyQueue.length - 1}
-                      className="rounded p-0.5 text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 disabled:opacity-40 disabled:pointer-events-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-1"
-                      aria-label="Next nearby mural"
-                    >
-                      →
-                    </button>
-                  </span>
-                ) : nearbyQueue.length === 1 ? (
-                  <span className="normal-case font-normal">(1 nearby)</span>
-                ) : null}
-              </p>
-              {tourContext && (
-                <p className="text-xs text-zinc-500" aria-live="polite">
-                  Stop {tourContext.stopIndex} of {tourContext.totalStops}
-                  {tourContext.tourName ? ` · ${tourContext.tourName}` : ""}
+                  ) : nearbyQueue.length === 1 ? (
+                    <span className="normal-case font-normal">(1 nearby)</span>
+                  ) : null}
                 </p>
-              )}
-              <p className="truncate text-sm font-semibold text-zinc-900">
-                {currentNearby.title}
-              </p>
-              {(currentNearby.artist ||
-                currentNearby.artistInstagramHandle) && (
-                <p className="truncate text-xs text-zinc-600">
-                  {currentNearby.artistInstagramHandle &&
-                  (!currentNearby.artist?.trim() ||
-                    currentNearby.artist === "Unknown Artist") ? (
-                    <a
-                      href={getArtistInstagramUrl(currentNearby.artistInstagramHandle)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium text-[var(--color-accent)] underline decoration-[var(--color-accent)] underline-offset-2 transition-colors hover:text-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-1 rounded"
-                      aria-label="View artist on Instagram"
-                    >
-                      @{currentNearby.artistInstagramHandle.replace(/^@/, "")}
-                    </a>
-                  ) : (
-                    <>
-                      {currentNearby.artist}
-                      {currentNearby.artistInstagramHandle && (
+                {tourContext && (
+                  <p className="text-xs text-zinc-500" aria-live="polite">
+                    Stop {tourContext.stopIndex} of {tourContext.totalStops}
+                    {tourContext.tourName ? ` · ${tourContext.tourName}` : ""}
+                  </p>
+                )}
+                <p className="truncate text-sm font-semibold text-zinc-900">
+                  {currentNearby.title}
+                </p>
+                {(currentNearby.artist ||
+                  currentNearby.artistInstagramHandle) && (
+                    <p className="truncate text-xs text-zinc-600">
+                      {currentNearby.artistInstagramHandle &&
+                        (!currentNearby.artist?.trim() ||
+                          currentNearby.artist === "Unknown Artist") ? (
+                        <a
+                          href={getArtistInstagramUrl(currentNearby.artistInstagramHandle)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-medium text-[var(--color-accent)] underline decoration-[var(--color-accent)] underline-offset-2 transition-colors hover:text-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-1 rounded"
+                          aria-label="View artist on Instagram"
+                        >
+                          @{currentNearby.artistInstagramHandle.replace(/^@/, "")}
+                        </a>
+                      ) : (
                         <>
-                          {" "}
-                          <a
-                            href={getArtistInstagramUrl(currentNearby.artistInstagramHandle)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="font-medium text-[var(--color-accent)] underline decoration-[var(--color-accent)] underline-offset-2 transition-colors hover:text-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-1 rounded"
-                            aria-label={`View ${currentNearby.artist} on Instagram`}
-                          >
-                            @{currentNearby.artistInstagramHandle.replace(/^@/, "")}
-                          </a>
+                          {currentNearby.artist}
+                          {currentNearby.artistInstagramHandle && (
+                            <>
+                              {" "}
+                              <a
+                                href={getArtistInstagramUrl(currentNearby.artistInstagramHandle)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="font-medium text-[var(--color-accent)] underline decoration-[var(--color-accent)] underline-offset-2 transition-colors hover:text-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-1 rounded"
+                                aria-label={`View ${currentNearby.artist} on Instagram`}
+                              >
+                                @{currentNearby.artistInstagramHandle.replace(/^@/, "")}
+                              </a>
+                            </>
+                          )}
                         </>
                       )}
-                    </>
+                    </p>
                   )}
-                </p>
-              )}
-              {currentDistanceM != null && (
-                <p className="text-xs text-zinc-500">
-                  {formatDistance(currentDistanceM)}
-                </p>
-              )}
-              {typeof currentNearby.bearing === "number" && (
-                <p className="text-xs text-zinc-500">
-                  {bearingToDirectionText(currentNearby.bearing)}
-                </p>
-              )}
-              {tourContext?.nextMural && (
-                <p className="mt-0.5 text-xs text-zinc-500">
-                  Next: {tourContext.nextMural.title}
-                  {tourContext.nextDistanceM != null &&
-                    ` (${formatDistance(tourContext.nextDistanceM)})`}
-                </p>
-              )}
-              {photoLightTip && (
-                <p className="mt-0.5 text-xs italic text-zinc-500">
-                  {photoLightTip}
-                </p>
-              )}
-              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0">
-                <a
-                  href={getDirectionsUrl(currentNearby)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-block text-xs font-medium text-[var(--color-accent)] underline decoration-[var(--color-accent)] underline-offset-2 transition-colors hover:text-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-1 rounded"
-                  aria-label={`Get directions to ${currentNearby.title}`}
-                >
-                  Get directions
-                </a>
-                <button
-                  type="button"
-                  onClick={handleShare}
-                  className="text-xs font-medium text-[var(--color-accent)] underline decoration-[var(--color-accent)] underline-offset-2 transition-colors hover:text-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-1 rounded bg-transparent border-0 p-0 cursor-pointer"
-                  aria-label={`Share ${currentNearby.title}`}
-                >
-                  {shareCopied ? "Link copied" : "Share"}
-                </button>
+                {currentDistanceM != null && (
+                  <p className="text-xs text-zinc-500">
+                    {formatDistance(currentDistanceM)}
+                  </p>
+                )}
+                {typeof currentNearby.bearing === "number" && (
+                  <p className="text-xs text-zinc-500">
+                    {bearingToDirectionText(currentNearby.bearing)}
+                  </p>
+                )}
+                {tourContext?.nextMural && (
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    Next: {tourContext.nextMural.title}
+                    {tourContext.nextDistanceM != null &&
+                      ` (${formatDistance(tourContext.nextDistanceM)})`}
+                  </p>
+                )}
+                {photoLightTip && (
+                  <p className="mt-0.5 text-xs italic text-zinc-500">
+                    {photoLightTip}
+                  </p>
+                )}
+                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0">
+                  <a
+                    href={getDirectionsUrl(currentNearby)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-block text-xs font-medium text-[var(--color-accent)] underline decoration-[var(--color-accent)] underline-offset-2 transition-colors hover:text-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-1 rounded"
+                    aria-label={`Get directions to ${currentNearby.title}`}
+                  >
+                    Get directions
+                  </a>
+                  <button
+                    type="button"
+                    onClick={handleShare}
+                    className="text-xs font-medium text-[var(--color-accent)] underline decoration-[var(--color-accent)] underline-offset-2 transition-colors hover:text-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-1 rounded bg-transparent border-0 p-0 cursor-pointer"
+                    aria-label={`Share ${currentNearby.title}`}
+                  >
+                    {shareCopied ? "Link copied" : "Share"}
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-          <div className="flex border-t border-zinc-100">
-            <button
-              type="button"
-              onClick={handleDismiss}
-              className="min-h-[44px] flex-1 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-accent)]"
-              aria-label="Dismiss nearby alert"
-            >
-              Dismiss
-            </button>
-            <button
-              type="button"
-              onClick={handleView}
-              className="min-h-[44px] flex-1 border-l border-zinc-100 text-sm font-semibold text-[var(--color-accent)] transition-colors hover:bg-amber-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-accent)]"
-              aria-label={`View ${currentNearby.title} on map`}
-            >
-              View
-            </button>
-          </div>
+            <div className="flex border-t border-zinc-100">
+              <button
+                type="button"
+                onClick={handleDismiss}
+                className="min-h-[44px] flex-1 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-accent)]"
+                aria-label="Dismiss all nearby alerts"
+              >
+                Dismiss
+              </button>
+              <button
+                type="button"
+                onClick={handleView}
+                className="min-h-[44px] flex-1 border-l border-zinc-100 text-sm font-semibold text-[var(--color-accent)] transition-colors hover:bg-amber-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-accent)]"
+                aria-label={`View ${currentNearby.title} on map`}
+              >
+                View
+              </button>
+            </div>
           </motion.div>
         </motion.section>
       )}
