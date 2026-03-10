@@ -403,7 +403,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
               })}
             >
               <div
-                className="flex min-h-[44px] cursor-grab active:cursor-grabbing flex-col items-center justify-center pt-3 pb-1 md:cursor-default md:min-h-0 md:pt-0 md:pb-0"
+                className="flex min-h-[44px] cursor-grab active:cursor-grabbing flex-col items-center justify-center pt-3 pb-1 md:hidden"
                 aria-hidden
                 onPointerDown={!isDesktop ? (e) => dragControls.start(e) : undefined}
               >
