@@ -87,33 +87,33 @@ export function MapHeader({
       className="safe-top absolute left-2 right-2 top-2 z-30 flex min-w-0 flex-col gap-2 overflow-visible rounded-2xl border border-white/20 bg-white/85 px-3 pb-3 pt-3 shadow-[0_4px_24px_-4px_rgba(0,0,0,0.08)] backdrop-blur-xl sm:left-4 sm:right-4 sm:flex-row sm:flex-nowrap sm:items-center sm:gap-x-3 sm:gap-y-0 sm:rounded-2xl sm:px-4 sm:pb-2 sm:pt-3 md:right-auto md:max-w-4xl md:border-white/30 md:shadow-lg"
       aria-label="Map header"
     >
-      <div className="flex min-w-0 shrink items-center justify-between gap-2 sm:flex-initial sm:justify-start">
-        <div className="flex min-w-0 shrink flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2">
-          <div className="flex min-w-0 items-baseline gap-2">
+      <div className="flex min-w-0 shrink items-center justify-between gap-2 sm:flex-1 sm:min-w-0 sm:justify-start">
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2">
+          <div className="flex min-w-0 w-full items-baseline justify-between gap-2">
             {activeTour ? (
-              <h1 className="min-w-0 break-words text-lg font-semibold tracking-tight text-zinc-900 sm:text-xl">
+              <h1 className="min-w-0 break-words text-2xl font-semibold leading-tight tracking-tight text-zinc-900 sm:text-3xl">
                 {activeTour.name}
               </h1>
             ) : (
-              <h1 className="min-w-0 break-words text-lg font-semibold tracking-tight text-zinc-900 sm:text-xl">
+              <h1 className="min-w-0 break-words text-2xl font-semibold leading-tight tracking-tight text-zinc-900 sm:text-3xl">
                 <button
                   type="button"
                   onClick={handleSurpriseMe}
                   disabled={murals.length === 0}
-                  className="cursor-pointer text-left text-lg font-semibold tracking-tight text-zinc-900 transition-opacity hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent disabled:cursor-not-allowed disabled:opacity-50 sm:text-xl"
+                  className="cursor-pointer text-left text-2xl font-semibold leading-tight tracking-tight text-zinc-900 transition-opacity hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent disabled:cursor-not-allowed disabled:opacity-50 sm:text-3xl"
                   aria-label="The Pilsen Mural Project — click to show a random mural"
                 >
                   The Pilsen Mural Project
                 </button>
               </h1>
             )}
-            <span className="shrink-0 text-xs text-zinc-500 sm:text-sm sm:text-zinc-600" aria-label="Number of murals">
+            <span className="shrink-0 text-sm text-zinc-500 sm:text-zinc-600" aria-label="Number of murals">
               {murals.length} mural{murals.length !== 1 ? "s" : ""}
             </span>
           </div>
           {activeTour && murals.length > 0 && (
             <span
-              className="inline-flex min-w-0 items-center gap-1.5 text-xs font-medium text-amber-800 sm:text-sm"
+              className="inline-flex min-w-0 items-center gap-1.5 text-sm font-medium text-amber-800"
               aria-label={`Tour progress: stop ${tourStopOneBased} of ${murals.length}`}
             >
               <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5">
@@ -151,7 +151,7 @@ export function MapHeader({
               aria-selected={activeTab === "map"}
               aria-label="Map view"
               onClick={() => { haptics.nudge(); onMapClick(); }}
-              className={`relative z-10 flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 disabled:pointer-events-none sm:flex-initial sm:px-4 ${activeTab === "map" ? "text-[var(--color-accent-foreground)]" : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"}`}
+              className={`relative z-10 flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg text-base font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 disabled:pointer-events-none sm:flex-initial sm:px-4 ${activeTab === "map" ? "text-[var(--color-accent-foreground)]" : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"}`}
             >
               <Map className="h-4 w-4 shrink-0" aria-hidden />
               <span>Map</span>
@@ -166,7 +166,7 @@ export function MapHeader({
               aria-expanded={isListOpen}
               aria-label="Browse all murals"
               onClick={() => { haptics.nudge(); onBrowseClick(); }}
-              className={`relative z-10 flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 disabled:pointer-events-none sm:flex-initial sm:px-4 ${activeTab === "browse" ? "text-[var(--color-accent-foreground)]" : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"}`}
+              className={`relative z-10 flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg text-base font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 disabled:pointer-events-none sm:flex-initial sm:px-4 ${activeTab === "browse" ? "text-[var(--color-accent-foreground)]" : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"}`}
             >
               <List className="h-4 w-4 shrink-0" aria-hidden />
               <span>Browse</span>
@@ -180,7 +180,7 @@ export function MapHeader({
               aria-selected={activeTab === "tours"}
               aria-label="Leave tour and show all murals"
               onClick={() => { haptics.nudge(); onLeaveTour(); }}
-              className={`relative z-10 flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 sm:flex-initial sm:px-4 ${activeTab === "tours" ? "text-[var(--color-accent-foreground)]" : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"}`}
+              className={`relative z-10 flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg text-base font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 sm:flex-initial sm:px-4 ${activeTab === "tours" ? "text-[var(--color-accent-foreground)]" : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"}`}
             >
               <Footprints className="h-4 w-4 shrink-0" aria-hidden />
               <span>Leave tour</span>
@@ -194,7 +194,7 @@ export function MapHeader({
               aria-expanded={isTourListOpen}
               aria-label="Walking tours"
               onClick={() => { haptics.nudge(); onToursClick(); }}
-              className={`relative z-10 flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 sm:flex-initial sm:px-4 ${activeTab === "tours" ? "text-[var(--color-accent-foreground)]" : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"}`}
+              className={`relative z-10 flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg text-base font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 sm:flex-initial sm:px-4 ${activeTab === "tours" ? "text-[var(--color-accent-foreground)]" : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"}`}
             >
               <Footprints className="h-4 w-4 shrink-0" aria-hidden />
               <span>Tours</span>

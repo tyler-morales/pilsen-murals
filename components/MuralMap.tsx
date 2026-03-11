@@ -1437,7 +1437,7 @@ export function MuralMap({
               aria-valuemax={100}
               aria-label="Loading progress"
             >
-              <p className="text-sm font-semibold text-zinc-700">
+              <p className="text-base font-semibold text-zinc-700">
                 Loading... Pilsen murals near you
               </p>
             </div>
@@ -1469,7 +1469,7 @@ export function MuralMap({
       )}
       {!MAPBOX_TOKEN && (
         <div className="absolute inset-0 flex items-center justify-center bg-dynamic text-dynamic-muted">
-          <p className="max-w-md text-center text-sm">
+          <p className="max-w-md text-center text-base">
             Add your Mapbox Access Token: set <code className="rounded bg-dynamic-surface px-1">NEXT_PUBLIC_MAPBOX_TOKEN</code> in{" "}
             <code className="rounded bg-dynamic-surface px-1">.env.local</code> or in this file.
           </p>

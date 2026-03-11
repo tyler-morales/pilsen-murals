@@ -530,7 +530,7 @@ export function MuralModal() {
                   role="dialog"
                   aria-modal="true"
                   aria-label={`Enlarged view: ${activeMural.title}`}
-                  className="safe-top safe-right safe-bottom safe-left fixed inset-0 z-[70] flex items-center justify-center p-4 sm:p-6 md:p-8 touch-pan-y"
+                  className="safe-top-padding safe-right safe-bottom safe-left fixed inset-0 z-[70] flex items-center justify-center p-4 sm:p-6 md:p-8 touch-pan-y"
                   initial={{ opacity: 0, scale: 0.98 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.98 }}
@@ -750,7 +750,7 @@ export function MuralModal() {
               <div className="flex flex-1 flex-col px-6 pb-8 pt-6">
                 <h2
                   id="mural-modal-title"
-                  className="font-serif text-3xl font-light tracking-tight text-zinc-900"
+                  className="font-serif text-3xl font-light leading-tight tracking-tight text-zinc-900"
                 >
                   {activeMural.title}
                 </h2>
@@ -828,13 +828,13 @@ export function MuralModal() {
                 >
                   <summary
                     id="image-metadata-heading"
-                    className="cursor-pointer list-none text-xs font-medium uppercase tracking-wider text-zinc-500 hover:text-zinc-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
+                    className="cursor-pointer list-none text-sm font-medium uppercase tracking-wider text-zinc-500 hover:text-zinc-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
                   >
                     Image metadata
                   </summary>
                   <dl className="mt-3 grid gap-2 sm:grid-cols-2">
                     <div>
-                      <dt className="text-xs text-zinc-500">Coordinates</dt>
+                      <dt className="text-sm text-zinc-500">Coordinates</dt>
                       <dd className="mt-0.5 font-mono text-sm text-zinc-700" aria-label="Mural location coordinates">
                         {activeMural.coordinates[1].toFixed(5)}°, {activeMural.coordinates[0].toFixed(5)}°
                       </dd>
@@ -842,7 +842,7 @@ export function MuralModal() {
                     {activeMural.imageMetadata &&
                       Object.entries(activeMural.imageMetadata).map(([label, value]) => (
                         <div key={label}>
-                          <dt className="text-xs text-zinc-500">{label}</dt>
+                          <dt className="text-sm text-zinc-500">{label}</dt>
                           <dd className="mt-0.5 font-mono text-sm text-zinc-700">{value}</dd>
                         </div>
                       ))}
@@ -856,7 +856,7 @@ export function MuralModal() {
                   type="button"
                   onClick={handlePrev}
                   disabled={!canGoPrev}
-                  className="flex-1 min-h-[44px] rounded-lg border border-zinc-200 bg-white py-3 text-sm font-medium text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:pointer-events-none disabled:opacity-50"
+                  className="flex-1 min-h-[44px] rounded-lg border border-zinc-200 bg-white py-3 text-base font-medium text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:pointer-events-none disabled:opacity-50"
                   aria-label="Previous mural"
                 >
                   Previous
@@ -865,7 +865,7 @@ export function MuralModal() {
                   type="button"
                   onClick={handleNext}
                   disabled={!canGoNext}
-                  className="flex-1 min-h-[44px] rounded-lg border border-zinc-200 bg-white py-3 text-sm font-medium text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:pointer-events-none disabled:opacity-50"
+                  className="flex-1 min-h-[44px] rounded-lg border border-zinc-200 bg-white py-3 text-base font-medium text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:pointer-events-none disabled:opacity-50"
                   aria-label="Next mural"
                 >
                   Next
@@ -873,7 +873,7 @@ export function MuralModal() {
                 <button
                   type="button"
                   onClick={closeModal}
-                  className="flex-1 min-h-[44px] rounded-lg border border-zinc-200 bg-white py-3 text-sm font-medium text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
+                  className="flex-1 min-h-[44px] rounded-lg border border-zinc-200 bg-white py-3 text-base font-medium text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
                 >
                   Close
                 </button>

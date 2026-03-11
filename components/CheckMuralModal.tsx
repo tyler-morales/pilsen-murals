@@ -2,13 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence, useDragControls } from "framer-motion";
-import { AlertCircle, CircleCheck, Database, ImagePlus, RefreshCw, X } from "lucide-react";
+import { AlertCircle, CircleCheck, ImagePlus, RefreshCw, X } from "lucide-react";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { useHaptics } from "@/hooks/useHaptics";
 import { useLocationStore } from "@/store/locationStore";
 import { normalizeImageForUpload } from "@/lib/upload/normalizeImageForUpload";
 import { bucketResultsByMuralId } from "@/lib/searchUtils";
+import { ImageEditor } from "@/components/ImageEditor";
+import { LocationConfirm } from "@/components/LocationConfirm";
 
 /**
  * Cosine similarity threshold: score >= this means "mural is in DB".
@@ -64,6 +66,9 @@ const TURNSTILE_WIDGET_ID = "check-mural-turnstile";
 const TURNSTILE_CALLBACK_NAME = "checkMuralTurnstileCallback";
 const TURNSTILE_SCRIPT_URL = "https://challenges.cloudflare.com/turnstile/v0/api.js";
 
+/** Fallback map center when user location is unavailable (Pilsen, Chicago). [lng, lat] */
+const PILSEN_CENTER: [number, number] = [-87.657, 41.852];
+
 const PILSEN_FUN_FACTS = [
   "Pilsen is named after Plzeň, a city in the Czech Republic.",
   "The neighborhood has been a hub for Mexican culture since the 1960s.",
@@ -106,7 +111,7 @@ type ImageCaptureLike = {
   takePhoto: () => Promise<Blob>;
 };
 
-type Phase = "capture" | "checking" | "result" | "confirmed" | "error";
+type Phase = "capture" | "edit" | "checking" | "result" | "confirm-location" | "confirmed" | "error";
 type ConfirmedAction = "match" | "added" | null;
 
 interface ZoomCapability {
@@ -269,7 +274,7 @@ function ResultBucketGrid({
                     );
                   })}
                   <span
-                    className="absolute bottom-1 right-1 rounded bg-black/70 px-1.5 py-0.5 text-xs font-medium text-white"
+                    className="absolute bottom-1 right-1 rounded bg-black/70 px-1.5 py-0.5 text-sm font-medium text-white"
                     aria-hidden
                   >
                     {items.length}
@@ -293,6 +298,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
   const lastSubmittedBlobRef = useRef<Blob | null>(null);
   const addToDbWithTokenRef = useRef<((token: string) => void) | null>(null);
   const pendingMuralIdRef = useRef<string | null>(null);
+  const pendingSubmitCoordsRef = useRef<[number, number] | null>(null);
   const zoomLevelRef = useRef(1);
   const pinchStartRef = useRef<{ distance: number; zoom: number } | null>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
@@ -316,6 +322,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
   const [funFactIndex, setFunFactIndex] = useState(0);
   const [expandedStackId, setExpandedStackId] = useState<string | null>(null);
   const [confirmedAction, setConfirmedAction] = useState<ConfirmedAction>(null);
+  const [editImageUrl, setEditImageUrl] = useState<string | null>(null);
 
   const isDesktop = useMediaQuery("(min-width: 768px)");
 
@@ -329,8 +336,6 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
   }, [phase]);
   const variants = isDesktop ? CENTER : SHEET;
   const userCoords = useLocationStore((s) => s.userCoords);
-  const locationPermission = useLocationStore((s) => s.permission);
-  const requestLocation = useLocationStore((s) => s.requestLocation);
   const dragControls = useDragControls();
   const haptics = useHaptics();
 
@@ -489,6 +494,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
       setAddToDbPending(false);
       lastSubmittedBlobRef.current = null;
       pendingMuralIdRef.current = null;
+      pendingSubmitCoordsRef.current = null;
       if (previewUrl) {
         URL.revokeObjectURL(previewUrl);
         setPreviewUrl(null);
@@ -501,7 +507,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
   }, [isOpen, stopCamera, previewUrl, checkingPreviewUrl]);
 
   useEffect(() => {
-    if (phase === "result" && lastSubmittedBlobRef.current) {
+    if ((phase === "result" || phase === "confirm-location") && lastSubmittedBlobRef.current) {
       const url = URL.createObjectURL(lastSubmittedBlobRef.current);
       setPreviewUrl(url);
       return () => {
@@ -597,20 +603,50 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
     }
   }, [stopCamera, userCoords, haptics]);
 
-  /** Normalize capture blob (resize/compress) so it stays under body limit; then submit. */
-  const submitCapture = useCallback(
+  const goToEdit = useCallback(
     (blob: Blob) => {
+      if (editImageUrl) URL.revokeObjectURL(editImageUrl);
+      stopCamera();
+      setEditImageUrl(URL.createObjectURL(blob));
+      setPhase("edit");
+    },
+    [editImageUrl, stopCamera]
+  );
+
+  const handleEditBack = useCallback(() => {
+    if (editImageUrl) {
+      URL.revokeObjectURL(editImageUrl);
+      setEditImageUrl(null);
+    }
+    setPhase("capture");
+    startCamera();
+  }, [editImageUrl, startCamera]);
+
+  const handleEditComplete = useCallback(
+    (blob: Blob) => {
+      if (editImageUrl) {
+        URL.revokeObjectURL(editImageUrl);
+        setEditImageUrl(null);
+      }
       const file = new File([blob], "capture.jpg", { type: blob.type || "image/jpeg" });
       normalizeImageForUpload(file)
         .then((normalized) => submitImage(normalized))
         .catch(() => {
           setSearchError(
-            "We had trouble reading this image. Try a different photo or take a new one."
+            "We had trouble processing this image. Try a different photo or take a new one."
           );
           setPhase("error");
         });
     },
-    [submitImage]
+    [editImageUrl, submitImage]
+  );
+
+  /** Send capture to edit phase (rotate/crop), then submit. */
+  const submitCapture = useCallback(
+    (blob: Blob) => {
+      goToEdit(blob);
+    },
+    [goToEdit]
   );
 
   const captureFromVideo = useCallback(() => {
@@ -679,25 +715,9 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
       const file = e.target.files?.[0];
       if (!file || !file.type.startsWith("image/")) return;
       e.target.value = "";
-      normalizeImageForUpload(file)
-        .then((blob) => {
-          if (blob.size > MAX_UPLOAD_BYTES) {
-            setSearchError(
-              "This image is too large (max 4 MB). Try taking a new photo or picking a smaller file."
-            );
-            setPhase("error");
-            return;
-          }
-          submitImage(blob);
-        })
-        .catch(() => {
-          setSearchError(
-            "We had trouble reading this image. Try a different photo or take a new one."
-          );
-          setPhase("error");
-        });
+      goToEdit(file);
     },
-    [submitImage]
+    [goToEdit]
   );
 
   const handleCheckAnother = useCallback(() => {
@@ -730,14 +750,19 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
     async (token: string) => {
       const blob = lastSubmittedBlobRef.current;
       if (!blob) return;
+      const coords = pendingSubmitCoordsRef.current ?? userCoords;
+      pendingSubmitCoordsRef.current = null;
+      if (!coords) {
+        setSearchError("Location is required. Please go back and enable location.");
+        setPhase("error");
+        return;
+      }
       setAddToDbPending(true);
       const fd = new FormData();
       fd.append("turnstileToken", token);
       fd.append("image", blob, "capture.jpg");
-      if (userCoords) {
-        fd.append("lat", String(userCoords[1]));
-        fd.append("lng", String(userCoords[0]));
-      }
+      fd.append("lat", String(coords[1]));
+      fd.append("lng", String(coords[0]));
       try {
         const res = await fetch("/api/murals/submit", { method: "POST", body: fd });
         if (res.ok) {
@@ -762,7 +787,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
         setAddToDbPending(false);
       }
     },
-    [handleCheckAnother, userCoords, haptics]
+    [userCoords, haptics]
   );
 
   useEffect(() => {
@@ -787,8 +812,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
     document.head.appendChild(script);
   }, [isOpen, turnstileSiteKey, phase]);
 
-  const handleAddToDb = useCallback(() => {
-    if (!lastSubmittedBlobRef.current) return;
+  const executeTurnstileForSubmit = useCallback(() => {
     if (!turnstileSiteKey) {
       setSearchError(
         "Something's not set up correctly on our end. Please try again later."
@@ -801,11 +825,24 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
       w.execute(TURNSTILE_WIDGET_ID);
     } else {
       setSearchError(
-        "Still loading — give it a moment and tap 'Add to database' again."
+        "Still loading — give it a moment and tap again."
       );
       setPhase("error");
     }
   }, [turnstileSiteKey]);
+
+  const handleAddToDb = useCallback(() => {
+    if (!lastSubmittedBlobRef.current) return;
+    setPhase("confirm-location");
+  }, []);
+
+  const handleConfirmLocation = useCallback(
+    (coords: [number, number]) => {
+      pendingSubmitCoordsRef.current = coords;
+      executeTurnstileForSubmit();
+    },
+    [executeTurnstileForSubmit]
+  );
 
   useEffect(() => {
     if (phase !== "confirmed" || !confirmedAction) return;
@@ -858,7 +895,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
               role="dialog"
               aria-modal="true"
               aria-label="Camera — take a photo of a mural"
-              className="fixed inset-0 z-50 flex flex-col bg-black safe-top safe-left safe-right safe-bottom"
+              className="fixed inset-0 z-50 flex flex-col bg-black safe-top-padding safe-left safe-right safe-bottom"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -922,7 +959,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
               {!cameraError && (
                 <>
                   <div
-                    className="absolute bottom-24 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1.5 text-xs font-medium text-white/90"
+                    className="absolute bottom-24 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1.5 text-sm font-medium text-white/90"
                     aria-hidden
                   >
                     {zoomLevel.toFixed(1)}×
@@ -987,7 +1024,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                   <div className="flex shrink-0 items-center justify-between border-b border-zinc-200 bg-white px-4 py-3">
                     <h2
                       id="check-mural-modal-title"
-                      className="text-lg font-semibold text-zinc-900"
+                      className="text-2xl font-semibold leading-tight text-zinc-900"
                     >
                       Check a mural
                     </h2>
@@ -1005,6 +1042,14 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
 
                   <div id="check-mural-modal-desc" className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4">
                     {/* Desktop capture: inline viewfinder inside modal */}
+                    {phase === "edit" && editImageUrl && (
+                      <ImageEditor
+                        imageUrl={editImageUrl}
+                        onComplete={handleEditComplete}
+                        onBack={handleEditBack}
+                      />
+                    )}
+
                     {phase === "capture" && isDesktop && (
                       <div className="flex flex-col gap-4">
                         <p className="text-sm text-zinc-600">
@@ -1046,7 +1091,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                           )}
                           {!cameraError && (
                             <div
-                              className="absolute bottom-3 right-3 rounded-lg bg-black/50 px-2 py-1 text-xs text-white/90"
+                              className="absolute bottom-3 right-3 rounded-lg bg-black/50 px-2 py-1 text-sm text-white/90"
                               aria-hidden
                             >
                               {zoomLevel.toFixed(1)}×
@@ -1058,13 +1103,13 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                             <button
                               type="button"
                               onClick={captureFromVideo}
-                              className="min-h-[44px] w-full rounded-xl bg-[var(--color-accent)] px-4 py-2.5 text-sm font-semibold text-[var(--color-accent-foreground)] shadow-sm transition-colors hover:bg-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
+                              className="min-h-[44px] w-full rounded-xl bg-[var(--color-accent)] px-4 py-2.5 text-base font-semibold text-[var(--color-accent-foreground)] shadow-sm transition-colors hover:bg-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
                               aria-label="Capture photo"
                             >
                               Capture photo
                             </button>
                           )}
-                          <label className="flex min-h-[44px] cursor-pointer items-center justify-center rounded-xl border-2 border-[var(--color-accent)] bg-transparent px-4 py-2.5 text-sm font-semibold text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent)] hover:text-[var(--color-accent-foreground)] focus-within:ring-2 focus-within:ring-[var(--color-accent)] focus-within:ring-offset-2">
+                          <label className="flex min-h-[44px] cursor-pointer items-center justify-center rounded-xl border-2 border-[var(--color-accent)] bg-transparent px-4 py-2.5 text-base font-semibold text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent)] hover:text-[var(--color-accent-foreground)] focus-within:ring-2 focus-within:ring-[var(--color-accent)] focus-within:ring-offset-2">
                             <input
                               ref={fileInputRef}
                               type="file"
@@ -1087,7 +1132,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                         aria-label="Checking your photo"
                       >
                         <p className="text-sm font-medium text-zinc-700">Checking your photo…</p>
-                        <p className="text-xs text-zinc-500">This may take a few seconds.</p>
+                        <p className="text-sm text-zinc-500">This may take a few seconds.</p>
                         {checkingPreviewUrl && (
                           <div className="relative w-full max-w-[280px] overflow-hidden rounded-xl bg-zinc-100">
                             <img
@@ -1152,7 +1197,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                               <button
                                 type="button"
                                 onClick={handleCheckAnother}
-                                className="min-h-[44px] inline-flex items-center justify-center gap-2 rounded-xl border-2 border-zinc-300 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700 transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
+                                className="min-h-[44px] inline-flex items-center justify-center gap-2 rounded-xl border-2 border-zinc-300 bg-white px-4 py-2.5 text-base font-semibold text-zinc-700 transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
                                 aria-label="Retake photo"
                               >
                                 <RefreshCw className="h-4 w-4 shrink-0" aria-hidden />
@@ -1170,33 +1215,11 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                         )}
                         {displayResults.length === 0 && (
                           <div className="flex flex-col gap-3 pt-2">
-                            {!userCoords && (
-                              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
-                                <p className="font-medium">Location required</p>
-                                <p className="mt-0.5 text-amber-800">
-                                  Allow location access to add this mural to the map. We use your exact position to place it.
-                                </p>
-                                {locationPermission !== "denied" ? (
-                                  <button
-                                    type="button"
-                                    onClick={requestLocation}
-                                    className="mt-2 rounded-lg bg-amber-500 px-3 py-1.5 text-sm font-semibold text-amber-950 transition-colors hover:bg-amber-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2"
-                                    aria-label="Enable location access"
-                                  >
-                                    Enable location
-                                  </button>
-                                ) : (
-                                  <p className="mt-2 text-xs text-amber-700">
-                                    Location was denied. Enable it in your browser or device settings to add murals.
-                                  </p>
-                                )}
-                              </div>
-                            )}
                             <div className="flex min-h-[44px] w-full flex-row items-stretch gap-3">
                               <button
                                 type="button"
                                 onClick={handleCheckAnother}
-                                className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl border-2 border-zinc-300 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700 transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
+                                className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl border-2 border-zinc-300 bg-white px-4 py-2.5 text-base font-semibold text-zinc-700 transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
                                 aria-label="Retake photo"
                               >
                                 <RefreshCw className="h-4 w-4 shrink-0" aria-hidden />
@@ -1205,19 +1228,13 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                               <button
                                 type="button"
                                 onClick={handleAddToDb}
-                                disabled={addToDbPending || !turnstileSiteKey || !userCoords}
-                                className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl border-2 border-green-600 bg-green-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-green-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                                aria-label="Add this mural to the database"
-                                title={
-                                  !userCoords
-                                    ? "Location required"
-                                    : !turnstileSiteKey
-                                      ? "Captcha not configured"
-                                      : undefined
-                                }
+                                disabled={addToDbPending || !turnstileSiteKey}
+                                className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl border-2 border-green-600 bg-green-600 px-4 py-2.5 text-base font-semibold text-white transition-colors hover:bg-green-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                aria-label="Confirm photo and choose location on map"
+                                title={!turnstileSiteKey ? "Captcha not configured" : undefined}
                               >
-                                <Database className="h-4 w-4 shrink-0" aria-hidden />
-                                {addToDbPending ? "Submitting…" : "Add to database"}
+                                <CircleCheck className="h-4 w-4 shrink-0" aria-hidden />
+                                Confirm photo
                               </button>
                             </div>
                             {overrideBuckets.length > 0 && (
@@ -1226,7 +1243,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                                 <p className="text-sm text-zinc-600">
                                   Think it&apos;s in our collection? Pick the mural below.
                                 </p>
-                                <p className="text-xs text-zinc-500">
+                                <p className="text-sm text-zinc-500">
                                   Lighting and angle can affect matching. If you took this at the mural, pick it below.
                                   {userCoords && " Results are ordered by similarity and distance from you."}
                                 </p>
@@ -1258,7 +1275,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                                     }
                                   }}
                                   disabled={!selectedResult || selectedResult === "none"}
-                                  className="min-h-[44px] w-full rounded-xl border-2 border-amber-600 bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-amber-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  className="min-h-[44px] w-full rounded-xl border-2 border-amber-600 bg-amber-600 px-4 py-2.5 text-base font-semibold text-white transition-colors hover:bg-amber-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                                   aria-label="Or, confirm selected mural is in the database"
                                 >
                                   Or, confirm it&apos;s in database
@@ -1292,7 +1309,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                                   haptics.error();
                                   setSelectedResult("none");
                                 }}
-                                className={`flex flex-1 items-center justify-center rounded-xl border-2 p-2 text-center text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 ${selectedResult === "none"
+                                className={`flex flex-1 items-center justify-center rounded-xl border-2 p-2 text-center text-base font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 ${selectedResult === "none"
                                   ? "border-red-600 bg-red-600 text-white"
                                   : "border-red-500 bg-white text-red-600 hover:bg-red-50"
                                   }`}
@@ -1315,7 +1332,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                                   }
                                 }}
                                 disabled={selectedResult === null || (selectedResult === "none" && addToDbPending)}
-                                className="flex flex-1 items-center justify-center rounded-xl border-2 border-green-600 bg-green-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-green-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="flex flex-1 items-center justify-center rounded-xl border-2 border-green-600 bg-green-600 px-4 py-2.5 text-base font-semibold text-white shadow-sm transition-colors hover:bg-green-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 {selectedResult === "none"
                                   ? addToDbPending
@@ -1330,13 +1347,23 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                           <button
                             type="button"
                             onClick={handleCheckAnother}
-                            className="rounded px-2 py-1 text-xs font-medium text-[var(--color-accent)] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
+                            className="rounded px-2 py-1 text-sm font-medium text-[var(--color-accent)] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
                             aria-label="Check another mural"
                           >
                             Check another
                           </button>
                         </div>
                       </div>
+                    )}
+
+                    {phase === "confirm-location" && (
+                      <LocationConfirm
+                        initialCenter={userCoords ?? PILSEN_CENTER}
+                        photoPreviewUrl={previewUrl}
+                        isSubmitting={addToDbPending}
+                        onConfirm={handleConfirmLocation}
+                        onBack={() => setPhase("result")}
+                      />
                     )}
 
                     {phase === "confirmed" && confirmedAction && (
@@ -1380,14 +1407,14 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                           <button
                             type="button"
                             onClick={handleCheckAnother}
-                            className="min-h-[44px] flex-1 rounded-xl bg-[var(--color-accent)] px-4 py-2.5 text-sm font-semibold text-[var(--color-accent-foreground)] shadow-sm transition-colors hover:bg-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
+                            className="min-h-[44px] flex-1 rounded-xl bg-[var(--color-accent)] px-4 py-2.5 text-base font-semibold text-[var(--color-accent-foreground)] shadow-sm transition-colors hover:bg-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
                           >
                             Try again
                           </button>
                           <button
                             type="button"
                             onClick={onClose}
-                            className="min-h-[44px] flex-1 rounded-xl border border-zinc-300 bg-zinc-100 px-4 py-2.5 text-sm font-semibold text-zinc-700 transition-colors hover:bg-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
+                            className="min-h-[44px] flex-1 rounded-xl border border-zinc-300 bg-zinc-100 px-4 py-2.5 text-base font-semibold text-zinc-700 transition-colors hover:bg-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
                           >
                             Close
                           </button>

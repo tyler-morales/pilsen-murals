@@ -118,6 +118,11 @@ body {
 
 /* Safe-area insets for notched devices (use with viewport-fit: cover) */
 .safe-top {
+  margin-top: env(safe-area-inset-top, 0);
+}
+
+/* Use when background must extend into notch but content should be inset (e.g. full-screen overlays) */
+.safe-top-padding {
   padding-top: env(safe-area-inset-top, 0);
 }
 
