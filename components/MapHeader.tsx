@@ -87,9 +87,9 @@ export function MapHeader({
       className="safe-top absolute left-2 right-2 top-2 z-30 flex min-w-0 flex-col gap-2 overflow-visible rounded-2xl border border-white/20 bg-white/85 px-3 pb-3 pt-3 shadow-[0_4px_24px_-4px_rgba(0,0,0,0.08)] backdrop-blur-xl sm:left-4 sm:right-4 sm:flex-row sm:flex-nowrap sm:items-center sm:gap-x-3 sm:gap-y-0 sm:rounded-2xl sm:px-4 sm:pb-2 sm:pt-3 md:right-auto md:max-w-4xl md:border-white/30 md:shadow-lg"
       aria-label="Map header"
     >
-      <div className="flex min-w-0 shrink items-center justify-between gap-2 sm:flex-1 sm:min-w-0 sm:justify-start">
+      <div className="flex min-w-0 shrink items-center justify-between gap-2 sm:flex-initial sm:min-w-0 sm:justify-start">
         <div className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2">
-          <div className="flex min-w-0 w-full items-baseline justify-between gap-2">
+          <div className="flex min-w-0 w-full justify-between gap-4 items-center">
             {activeTour ? (
               <h1 className="min-w-0 break-words text-2xl font-semibold leading-tight tracking-tight text-zinc-900 sm:text-3xl">
                 {activeTour.name}
