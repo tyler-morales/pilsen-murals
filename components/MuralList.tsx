@@ -99,7 +99,7 @@ export function MuralList({
               <span className="h-1.5 w-12 shrink-0 rounded-full bg-zinc-300" aria-hidden />
             </div>
             <div className="sticky top-0 flex shrink-0 items-center justify-between border-b border-zinc-200 bg-white px-4 py-3">
-              <h2 className="text-lg font-semibold text-zinc-900">
+              <h2 className="text-2xl font-semibold leading-tight text-zinc-900">
                 {listTitle ?? "Browse murals"}
               </h2>
               <button
@@ -173,7 +173,7 @@ export function MuralList({
                         >
                           {stopNumber != null && (
                             <span
-                              className="absolute left-1 top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1 text-xs font-semibold text-white shadow-sm"
+                              className="absolute left-1 top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1 text-sm font-semibold text-white shadow-sm"
                               aria-hidden
                             >
                               {stopNumber}

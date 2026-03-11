@@ -82,7 +82,7 @@ export function TourList({
               <span className="h-1.5 w-12 shrink-0 rounded-full bg-zinc-300" aria-hidden />
             </div>
             <div className="sticky top-0 flex shrink-0 items-center justify-between border-b border-zinc-200 bg-white px-4 py-3">
-              <h2 className="text-lg font-semibold text-zinc-900">
+              <h2 className="text-2xl font-semibold leading-tight text-zinc-900">
                 Walking tours
               </h2>
               <button

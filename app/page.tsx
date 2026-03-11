@@ -3,6 +3,8 @@ import { getMuralsForMap } from "@/lib/db/murals";
 import collectionsData from "@/data/collections.json";
 import type { Collection } from "@/types/collection";
 
+export const dynamic = "force-dynamic";
+
 export default async function Home() {
   const [murals, collections] = await Promise.all([
     getMuralsForMap(),

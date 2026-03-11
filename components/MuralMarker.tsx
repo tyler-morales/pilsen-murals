@@ -150,7 +150,7 @@ export function MuralMarker({
     >
       {isNearby && (
         <span
-          className="absolute left-1/2 top-0 z-20 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md border-2 border-amber-500 bg-amber-500 px-2 py-0.5 text-xs font-semibold text-amber-950 shadow-md"
+          className="absolute left-1/2 top-0 z-20 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md border-2 border-amber-500 bg-amber-500 px-2 py-0.5 text-sm font-semibold text-amber-950 shadow-md"
           style={{ marginTop: "-4px" }}
           aria-hidden
         >
@@ -159,7 +159,7 @@ export function MuralMarker({
       )}
       {tourRole != null && (
         <span
-          className={`absolute left-1/2 top-0 z-30 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded px-2 py-0.5 text-xs font-bold shadow-md ${tourRole === "start" ? "bg-emerald-500 text-white" : "bg-rose-600 text-white"}`}
+          className={`absolute left-1/2 top-0 z-30 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded px-2 py-0.5 text-sm font-bold shadow-md ${tourRole === "start" ? "bg-emerald-500 text-white" : "bg-rose-600 text-white"}`}
           style={{ marginTop: "-4px" }}
           aria-hidden
         >
@@ -232,7 +232,7 @@ export function MuralMarker({
             />
             {tourIndex != null && (
               <span
-                className="absolute bottom-0.5 right-0.5 z-20 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-white bg-amber-500 text-xs font-semibold text-white shadow-md"
+                className="absolute bottom-0.5 right-0.5 z-20 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-white bg-amber-500 text-sm font-semibold text-white shadow-md"
                 aria-hidden
               >
                 {tourIndex}
