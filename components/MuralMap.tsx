@@ -985,7 +985,9 @@ export function MuralMap({
         if (prefersReducedMotion) {
           requestAnimationFrame(() => {
             setMapReady(true);
-            useMapStore.getState().setMapReady(true);
+            const store = useMapStore.getState();
+            store.setMapReady(true);
+            store.setIntroComplete(true);
           });
           updateMarkers();
         } else {
@@ -1081,6 +1083,7 @@ export function MuralMap({
                 }
                 setIntroAnimating(false);
                 introAnimatingRef.current = false;
+                useMapStore.getState().setIntroComplete(true);
                 map.dragPan?.enable();
                 map.scrollZoom?.enable();
                 map.touchZoomRotate?.enable();
@@ -1102,7 +1105,9 @@ export function MuralMap({
     });
 
     return () => {
-      useMapStore.getState().setMapReady(false);
+      const store = useMapStore.getState();
+      store.setMapReady(false);
+      store.setIntroComplete(false);
       unsubThemeRef.current?.();
       unsubThemeRef.current = null;
       clusterIndexRef.current = null;

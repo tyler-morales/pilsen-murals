@@ -22,6 +22,7 @@ export function LocationPrompt() {
   const { permission, promptDismissed, error, requestLocation, dismissPrompt, rehydrateFromStorage } =
     useLocationStore();
   const mapReady = useMapStore((s) => s.mapReady);
+  const introComplete = useMapStore((s) => s.introComplete);
 
   useEffect(() => {
     rehydrateFromStorage();
@@ -30,6 +31,7 @@ export function LocationPrompt() {
   const hasError = error != null;
   const show =
     mapReady &&
+    introComplete &&
     !promptDismissed &&
     (permission === "prompt" || (permission !== "granted" && hasError));
   if (!show) return null;
