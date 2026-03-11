@@ -137,7 +137,7 @@ export async function POST(request: Request) {
   } catch (err) {
     console.error("POST /api/murals/submit error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Submission failed" },
+      { error: "We couldn't add this mural right now. Please try again shortly." },
       { status: 500 }
     );
   }

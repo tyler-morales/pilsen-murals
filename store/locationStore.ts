@@ -55,13 +55,13 @@ export const useLocationStore = create<LocationState>((set, get) => ({
       return;
     }
 
-    setStoredDismissed(true);
-    set({ error: null, promptDismissed: true });
+    set({ error: null });
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
+        setStoredDismissed(true);
         const coords: [number, number] = [pos.coords.longitude, pos.coords.latitude];
-        set({ permission: "granted", userCoords: coords, error: null });
+        set({ permission: "granted", userCoords: coords, error: null, promptDismissed: true });
 
         const watchId = navigator.geolocation.watchPosition(
           (p) => {

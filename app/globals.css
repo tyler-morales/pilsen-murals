@@ -117,9 +117,9 @@ body {
 }
 
 /* Safe-area insets for notched devices (use with viewport-fit: cover) */
-/* .safe-top {
+.safe-top {
   padding-top: env(safe-area-inset-top, 0);
-} */
+}
 
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0);
@@ -135,6 +135,11 @@ body {
 
 .safe-bottom-footer {
   padding-bottom: max(1rem, env(safe-area-inset-bottom, 0));
+}
+
+/* Full-screen camera overlay (CheckMuralModal mobile): shutter respects safe-area */
+.camera-shutter-btn {
+  bottom: max(2rem, env(safe-area-inset-bottom, 0));
 }
 
 /* Glass-style header for native app feel (backdrop blur) */
@@ -272,5 +277,120 @@ body {
   .intro-title-overlay .intro-title-text {
     animation: none;
     opacity: 1;
+  }
+}
+
+/* 3D intro fly-in: cloud/mist — visible for most of flight, dissolve in last 40% */
+@keyframes intro-cloud-drift-1 {
+
+  0%,
+  55% {
+    opacity: 0.92;
+    transform: translate(0, 0) scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(-10%, -15%) scale(1.12);
+  }
+}
+
+@keyframes intro-cloud-drift-2 {
+
+  0%,
+  50% {
+    opacity: 0.88;
+    transform: translate(0, 0) scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(8%, 10%) scale(1.1);
+  }
+}
+
+@keyframes intro-cloud-drift-3 {
+
+  0%,
+  60% {
+    opacity: 0.9;
+    transform: translate(0, 0) scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(-5%, 8%) scale(1.06);
+  }
+}
+
+@keyframes intro-cloud-drift-4 {
+
+  0%,
+  52% {
+    opacity: 0.85;
+    transform: translate(0, 0) scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(6%, -8%) scale(1.08);
+  }
+}
+
+/* Off-white / cloud tone so clouds read on both light and dark sky */
+.intro-cloud-layer-1 {
+  position: absolute;
+  inset: -25%;
+  background:
+    radial-gradient(ellipse 50% 38% at 15% 25%, rgba(248, 252, 255, 0.95) 0%, transparent 50%),
+    radial-gradient(ellipse 42% 35% at 78% 55%, rgba(245, 250, 255, 0.9) 0%, transparent 52%),
+    radial-gradient(ellipse 35% 28% at 45% 75%, rgba(250, 252, 255, 0.88) 0%, transparent 48%);
+  filter: blur(38px);
+  animation: intro-cloud-drift-1 5s ease-out forwards;
+  pointer-events: none;
+}
+
+.intro-cloud-layer-2 {
+  position: absolute;
+  inset: -20%;
+  background:
+    radial-gradient(ellipse 55% 42% at 65% 20%, rgba(250, 251, 255, 0.92) 0%, transparent 50%),
+    radial-gradient(ellipse 40% 32% at 12% 62%, rgba(246, 250, 255, 0.88) 0%, transparent 50%),
+    radial-gradient(ellipse 38% 35% at 88% 78%, rgba(248, 252, 255, 0.85) 0%, transparent 48%);
+  filter: blur(42px);
+  animation: intro-cloud-drift-2 5s ease-out 0.2s forwards;
+  pointer-events: none;
+}
+
+.intro-cloud-layer-3 {
+  position: absolute;
+  inset: -22%;
+  background:
+    radial-gradient(ellipse 48% 40% at 38% 45%, rgba(252, 253, 255, 0.9) 0%, transparent 52%),
+    radial-gradient(ellipse 45% 36% at 72% 35%, rgba(247, 251, 255, 0.88) 0%, transparent 50%);
+  filter: blur(35px);
+  animation: intro-cloud-drift-3 5s ease-out 0.4s forwards;
+  pointer-events: none;
+}
+
+.intro-cloud-layer-4 {
+  position: absolute;
+  inset: -18%;
+  background:
+    radial-gradient(ellipse 52% 44% at 25% 60%, rgba(245, 249, 255, 0.88) 0%, transparent 50%),
+    radial-gradient(ellipse 44% 38% at 60% 70%, rgba(248, 251, 255, 0.9) 0%, transparent 48%);
+  filter: blur(45px);
+  animation: intro-cloud-drift-4 5s ease-out 0.6s forwards;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  .intro-cloud-layer-1,
+  .intro-cloud-layer-2,
+  .intro-cloud-layer-3,
+  .intro-cloud-layer-4 {
+    animation: none;
+    opacity: 0;
   }
 }

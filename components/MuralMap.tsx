@@ -1005,6 +1005,57 @@ export function MuralMap({
             map.boxZoom?.disable();
             map.keyboard?.disable();
             setTimeout(() => {
+              const FOG_START = {
+                range: [0.25, 2.5] as [number, number],
+                "horizon-blend": 0.22,
+                color: "rgba(248,252,255,0.92)",
+              };
+              const FOG_END = {
+                range: [1, 12] as [number, number],
+                "horizon-blend": 0.03,
+                color: "white",
+              };
+              try {
+                map.setFog({
+                  ...FOG_END,
+                  ...FOG_START,
+                  "high-color": "#add8e6",
+                  "space-color": "#c9dff0",
+                  "star-intensity": 0,
+                });
+              } catch {
+                // Fog may not be supported by style
+              }
+              let fogRafId: number | null = null;
+              const startTime = performance.now();
+              const tick = () => {
+                const t = Math.min(
+                  (performance.now() - startTime) / INTRO_FLY_MS,
+                  1
+                );
+                try {
+                  map.setFog({
+                    range: [
+                      FOG_START.range[0] + (FOG_END.range[0] - FOG_START.range[0]) * t,
+                      FOG_START.range[1] + (FOG_END.range[1] - FOG_START.range[1]) * t,
+                    ] as [number, number],
+                    "horizon-blend":
+                      FOG_START["horizon-blend"] +
+                      (FOG_END["horizon-blend"] - FOG_START["horizon-blend"]) * t,
+                    color:
+                      t >= 1
+                        ? FOG_END.color
+                        : `rgba(255,255,255,${0.9 + 0.1 * t})`,
+                    "high-color": "#add8e6",
+                    "space-color": "#c9dff0",
+                    "star-intensity": 0,
+                  });
+                } catch {
+                  // Fog may not be supported
+                }
+                if (t < 1) fogRafId = requestAnimationFrame(tick);
+              };
+              fogRafId = requestAnimationFrame(tick);
               map.flyTo({
                 center: INTRO_END.center,
                 zoom: INTRO_END.zoom,
@@ -1015,6 +1066,19 @@ export function MuralMap({
                 essential: true,
               });
               map.once("moveend", () => {
+                if (fogRafId != null) cancelAnimationFrame(fogRafId);
+                try {
+                  map.setFog({
+                    range: FOG_END.range,
+                    color: FOG_END.color,
+                    "high-color": "#add8e6",
+                    "space-color": "#c9dff0",
+                    "star-intensity": 0,
+                    "horizon-blend": FOG_END["horizon-blend"],
+                  });
+                } catch {
+                  // Fog may not be supported
+                }
                 setIntroAnimating(false);
                 introAnimatingRef.current = false;
                 map.dragPan?.enable();
@@ -1389,6 +1453,18 @@ export function MuralMap({
           <span className="intro-title-text text-center text-4xl font-light tracking-[0.35em] text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)]">
             PILSEN MURALS
           </span>
+        </div>
+      )}
+      {/* Cloud/mist during intro fly-in — above title, natural drift + dissolve */}
+      {MAPBOX_TOKEN && introAnimating && (
+        <div
+          className="fixed inset-0 z-[91] overflow-hidden pointer-events-none"
+          aria-hidden
+        >
+          <div className="intro-cloud-layer-1" />
+          <div className="intro-cloud-layer-2" />
+          <div className="intro-cloud-layer-3" />
+          <div className="intro-cloud-layer-4" />
         </div>
       )}
       {!MAPBOX_TOKEN && (

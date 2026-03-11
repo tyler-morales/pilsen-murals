@@ -116,7 +116,7 @@ export function TourList({
                 role="status"
                 aria-live="polite"
               >
-                This section is a work in progress.
+                Walking tours are in early preview. Pick one below to try it out — we&apos;re adding more soon!
               </p>
               <ul
                 role="list"

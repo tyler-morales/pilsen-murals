@@ -128,7 +128,7 @@ export async function POST(request: Request) {
   } catch (err) {
     console.error("POST /api/search error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Search failed" },
+      { error: "We couldn't check your photo right now. Please try again." },
       { status: 500 }
     );
   }

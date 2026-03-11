@@ -16,7 +16,7 @@ export async function GET() {
   } catch (err) {
     console.error("GET /api/murals error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Murals unavailable" },
+      { error: "We're having trouble loading murals right now. Please try again shortly." },
       { status: 503 }
     );
   }
@@ -136,7 +136,7 @@ export async function POST(request: Request) {
   } catch (err) {
     console.error("POST /api/murals error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Upsert failed" },
+      { error: "We couldn't save this photo. Please try again." },
       { status: 500 }
     );
   }

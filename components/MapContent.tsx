@@ -30,6 +30,7 @@ export function MapContent({ murals, collections }: MapContentProps) {
   const [listOpen, setListOpen] = useState(false);
   const [tourListOpen, setTourListOpen] = useState(false);
   const [checkMuralOpen, setCheckMuralOpen] = useState(false);
+  const [muralNotFoundNotice, setMuralNotFoundNotice] = useState(false);
   const requestFlyTo = useMuralStore((s) => s.requestFlyTo);
   const activeTour = useTourStore((s) => s.activeTour);
   const setActiveTour = useTourStore((s) => s.setActiveTour);
@@ -77,14 +78,38 @@ export function MapContent({ murals, collections }: MapContentProps) {
     const muralId = searchParams.get("mural");
     if (!muralId) return;
     const mural = murals.find((m) => m.id === muralId);
-    if (!mural) return;
     appliedDeepLinkRef.current = true;
+    if (!mural) {
+      setMuralNotFoundNotice(true);
+      return;
+    }
     requestFlyTo(mural);
   }, [searchParams, murals, requestFlyTo]);
 
   return (
     <>
       <LocationPrompt />
+      {muralNotFoundNotice && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed left-1/2 top-20 z-[45] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 shadow-lg"
+        >
+          <p className="text-center text-sm text-amber-900">
+            We couldn&apos;t find that mural. It may have been removed or the link might be outdated.
+          </p>
+          <div className="mt-2 flex justify-center">
+            <button
+              type="button"
+              onClick={() => setMuralNotFoundNotice(false)}
+              className="rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-amber-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2"
+              aria-label="Dismiss"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
       <MapHeader
         murals={displayMurals}
         onMapClick={() => { setListOpen(false); setTourListOpen(false); }}

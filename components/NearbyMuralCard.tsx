@@ -125,16 +125,21 @@ export function NearbyMuralCard({
     }
   };
 
-  const [shareCopied, setShareCopied] = useState(false);
+  const [shareFeedback, setShareFeedback] = useState<"copied" | "failed" | null>(null);
   const handleShare = useCallback(async () => {
     if (!currentNearby) return;
     const url = `${typeof window !== "undefined" ? window.location.origin : ""}/?mural=${currentNearby.id}`;
     const title = currentNearby.title;
     const text = `${currentNearby.title}${currentNearby.artist ? ` by ${currentNearby.artist}` : ""}`;
+    const scheduleClear = () => {
+      setTimeout(() => setShareFeedback(null), 2000);
+    };
     if (typeof navigator !== "undefined" && navigator.share) {
       try {
         await navigator.share({ title, text, url });
         haptics.success();
+        setShareFeedback("copied");
+        scheduleClear();
         return;
       } catch {
         // fall through to copy
@@ -143,10 +148,11 @@ export function NearbyMuralCard({
     try {
       await navigator.clipboard?.writeText(url);
       haptics.success();
-      setShareCopied(true);
-      setTimeout(() => setShareCopied(false), 2000);
+      setShareFeedback("copied");
+      scheduleClear();
     } catch {
-      // ignore
+      setShareFeedback("failed");
+      scheduleClear();
     }
   }, [currentNearby, haptics]);
 
@@ -300,7 +306,11 @@ export function NearbyMuralCard({
                     className="text-xs font-medium text-[var(--color-accent)] underline decoration-[var(--color-accent)] underline-offset-2 transition-colors hover:text-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-1 rounded bg-transparent border-0 p-0 cursor-pointer"
                     aria-label={`Share ${currentNearby.title}`}
                   >
-                    {shareCopied ? "Link copied" : "Share"}
+                    {shareFeedback === "copied"
+                      ? "Link copied"
+                      : shareFeedback === "failed"
+                        ? "Couldn't copy"
+                        : "Share"}
                   </button>
                 </div>
               </div>

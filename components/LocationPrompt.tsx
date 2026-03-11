@@ -10,8 +10,16 @@ import { useMapStore } from "@/store/mapStore";
  * Geolocation is only requested when user taps "Enable".
  * Choice (Enable or Not now) is persisted in localStorage and rehydrated on mount.
  */
+function getLocationErrorMessage(storeError: string | null): string | null {
+  if (!storeError) return null;
+  const t = storeError.toLowerCase();
+  if (t.includes("not supported") || t.includes("geolocation"))
+    return "Your browser doesn't support location services. You can still explore the map and murals manually.";
+  return "We couldn't get your location. Make sure location services are turned on and try again.";
+}
+
 export function LocationPrompt() {
-  const { permission, promptDismissed, requestLocation, dismissPrompt, rehydrateFromStorage } =
+  const { permission, promptDismissed, error, requestLocation, dismissPrompt, rehydrateFromStorage } =
     useLocationStore();
   const mapReady = useMapStore((s) => s.mapReady);
 
@@ -19,19 +27,34 @@ export function LocationPrompt() {
     rehydrateFromStorage();
   }, [rehydrateFromStorage]);
 
-  const show = permission === "prompt" && !promptDismissed && mapReady;
+  const hasError = error != null;
+  const show =
+    mapReady &&
+    !promptDismissed &&
+    (permission === "prompt" || (permission !== "granted" && hasError));
   if (!show) return null;
+
+  const friendlyError = getLocationErrorMessage(error);
 
   return (
     <section
       role="region"
       aria-label="Enable location for nearby mural alerts"
+      aria-live={hasError ? "polite" : undefined}
       className="fixed left-1/2 top-1/2 z-[40] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 sm:w-[min(100%-3rem,28rem)]"
     >
       <div className="flex flex-col gap-3 rounded-xl border border-white/20 bg-white/90 px-4 py-3 shadow-lg backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-        <p className="min-w-0 text-center text-sm text-zinc-700 sm:text-left">
-          Enable location to get alerts when you&apos;re near a mural.
-        </p>
+        <div className="min-w-0 flex-1">
+          {friendlyError ? (
+            <p className="text-center text-sm text-red-700 sm:text-left">
+              {friendlyError}
+            </p>
+          ) : (
+            <p className="text-center text-sm text-zinc-700 sm:text-left">
+              Enable location to get alerts when you&apos;re near a mural.
+            </p>
+          )}
+        </div>
         <div className="flex shrink-0 justify-center gap-2 sm:justify-end">
           <button
             type="button"
@@ -41,14 +64,16 @@ export function LocationPrompt() {
           >
             Not now
           </button>
-          <button
-            type="button"
-            onClick={requestLocation}
-            className="min-h-[44px] min-w-[44px] rounded-lg bg-[var(--color-enable)] px-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[var(--color-enable-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-enable)] focus-visible:ring-offset-2"
-            aria-label="Enable location for nearby mural alerts"
-          >
-            Enable
-          </button>
+          {!friendlyError?.includes("doesn't support") && (
+            <button
+              type="button"
+              onClick={requestLocation}
+              className="min-h-[44px] min-w-[44px] rounded-lg bg-[var(--color-enable)] px-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[var(--color-enable-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-enable)] focus-visible:ring-offset-2"
+              aria-label="Enable location for nearby mural alerts"
+            >
+              {hasError ? "Try again" : "Enable"}
+            </button>
+          )}
         </div>
       </div>
     </section>

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence, useDragControls } from "framer-motion";
-import { Database, RefreshCw } from "lucide-react";
+import { AlertCircle, CircleCheck, Database, ImagePlus, RefreshCw, X } from "lucide-react";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { useHaptics } from "@/hooks/useHaptics";
@@ -83,11 +83,31 @@ const CAMERA_IDEAL_HEIGHT = 3072;
 /** Max request body for /api/search (Vercel serverless ~4.5MB); stay under to avoid 413. */
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 
+const GENERIC_ERROR_MESSAGE =
+  "We couldn't complete this action. Please try again.";
+
+/** Prevents technical server messages from reaching the user. */
+function sanitizeErrorFromServer(msg: string | undefined): string {
+  if (!msg || typeof msg !== "string") return GENERIC_ERROR_MESSAGE;
+  const t = msg.toLowerCase();
+  if (
+    t.includes("econnrefused") ||
+    t.includes("timeout") ||
+    t.includes("relation") ||
+    t.includes("fetch failed") ||
+    t.includes("network") ||
+    msg.length > 120
+  )
+    return GENERIC_ERROR_MESSAGE;
+  return msg;
+}
+
 type ImageCaptureLike = {
   takePhoto: () => Promise<Blob>;
 };
 
-type Phase = "capture" | "checking" | "result" | "error";
+type Phase = "capture" | "checking" | "result" | "confirmed" | "error";
+type ConfirmedAction = "match" | "added" | null;
 
 interface ZoomCapability {
   min: number;
@@ -266,11 +286,13 @@ function ResultBucketGrid({
 
 export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
+  const fullScreenRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastSubmittedBlobRef = useRef<Blob | null>(null);
   const addToDbWithTokenRef = useRef<((token: string) => void) | null>(null);
+  const pendingMuralIdRef = useRef<string | null>(null);
   const zoomLevelRef = useRef(1);
   const pinchStartRef = useRef<{ distance: number; zoom: number } | null>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
@@ -293,6 +315,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
   const [checkingPreviewUrl, setCheckingPreviewUrl] = useState<string | null>(null);
   const [funFactIndex, setFunFactIndex] = useState(0);
   const [expandedStackId, setExpandedStackId] = useState<string | null>(null);
+  const [confirmedAction, setConfirmedAction] = useState<ConfirmedAction>(null);
 
   const isDesktop = useMediaQuery("(min-width: 768px)");
 
@@ -320,7 +343,8 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
     [onClose]
   );
 
-  useFocusTrap(dialogRef, isOpen);
+  const trapRef = !isDesktop && phase === "capture" ? fullScreenRef : dialogRef;
+  useFocusTrap(trapRef, isOpen);
 
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -395,7 +419,9 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
     setZoomCapability(null);
     setZoomLevel(1);
     if (!navigator.mediaDevices?.getUserMedia) {
-      setCameraError("Camera not supported. Use \"Upload photo\" instead.");
+      setCameraError(
+        "Your browser doesn't support the camera. Tap 'Choose from device' to pick a photo instead."
+      );
       return;
     }
     const supported = navigator.mediaDevices.getSupportedConstraints();
@@ -442,7 +468,9 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
         }
       })
       .catch(() => {
-        setCameraError("Camera access denied. Use \"Upload photo\" instead.");
+        setCameraError(
+          "We can't access your camera. Tap 'Choose from device' below to pick a photo instead."
+        );
       });
   }, []);
 
@@ -450,6 +478,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
     if (!isOpen) {
       stopCamera();
       setPhase("capture");
+      setConfirmedAction(null);
       setCameraError(null);
       setZoomCapability(null);
       setZoomLevel(1);
@@ -459,6 +488,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
       setExpandedStackId(null);
       setAddToDbPending(false);
       lastSubmittedBlobRef.current = null;
+      pendingMuralIdRef.current = null;
       if (previewUrl) {
         URL.revokeObjectURL(previewUrl);
         setPreviewUrl(null);
@@ -514,7 +544,9 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
    */
   const submitImage = useCallback(async (blob: Blob) => {
     if (blob.size > MAX_UPLOAD_BYTES) {
-      setSearchError("Image is too large; choose a smaller file or take a new photo.");
+      setSearchError(
+        "This image is too large (max 4 MB). Try taking a new photo or picking a smaller file."
+      );
       setPhase("error");
       return;
     }
@@ -541,8 +573,9 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
       if (!res.ok) {
         const message =
           res.status === 413
-            ? "Image is too large; choose a smaller file or take a new photo."
-            : (data?.error ?? "Search failed");
+            ? "This image is too large (max 4 MB). Try taking a new photo or picking a smaller file."
+            : sanitizeErrorFromServer(data?.error) ||
+            "We couldn't check your photo right now. This might be a temporary issue — try again in a moment.";
         setSearchError(message);
         setPhase("error");
         return;
@@ -557,7 +590,9 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
       setPhase("result");
       haptics.success();
     } catch {
-      setSearchError("Network error. Try again.");
+      setSearchError(
+        "It looks like you're offline or have a weak connection. Check your internet and try again."
+      );
       setPhase("error");
     }
   }, [stopCamera, userCoords, haptics]);
@@ -569,7 +604,9 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
       normalizeImageForUpload(file)
         .then((normalized) => submitImage(normalized))
         .catch(() => {
-          setSearchError("Could not process image. Try again.");
+          setSearchError(
+            "We had trouble reading this image. Try a different photo or take a new one."
+          );
           setPhase("error");
         });
     },
@@ -645,14 +682,18 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
       normalizeImageForUpload(file)
         .then((blob) => {
           if (blob.size > MAX_UPLOAD_BYTES) {
-            setSearchError("Image is too large; choose a smaller file or take a new photo.");
+            setSearchError(
+              "This image is too large (max 4 MB). Try taking a new photo or picking a smaller file."
+            );
             setPhase("error");
             return;
           }
           submitImage(blob);
         })
         .catch(() => {
-          setSearchError("Could not process image. Try another file.");
+          setSearchError(
+            "We had trouble reading this image. Try a different photo or take a new one."
+          );
           setPhase("error");
         });
     },
@@ -701,20 +742,27 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
         const res = await fetch("/api/murals/submit", { method: "POST", body: fd });
         if (res.ok) {
           setAddToDbPending(false);
-          handleCheckAnother();
+          haptics.success();
+          setConfirmedAction("added");
+          setPhase("confirmed");
         } else {
           const data = await res.json().catch(() => ({}));
-          setSearchError(data?.error ?? "Submission failed");
+          setSearchError(
+            sanitizeErrorFromServer(data?.error) ||
+            "We couldn't add this mural. Please try again, or close and come back later."
+          );
           setPhase("error");
           setAddToDbPending(false);
         }
       } catch {
-        setSearchError("Network error. Try again.");
+        setSearchError(
+          "It looks like you're offline or have a weak connection. Check your internet and try again."
+        );
         setPhase("error");
         setAddToDbPending(false);
       }
     },
-    [handleCheckAnother, userCoords]
+    [handleCheckAnother, userCoords, haptics]
   );
 
   useEffect(() => {
@@ -742,7 +790,9 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
   const handleAddToDb = useCallback(() => {
     if (!lastSubmittedBlobRef.current) return;
     if (!turnstileSiteKey) {
-      setSearchError("Captcha not configured. Cannot submit.");
+      setSearchError(
+        "Something's not set up correctly on our end. Please try again later."
+      );
       setPhase("error");
       return;
     }
@@ -750,10 +800,31 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
     if (w?.execute) {
       w.execute(TURNSTILE_WIDGET_ID);
     } else {
-      setSearchError("Captcha not ready. Try again in a moment.");
+      setSearchError(
+        "Still loading — give it a moment and tap 'Add to database' again."
+      );
       setPhase("error");
     }
   }, [turnstileSiteKey]);
+
+  useEffect(() => {
+    if (phase !== "confirmed" || !confirmedAction) return;
+    const delayMs = confirmedAction === "match" ? 1500 : 2000;
+    const action = confirmedAction;
+    const t = setTimeout(() => {
+      if (action === "match") {
+        const muralId = pendingMuralIdRef.current;
+        if (muralId) onViewOnMap?.(muralId);
+        pendingMuralIdRef.current = null;
+        setConfirmedAction(null);
+        onClose();
+      } else {
+        setConfirmedAction(null);
+        handleCheckAnother();
+      }
+    }, delayMs);
+    return () => clearTimeout(t);
+  }, [phase, confirmedAction, onViewOnMap, onClose, handleCheckAnother]);
 
   const match = searchResult && isMatchInDb(searchResult);
   const results = searchResult?.results ?? [];
@@ -773,228 +844,282 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
         ? (p.imageUrl as string)
         : null;
 
+  const showFullScreenCapture = isOpen && !isDesktop && phase === "capture";
+  const showModal = isOpen && (isDesktop || phase !== "capture");
+
   return (
     <AnimatePresence>
       {isOpen && (
         <>
-          <motion.div
-            role="presentation"
-            className="fixed inset-0 z-40 bg-black/40"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            onClick={onClose}
-            aria-hidden
-          />
-          <div
-            className="safe-bottom fixed z-50 bottom-0 left-0 right-0 md:left-1/2 md:right-auto md:top-1/2 md:bottom-auto md:-translate-x-1/2 md:-translate-y-1/2"
-            style={isDesktop ? { width: SIDEBAR_WIDTH } : undefined}
-            aria-hidden
-          >
+          {/* Full-screen camera (mobile capture only) */}
+          {showFullScreenCapture && (
             <motion.div
-              ref={dialogRef}
+              ref={fullScreenRef}
               role="dialog"
               aria-modal="true"
-              aria-labelledby="check-mural-modal-title"
-              aria-describedby="check-mural-modal-desc"
-              className="flex h-full max-h-[85vh] flex-col overflow-hidden border border-zinc-200 bg-white shadow-xl rounded-t-3xl border-t md:max-h-[90vh] md:rounded-2xl"
-              variants={variants}
-              initial="hidden"
-              animate="visible"
-              exit="exit"
-              transition={{ type: "spring", damping: 28, stiffness: 300 }}
-              onClick={(e) => e.stopPropagation()}
-              {...(!isDesktop && {
-                drag: "y",
-                dragConstraints: { top: 0 },
-                dragElastic: { top: 0, bottom: 0.25 },
-                dragControls,
-                onDragEnd: handleDrawerDragEnd,
-              })}
+              aria-label="Camera — take a photo of a mural"
+              className="fixed inset-0 z-50 flex flex-col bg-black safe-top safe-left safe-right safe-bottom"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
             >
               <div
-                className="flex min-h-[44px] cursor-grab active:cursor-grabbing flex-col items-center justify-center pt-3 pb-1 md:hidden"
-                aria-hidden
-                onPointerDown={!isDesktop ? (e) => dragControls.start(e) : undefined}
+                ref={previewContainerRef}
+                className="absolute inset-0 touch-none"
+                onTouchStart={handlePinchStart}
+                onTouchMove={handlePinchMove}
+                onTouchEnd={handlePinchEnd}
+                onTouchCancel={handlePinchEnd}
               >
-                <span className="h-1.5 w-12 shrink-0 rounded-full bg-zinc-300" aria-hidden />
-              </div>
-              <div className="flex shrink-0 items-center justify-between border-b border-zinc-200 bg-white px-4 py-3">
-                <h2
-                  id="check-mural-modal-title"
-                  className="text-lg font-semibold text-zinc-900"
-                >
-                  Check a mural
-                </h2>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="rounded-full p-2 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
-                  aria-label="Close"
-                >
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-
-              <div id="check-mural-modal-desc" className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4">
-                {phase === "capture" && (
-                  <div className="flex flex-col gap-4">
-                    <p className="text-sm text-zinc-600">
-                      Take a photo of a mural or upload an image to see if it&apos;s in our database.
-                    </p>
-                    <div
-                      ref={previewContainerRef}
-                      className="relative aspect-[4/3] w-full overflow-hidden rounded-xl bg-zinc-100 touch-none"
-                      onTouchStart={handlePinchStart}
-                      onTouchMove={handlePinchMove}
-                      onTouchEnd={handlePinchEnd}
-                      onTouchCancel={handlePinchEnd}
-                    >
-                      <video
-                        ref={videoRef}
-                        autoPlay
-                        playsInline
-                        muted
-                        className="h-full w-full object-cover"
-                        style={
-                          !zoomCapability && zoomLevel > 1
-                            ? {
-                              position: "absolute",
-                              left: "50%",
-                              top: "50%",
-                              width: "100%",
-                              height: "100%",
-                              objectFit: "cover",
-                              transform: `translate(-50%, -50%) scale(${zoomLevel})`,
-                            }
-                            : undefined
-                        }
-                        aria-label="Camera preview — pinch to zoom"
-                      />
-                      {cameraError && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-zinc-200/95 p-4 text-center text-sm text-zinc-700">
-                          {cameraError}
-                        </div>
-                      )}
-                      {!cameraError && (
-                        <div
-                          className="absolute bottom-3 right-3 rounded-lg bg-black/50 px-2 py-1 text-xs text-white/90"
-                          aria-hidden
-                        >
-                          {zoomLevel.toFixed(1)}×
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      {!cameraError && (
-                        <button
-                          type="button"
-                          onClick={captureFromVideo}
-                          className="min-h-[44px] w-full rounded-xl bg-[var(--color-accent)] px-4 py-2.5 text-sm font-semibold text-[var(--color-accent-foreground)] shadow-sm transition-colors hover:bg-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
-                          aria-label="Capture photo"
-                        >
-                          Capture photo
-                        </button>
-                      )}
-                      <label className="flex min-h-[44px] cursor-pointer items-center justify-center rounded-xl border-2 border-[var(--color-accent)] bg-transparent px-4 py-2.5 text-sm font-semibold text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent)] hover:text-[var(--color-accent-foreground)] focus-within:ring-2 focus-within:ring-[var(--color-accent)] focus-within:ring-offset-2">
-                        <input
-                          ref={fileInputRef}
-                          type="file"
-                          accept="image/*"
-                          onChange={handleFileChange}
-                          className="sr-only"
-                          aria-label="Choose photo from device (gallery or files)"
-                        />
-                        Choose from device
-                      </label>
-                    </div>
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="absolute inset-0 h-full w-full object-cover"
+                  style={
+                    !zoomCapability && zoomLevel > 1
+                      ? {
+                        position: "absolute",
+                        left: "50%",
+                        top: "50%",
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "cover",
+                        transform: `translate(-50%, -50%) scale(${zoomLevel})`,
+                      }
+                      : undefined
+                  }
+                  aria-label="Camera preview — pinch to zoom"
+                />
+                {cameraError && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/95 p-6 text-center text-sm text-white">
+                    {cameraError}
                   </div>
                 )}
-
-                {phase === "checking" && (
+              </div>
+              {/* Overlay controls */}
+              <button
+                type="button"
+                onClick={onClose}
+                className="absolute right-4 top-4 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-black/40 text-white transition-colors hover:bg-black/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+                aria-label="Close"
+              >
+                <X className="h-6 w-6" aria-hidden />
+              </button>
+              <label className="absolute bottom-[5.5rem] left-4 z-10 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full bg-black/40 text-white transition-colors hover:bg-black/60 focus-within:ring-2 focus-within:ring-white focus-within:ring-offset-2 focus-within:ring-offset-transparent">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileChange}
+                  className="sr-only"
+                  aria-label="Choose photo from device (gallery or files)"
+                />
+                <ImagePlus className="h-6 w-6" aria-hidden />
+              </label>
+              {!cameraError && (
+                <>
                   <div
-                    className="flex flex-col items-center justify-center gap-4 py-6"
-                    role="status"
-                    aria-live="polite"
-                    aria-label="Checking your photo"
+                    className="absolute bottom-24 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1.5 text-xs font-medium text-white/90"
+                    aria-hidden
                   >
-                    <p className="text-sm font-medium text-zinc-700">Checking your photo…</p>
-                    <p className="text-xs text-zinc-500">This may take a few seconds.</p>
-                    {checkingPreviewUrl && (
-                      <div className="relative w-full max-w-[280px] overflow-hidden rounded-xl bg-zinc-100">
-                        <img
-                          src={checkingPreviewUrl}
-                          alt="Photo being checked"
-                          className="max-h-[160px] w-full object-contain"
-                        />
-                        <motion.div
-                          className="absolute left-0 right-0 z-10 h-2 rounded-full bg-gradient-to-b from-transparent via-[var(--color-accent)] to-transparent opacity-90 shadow-[0_0_12px_2px_rgba(226,126,166,0.6)]"
-                          initial={{ top: "0%" }}
-                          animate={{ top: ["0%", "100%", "0%"] }}
-                          transition={{
-                            repeat: Infinity,
-                            duration: 2.4,
-                            ease: "easeInOut",
-                          }}
-                          style={{ position: "absolute" as const }}
-                          aria-hidden
-                        />
-                      </div>
-                    )}
-                    <p
-                      className="max-w-[280px] text-center text-sm text-zinc-500"
-                      aria-live="polite"
-                    >
-                      {PILSEN_FUN_FACTS[funFactIndex]}
-                    </p>
+                    {zoomLevel.toFixed(1)}×
                   </div>
-                )}
+                  <button
+                    type="button"
+                    onClick={captureFromVideo}
+                    className="camera-shutter-btn absolute bottom-8 left-1/2 z-10 flex h-[72px] w-[72px] -translate-x-1/2 items-center justify-center rounded-full border-4 border-white bg-transparent shadow-lg transition-transform active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+                    aria-label="Capture photo"
+                  />
+                </>
+              )}
+            </motion.div>
+          )}
 
-                {phase === "result" && searchResult && (
-                  <div className="flex flex-col gap-4" aria-live="polite">
-                    {match ? (
-                      <p className="text-base text-zinc-600">
-                        Looks like we might have this one. Tap the match below, or choose &quot;None of these&quot; if it&apos;s not here.
-                      </p>
-                    ) : (
-                      <p className="text-base text-zinc-600">
-                        We don&apos;t have this one in our collection yet. Add it below and we&apos;ll have it for next time.
-                      </p>
-                    )}
-                    {previewUrl && (
-                      <div className="flex flex-col items-center gap-3">
-                        <div className="flex justify-center">
-                          <img
-                            src={previewUrl}
-                            alt="Photo you are adding to the database"
-                            className="max-h-[min(40vh,280px)] w-auto max-w-full rounded-lg border border-zinc-200 object-contain"
+          {/* Backdrop + modal (desktop all phases, mobile non-capture) */}
+          {showModal && (
+            <>
+              <motion.div
+                role="presentation"
+                className="fixed inset-0 z-40 bg-black/40"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                onClick={onClose}
+                aria-hidden
+              />
+              <div
+                className="safe-bottom fixed z-50 bottom-0 left-0 right-0 md:left-1/2 md:right-auto md:top-1/2 md:bottom-auto md:-translate-x-1/2 md:-translate-y-1/2"
+                style={isDesktop ? { width: SIDEBAR_WIDTH } : undefined}
+                aria-hidden
+              >
+                <motion.div
+                  ref={dialogRef}
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="check-mural-modal-title"
+                  aria-describedby="check-mural-modal-desc"
+                  className="flex h-full max-h-[85vh] flex-col overflow-hidden border border-zinc-200 bg-white shadow-xl rounded-t-3xl border-t md:max-h-[90vh] md:rounded-2xl"
+                  variants={variants}
+                  initial="hidden"
+                  animate="visible"
+                  exit="exit"
+                  transition={{ type: "spring", damping: 28, stiffness: 300 }}
+                  onClick={(e) => e.stopPropagation()}
+                  {...(!isDesktop && {
+                    drag: "y",
+                    dragConstraints: { top: 0 },
+                    dragElastic: { top: 0, bottom: 0.25 },
+                    dragControls,
+                    onDragEnd: handleDrawerDragEnd,
+                  })}
+                >
+                  <div
+                    className="flex min-h-[44px] cursor-grab active:cursor-grabbing flex-col items-center justify-center pt-3 pb-1 md:hidden"
+                    aria-hidden
+                    onPointerDown={!isDesktop ? (e) => dragControls.start(e) : undefined}
+                  >
+                    <span className="h-1.5 w-12 shrink-0 rounded-full bg-zinc-300" aria-hidden />
+                  </div>
+                  <div className="flex shrink-0 items-center justify-between border-b border-zinc-200 bg-white px-4 py-3">
+                    <h2
+                      id="check-mural-modal-title"
+                      className="text-lg font-semibold text-zinc-900"
+                    >
+                      Check a mural
+                    </h2>
+                    <button
+                      type="button"
+                      onClick={onClose}
+                      className="rounded-full p-2 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
+                      aria-label="Close"
+                    >
+                      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+
+                  <div id="check-mural-modal-desc" className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4">
+                    {/* Desktop capture: inline viewfinder inside modal */}
+                    {phase === "capture" && isDesktop && (
+                      <div className="flex flex-col gap-4">
+                        <p className="text-sm text-zinc-600">
+                          Take a photo of a mural or upload an image to see if it&apos;s in our database.
+                        </p>
+                        <div
+                          ref={previewContainerRef}
+                          className="relative aspect-[4/3] w-full overflow-hidden rounded-xl bg-zinc-100 touch-none"
+                          onTouchStart={handlePinchStart}
+                          onTouchMove={handlePinchMove}
+                          onTouchEnd={handlePinchEnd}
+                          onTouchCancel={handlePinchEnd}
+                        >
+                          <video
+                            ref={videoRef}
+                            autoPlay
+                            playsInline
+                            muted
+                            className="h-full w-full object-cover"
+                            style={
+                              !zoomCapability && zoomLevel > 1
+                                ? {
+                                  position: "absolute",
+                                  left: "50%",
+                                  top: "50%",
+                                  width: "100%",
+                                  height: "100%",
+                                  objectFit: "cover",
+                                  transform: `translate(-50%, -50%) scale(${zoomLevel})`,
+                                }
+                                : undefined
+                            }
+                            aria-label="Camera preview — pinch to zoom"
                           />
+                          {cameraError && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-zinc-200/95 p-4 text-center text-sm text-zinc-700">
+                              {cameraError}
+                            </div>
+                          )}
+                          {!cameraError && (
+                            <div
+                              className="absolute bottom-3 right-3 rounded-lg bg-black/50 px-2 py-1 text-xs text-white/90"
+                              aria-hidden
+                            >
+                              {zoomLevel.toFixed(1)}×
+                            </div>
+                          )}
                         </div>
-                        {displayBuckets.length > 0 && (
-                          <button
-                            type="button"
-                            onClick={handleCheckAnother}
-                            className="min-h-[44px] inline-flex items-center justify-center gap-2 rounded-xl border-2 border-zinc-300 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700 transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
-                            aria-label="Retake photo"
-                          >
-                            <RefreshCw className="h-4 w-4 shrink-0" aria-hidden />
-                            Retake photo
-                          </button>
-                        )}
+                        <div className="flex flex-col gap-2">
+                          {!cameraError && (
+                            <button
+                              type="button"
+                              onClick={captureFromVideo}
+                              className="min-h-[44px] w-full rounded-xl bg-[var(--color-accent)] px-4 py-2.5 text-sm font-semibold text-[var(--color-accent-foreground)] shadow-sm transition-colors hover:bg-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
+                              aria-label="Capture photo"
+                            >
+                              Capture photo
+                            </button>
+                          )}
+                          <label className="flex min-h-[44px] cursor-pointer items-center justify-center rounded-xl border-2 border-[var(--color-accent)] bg-transparent px-4 py-2.5 text-sm font-semibold text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent)] hover:text-[var(--color-accent-foreground)] focus-within:ring-2 focus-within:ring-[var(--color-accent)] focus-within:ring-offset-2">
+                            <input
+                              ref={fileInputRef}
+                              type="file"
+                              accept="image/*"
+                              onChange={handleFileChange}
+                              className="sr-only"
+                              aria-label="Choose photo from device (gallery or files)"
+                            />
+                            Choose from device
+                          </label>
+                        </div>
                       </div>
                     )}
-                    {previewUrl && displayBuckets.length > 0 && (
+
+                    {phase === "checking" && (
                       <div
-                        className="h-px w-full bg-zinc-200"
-                        role="presentation"
-                        aria-hidden
-                      />
+                        className="flex flex-col items-center justify-center gap-4 py-6"
+                        role="status"
+                        aria-live="polite"
+                        aria-label="Checking your photo"
+                      >
+                        <p className="text-sm font-medium text-zinc-700">Checking your photo…</p>
+                        <p className="text-xs text-zinc-500">This may take a few seconds.</p>
+                        {checkingPreviewUrl && (
+                          <div className="relative w-full max-w-[280px] overflow-hidden rounded-xl bg-zinc-100">
+                            <img
+                              src={checkingPreviewUrl}
+                              alt="Photo being checked"
+                              className="max-h-[160px] w-full object-contain"
+                            />
+                            <motion.div
+                              className="absolute left-0 right-0 z-10 h-2 rounded-full bg-gradient-to-b from-transparent via-[var(--color-accent)] to-transparent opacity-90 shadow-[0_0_12px_2px_rgba(226,126,166,0.6)]"
+                              initial={{ top: "0%" }}
+                              animate={{ top: ["0%", "100%", "0%"] }}
+                              transition={{
+                                repeat: Infinity,
+                                duration: 2.4,
+                                ease: "easeInOut",
+                              }}
+                              style={{ position: "absolute" as const }}
+                              aria-hidden
+                            />
+                          </div>
+                        )}
+                        <p
+                          className="max-w-[280px] text-center text-sm text-zinc-500"
+                          aria-live="polite"
+                        >
+                          {PILSEN_FUN_FACTS[funFactIndex]}
+                        </p>
+                      </div>
                     )}
-                    {displayResults.length === 0 && (
-                      <div className="flex flex-col gap-3 pt-2">
+
+                    {phase === "result" && searchResult && (
+                      <div className="flex flex-col gap-4" aria-live="polite">
                         {turnstileSiteKey && (
                           <div
                             id={TURNSTILE_WIDGET_ID}
@@ -1005,69 +1130,148 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                             aria-hidden
                           />
                         )}
-                        {!userCoords && (
-                          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
-                            <p className="font-medium">Location required</p>
-                            <p className="mt-0.5 text-amber-800">
-                              Allow location access to add this mural to the map. We use your exact position to place it.
-                            </p>
-                            {locationPermission !== "denied" ? (
+                        {match ? (
+                          <p className="text-base text-zinc-600">
+                            Looks like we might have this one. Tap the match below, or choose &quot;None of these&quot; if it&apos;s not here.
+                          </p>
+                        ) : (
+                          <p className="text-base text-zinc-600">
+                            We don&apos;t have this one in our collection yet. Add it below and we&apos;ll have it for next time.
+                          </p>
+                        )}
+                        {previewUrl && (
+                          <div className="flex flex-col items-center gap-3">
+                            <div className="flex justify-center">
+                              <img
+                                src={previewUrl}
+                                alt="Photo you are adding to the database"
+                                className="max-h-[min(40vh,280px)] w-auto max-w-full rounded-lg border border-zinc-200 object-contain"
+                              />
+                            </div>
+                            {displayBuckets.length > 0 && (
                               <button
                                 type="button"
-                                onClick={requestLocation}
-                                className="mt-2 rounded-lg bg-amber-500 px-3 py-1.5 text-sm font-semibold text-amber-950 transition-colors hover:bg-amber-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2"
-                                aria-label="Enable location access"
+                                onClick={handleCheckAnother}
+                                className="min-h-[44px] inline-flex items-center justify-center gap-2 rounded-xl border-2 border-zinc-300 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700 transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
+                                aria-label="Retake photo"
                               >
-                                Enable location
+                                <RefreshCw className="h-4 w-4 shrink-0" aria-hidden />
+                                Retake photo
                               </button>
-                            ) : (
-                              <p className="mt-2 text-xs text-amber-700">
-                                Location was denied. Enable it in your browser or device settings to add murals.
-                              </p>
                             )}
                           </div>
                         )}
-                        <div className="flex min-h-[44px] w-full flex-row items-stretch gap-3">
-                          <button
-                            type="button"
-                            onClick={handleCheckAnother}
-                            className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl border-2 border-zinc-300 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700 transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
-                            aria-label="Retake photo"
-                          >
-                            <RefreshCw className="h-4 w-4 shrink-0" aria-hidden />
-                            Retake photo
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleAddToDb}
-                            disabled={addToDbPending || !turnstileSiteKey || !userCoords}
-                            className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl border-2 border-green-600 bg-green-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-green-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                            aria-label="Add this mural to the database"
-                            title={
-                              !userCoords
-                                ? "Location required"
-                                : !turnstileSiteKey
-                                  ? "Captcha not configured"
-                                  : undefined
-                            }
-                          >
-                            <Database className="h-4 w-4 shrink-0" aria-hidden />
-                            {addToDbPending ? "Submitting…" : "Add to database"}
-                          </button>
-                        </div>
-                        {overrideBuckets.length > 0 && (
+                        {previewUrl && displayBuckets.length > 0 && (
+                          <div
+                            className="h-px w-full bg-zinc-200"
+                            role="presentation"
+                            aria-hidden
+                          />
+                        )}
+                        {displayResults.length === 0 && (
+                          <div className="flex flex-col gap-3 pt-2">
+                            {!userCoords && (
+                              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
+                                <p className="font-medium">Location required</p>
+                                <p className="mt-0.5 text-amber-800">
+                                  Allow location access to add this mural to the map. We use your exact position to place it.
+                                </p>
+                                {locationPermission !== "denied" ? (
+                                  <button
+                                    type="button"
+                                    onClick={requestLocation}
+                                    className="mt-2 rounded-lg bg-amber-500 px-3 py-1.5 text-sm font-semibold text-amber-950 transition-colors hover:bg-amber-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2"
+                                    aria-label="Enable location access"
+                                  >
+                                    Enable location
+                                  </button>
+                                ) : (
+                                  <p className="mt-2 text-xs text-amber-700">
+                                    Location was denied. Enable it in your browser or device settings to add murals.
+                                  </p>
+                                )}
+                              </div>
+                            )}
+                            <div className="flex min-h-[44px] w-full flex-row items-stretch gap-3">
+                              <button
+                                type="button"
+                                onClick={handleCheckAnother}
+                                className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl border-2 border-zinc-300 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700 transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
+                                aria-label="Retake photo"
+                              >
+                                <RefreshCw className="h-4 w-4 shrink-0" aria-hidden />
+                                Retake photo
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleAddToDb}
+                                disabled={addToDbPending || !turnstileSiteKey || !userCoords}
+                                className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl border-2 border-green-600 bg-green-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-green-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                aria-label="Add this mural to the database"
+                                title={
+                                  !userCoords
+                                    ? "Location required"
+                                    : !turnstileSiteKey
+                                      ? "Captcha not configured"
+                                      : undefined
+                                }
+                              >
+                                <Database className="h-4 w-4 shrink-0" aria-hidden />
+                                {addToDbPending ? "Submitting…" : "Add to database"}
+                              </button>
+                            </div>
+                            {overrideBuckets.length > 0 && (
+                              <>
+                                <div className="h-px w-full bg-zinc-200" aria-hidden />
+                                <p className="text-sm text-zinc-600">
+                                  Think it&apos;s in our collection? Pick the mural below.
+                                </p>
+                                <p className="text-xs text-zinc-500">
+                                  Lighting and angle can affect matching. If you took this at the mural, pick it below.
+                                  {userCoords && " Results are ordered by similarity and distance from you."}
+                                </p>
+                                <ResultBucketGrid
+                                  variant="override"
+                                  buckets={overrideBuckets}
+                                  thumbSrc={thumbSrc}
+                                  selectedResult={selectedResult}
+                                  onSelect={(r) => {
+                                    setSelectedResult(r);
+                                    setExpandedStackId(null);
+                                  }}
+                                  expandedStackId={expandedStackId}
+                                  onExpandStack={setExpandedStackId}
+                                  gridClass={`grid max-h-[min(50vh,340px)] gap-3 overflow-y-auto justify-items-center ${overrideBuckets.length === 1 ? "grid-cols-1" : overrideBuckets.length <= 3 ? "grid-cols-3" : "grid-cols-2 sm:grid-cols-3"}`}
+                                  listAriaLabel="Possible matches to confirm"
+                                  selectLabel="Select"
+                                  confirmLabel="Confirm"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (selectedResult && selectedResult !== "none") {
+                                      haptics.success();
+                                      submitLearningUpsert(selectedResult.id);
+                                      pendingMuralIdRef.current = selectedResult.id;
+                                      setConfirmedAction("match");
+                                      setPhase("confirmed");
+                                    }
+                                  }}
+                                  disabled={!selectedResult || selectedResult === "none"}
+                                  className="min-h-[44px] w-full rounded-xl border-2 border-amber-600 bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-amber-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  aria-label="Or, confirm selected mural is in the database"
+                                >
+                                  Or, confirm it&apos;s in database
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        )}
+                        {displayBuckets.length > 0 && (
                           <>
-                            <div className="h-px w-full bg-zinc-200" aria-hidden />
-                            <p className="text-sm text-zinc-600">
-                              Think it&apos;s in our collection? Pick the mural below.
-                            </p>
-                            <p className="text-xs text-zinc-500">
-                              Lighting and angle can affect matching. If you took this at the mural, pick it below.
-                              {userCoords && " Results are ordered by similarity and distance from you."}
-                            </p>
                             <ResultBucketGrid
-                              variant="override"
-                              buckets={overrideBuckets}
+                              variant="match"
+                              buckets={displayBuckets}
                               thumbSrc={thumbSrc}
                               selectedResult={selectedResult}
                               onSelect={(r) => {
@@ -1076,127 +1280,125 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                               }}
                               expandedStackId={expandedStackId}
                               onExpandStack={setExpandedStackId}
-                              gridClass={`grid max-h-[min(50vh,340px)] gap-3 overflow-y-auto justify-items-center ${overrideBuckets.length === 1 ? "grid-cols-1" : overrideBuckets.length <= 3 ? "grid-cols-3" : "grid-cols-2 sm:grid-cols-3"}`}
-                              listAriaLabel="Possible matches to confirm"
+                              gridClass={`grid max-h-[min(55vh,360px)] gap-3 overflow-y-auto justify-items-center ${displayBuckets.length === 1 ? "grid-cols-1" : displayBuckets.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}
+                              listAriaLabel="Search results"
                               selectLabel="Select"
                               confirmLabel="Confirm"
                             />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (selectedResult && selectedResult !== "none") {
-                                  submitLearningUpsert(selectedResult.id);
-                                  onViewOnMap?.(selectedResult.id);
-                                  onClose();
-                                }
-                              }}
-                              disabled={!selectedResult || selectedResult === "none"}
-                              className="min-h-[44px] w-full rounded-xl border-2 border-amber-600 bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-amber-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                              aria-label="Or, confirm selected mural is in the database"
-                            >
-                              Or, confirm it&apos;s in database
-                            </button>
+                            <div className="flex min-h-[44px] w-full flex-row items-stretch gap-3">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  haptics.error();
+                                  setSelectedResult("none");
+                                }}
+                                className={`flex flex-1 items-center justify-center rounded-xl border-2 p-2 text-center text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 ${selectedResult === "none"
+                                  ? "border-red-600 bg-red-600 text-white"
+                                  : "border-red-500 bg-white text-red-600 hover:bg-red-50"
+                                  }`}
+                                aria-pressed={selectedResult === "none"}
+                                aria-label="None of these"
+                              >
+                                None of these
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (selectedResult === "none") {
+                                    handleAddToDb();
+                                  } else if (selectedResult) {
+                                    haptics.success();
+                                    submitLearningUpsert(selectedResult.id);
+                                    pendingMuralIdRef.current = selectedResult.id;
+                                    setConfirmedAction("match");
+                                    setPhase("confirmed");
+                                  }
+                                }}
+                                disabled={selectedResult === null || (selectedResult === "none" && addToDbPending)}
+                                className="flex flex-1 items-center justify-center rounded-xl border-2 border-green-600 bg-green-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-green-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {selectedResult === "none"
+                                  ? addToDbPending
+                                    ? "Submitting…"
+                                    : "Confirm selection"
+                                  : "Confirm selection"}
+                              </button>
+                            </div>
                           </>
                         )}
-                      </div>
-                    )}
-                    {displayBuckets.length > 0 && (
-                      <>
-                        <ResultBucketGrid
-                          variant="match"
-                          buckets={displayBuckets}
-                          thumbSrc={thumbSrc}
-                          selectedResult={selectedResult}
-                          onSelect={(r) => {
-                            setSelectedResult(r);
-                            setExpandedStackId(null);
-                          }}
-                          expandedStackId={expandedStackId}
-                          onExpandStack={setExpandedStackId}
-                          gridClass={`grid max-h-[min(55vh,360px)] gap-3 overflow-y-auto justify-items-center ${displayBuckets.length === 1 ? "grid-cols-1" : displayBuckets.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}
-                          listAriaLabel="Search results"
-                          selectLabel="Select"
-                          confirmLabel="Confirm"
-                        />
-                        <div className="flex min-h-[44px] w-full flex-row items-stretch gap-3">
+                        <div className="-mt-2 -mb-1 flex justify-center">
                           <button
                             type="button"
-                            onClick={() => {
-                              haptics.error();
-                              setSelectedResult("none");
-                            }}
-                            className={`flex flex-1 items-center justify-center rounded-xl border-2 p-2 text-center text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 ${selectedResult === "none"
-                              ? "border-red-600 bg-red-600 text-white"
-                              : "border-red-500 bg-white text-red-600 hover:bg-red-50"
-                              }`}
-                            aria-pressed={selectedResult === "none"}
-                            aria-label="None of these"
+                            onClick={handleCheckAnother}
+                            className="rounded px-2 py-1 text-xs font-medium text-[var(--color-accent)] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
+                            aria-label="Check another mural"
                           >
-                            None of these
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (selectedResult === "none") {
-                                handleAddToDb();
-                              } else if (selectedResult) {
-                                haptics.success();
-                                submitLearningUpsert(selectedResult.id);
-                                onViewOnMap?.(selectedResult.id);
-                                onClose();
-                              }
-                            }}
-                            disabled={selectedResult === null || (selectedResult === "none" && addToDbPending)}
-                            className="flex flex-1 items-center justify-center rounded-xl border-2 border-green-600 bg-green-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-green-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {selectedResult === "none"
-                              ? addToDbPending
-                                ? "Submitting…"
-                                : "Confirm selection"
-                              : "Confirm selection"}
+                            Check another
                           </button>
                         </div>
-                      </>
+                      </div>
                     )}
-                    <div className="-mt-2 -mb-1 flex justify-center">
-                      <button
-                        type="button"
-                        onClick={handleCheckAnother}
-                        className="rounded px-2 py-1 text-xs font-medium text-[var(--color-accent)] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
-                        aria-label="Check another mural"
-                      >
-                        Check another
-                      </button>
-                    </div>
-                  </div>
-                )}
 
-                {phase === "error" && (
-                  <div className="flex flex-col gap-4" aria-live="polite">
-                    <p className="text-sm font-medium text-red-700">
-                      {searchError}
-                    </p>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={handleCheckAnother}
-                        className="min-h-[44px] flex-1 rounded-xl bg-[var(--color-accent)] px-4 py-2.5 text-sm font-semibold text-[var(--color-accent-foreground)] shadow-sm transition-colors hover:bg-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
+                    {phase === "confirmed" && confirmedAction && (
+                      <div
+                        className="flex flex-col items-center justify-center gap-4 py-6"
+                        role="status"
+                        aria-live="polite"
+                        aria-label={
+                          confirmedAction === "match"
+                            ? "Match confirmed. Showing on map."
+                            : "Photo added to the database."
+                        }
                       >
-                        Try again
-                      </button>
-                      <button
-                        type="button"
-                        onClick={onClose}
-                        className="min-h-[44px] flex-1 rounded-xl border border-zinc-300 bg-zinc-100 px-4 py-2.5 text-sm font-semibold text-zinc-700 transition-colors hover:bg-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
-                      >
-                        Close
-                      </button>
-                    </div>
+                        <CircleCheck
+                          className="h-16 w-16 shrink-0 text-green-600"
+                          aria-hidden
+                        />
+                        <p className="text-center text-base font-medium text-zinc-700">
+                          {confirmedAction === "match"
+                            ? "Match confirmed! Showing on map…"
+                            : "Photo added to the database!"}
+                        </p>
+                      </div>
+                    )}
+
+                    {phase === "error" && (
+                      <div className="flex flex-col gap-4" aria-live="polite">
+                        <div className="flex flex-col items-center gap-2 text-center">
+                          <AlertCircle
+                            className="h-10 w-10 shrink-0 text-red-600"
+                            aria-hidden
+                          />
+                          <p className="text-sm font-semibold text-red-800">
+                            Something didn&apos;t work
+                          </p>
+                          <p className="text-sm font-medium text-red-700">
+                            {searchError}
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={handleCheckAnother}
+                            className="min-h-[44px] flex-1 rounded-xl bg-[var(--color-accent)] px-4 py-2.5 text-sm font-semibold text-[var(--color-accent-foreground)] shadow-sm transition-colors hover:bg-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
+                          >
+                            Try again
+                          </button>
+                          <button
+                            type="button"
+                            onClick={onClose}
+                            className="min-h-[44px] flex-1 rounded-xl border border-zinc-300 bg-zinc-100 px-4 py-2.5 text-sm font-semibold text-zinc-700 transition-colors hover:bg-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
+                          >
+                            Close
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
+                </motion.div>
               </div>
-            </motion.div>
-          </div>
+            </>
+          )}
         </>
       )}
     </AnimatePresence>
