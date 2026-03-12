@@ -753,8 +753,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
       const coords = pendingSubmitCoordsRef.current ?? userCoords;
       pendingSubmitCoordsRef.current = null;
       if (!coords) {
-        setSearchError("Location is required. Please go back and enable location.");
-        setPhase("error");
+        setPhase("confirm-location");
         return;
       }
       setAddToDbPending(true);
@@ -1124,6 +1123,18 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                       </div>
                     )}
 
+                    {turnstileSiteKey && (
+                      <div
+                        id={TURNSTILE_WIDGET_ID}
+                        className="cf-turnstile sr-only"
+                        data-sitekey={turnstileSiteKey}
+                        data-callback={TURNSTILE_CALLBACK_NAME}
+                        data-execution="execute"
+                        data-size="invisible"
+                        aria-hidden
+                      />
+                    )}
+
                     {phase === "checking" && (
                       <div
                         className="flex flex-col items-center justify-center gap-4 py-6"
@@ -1165,16 +1176,6 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
 
                     {phase === "result" && searchResult && (
                       <div className="flex flex-col gap-4" aria-live="polite">
-                        {turnstileSiteKey && (
-                          <div
-                            id={TURNSTILE_WIDGET_ID}
-                            className="cf-turnstile sr-only"
-                            data-sitekey={turnstileSiteKey}
-                            data-callback={TURNSTILE_CALLBACK_NAME}
-                            data-size="invisible"
-                            aria-hidden
-                          />
-                        )}
                         {match ? (
                           <p className="text-base text-zinc-600">
                             Looks like we might have this one. Tap the match below, or choose &quot;None of these&quot; if it&apos;s not here.
