@@ -16,6 +16,29 @@ vi.mock("@/lib/upload/normalizeImageForUpload", () => ({
   ),
 }));
 
+vi.mock("@/lib/upload/cropImage", () => ({
+  getCroppedImg: vi.fn(() =>
+    Promise.resolve(new Blob(["x"], { type: "image/jpeg" }))
+  ),
+}));
+
+vi.mock("@/components/ImageEditor", () => ({
+  ImageEditor: ({
+    onComplete,
+  }: {
+    onComplete: (blob: Blob) => void;
+  }) => (
+    <div>
+      <button
+        type="button"
+        onClick={() => onComplete(new Blob(["x"], { type: "image/jpeg" }))}
+      >
+        Done
+      </button>
+    </div>
+  ),
+}));
+
 describe("isMatchInDb", () => {
   it("returns true when top result score is at or above threshold", () => {
     const response: SearchResponse = {
@@ -109,7 +132,7 @@ describe("CheckMuralModal persistence (explicit upload only)", () => {
     vi.stubGlobal(
       "matchMedia",
       vi.fn(() => ({
-        matches: false,
+        matches: true,
         addEventListener: vi.fn(),
         removeEventListener: vi.fn(),
         addListener: vi.fn(),
@@ -150,8 +173,11 @@ describe("CheckMuralModal persistence (explicit upload only)", () => {
 
     await user.upload(fileInput, file);
 
+    const doneBtn = await screen.findByText("Done");
+    await user.click(doneBtn);
+
     await waitFor(() => {
-      expect(screen.getByText(/Add to database/i)).toBeInTheDocument();
+      expect(screen.getByText(/Confirm photo/i)).toBeInTheDocument();
     });
 
     const fetchCalls = vi.mocked(fetch).mock.calls;
@@ -175,8 +201,11 @@ describe("CheckMuralModal persistence (explicit upload only)", () => {
     const fileInput = screen.getByLabelText(/Choose photo from device/i);
     await user.upload(fileInput, new File(["x"], "capture.jpg", { type: "image/jpeg" }));
 
+    const doneBtn = await screen.findByText("Done");
+    await user.click(doneBtn);
+
     await waitFor(() => {
-      expect(screen.getByText(/Add to database/i)).toBeInTheDocument();
+      expect(screen.getByText(/Confirm photo/i)).toBeInTheDocument();
     });
 
     const retakeButton = screen.getByRole("button", { name: /Retake photo/i, hidden: true });
@@ -199,8 +228,11 @@ describe("CheckMuralModal persistence (explicit upload only)", () => {
     const fileInput = screen.getByLabelText(/Choose photo from device/i);
     await user.upload(fileInput, new File(["x"], "large.jpg", { type: "image/jpeg" }));
 
+    const doneBtn = await screen.findByText("Done");
+    await user.click(doneBtn);
+
     await waitFor(() => {
-      expect(screen.getByText(/Add to database/i)).toBeInTheDocument();
+      expect(screen.getByText(/Confirm photo/i)).toBeInTheDocument();
     });
 
     expect(normalizeImageForUpload).toHaveBeenCalledTimes(1);
@@ -231,9 +263,12 @@ describe("CheckMuralModal persistence (explicit upload only)", () => {
     const fileInput = screen.getByLabelText(/Choose photo from device/i);
     await user.upload(fileInput, new File(["x"], "capture.jpg", { type: "image/jpeg" }));
 
+    const doneBtn = await screen.findByText("Done");
+    await user.click(doneBtn);
+
     await waitFor(() => {
       expect(
-        screen.getByText(/Image is too large; choose a smaller file or take a new photo/i)
+        screen.getByText(/This image is too large \(max 4 MB\)/i)
       ).toBeInTheDocument();
     });
   });
@@ -289,6 +324,9 @@ describe("CheckMuralModal duplicate stack (same mural id)", () => {
     const fileInput = screen.getByLabelText(/Choose photo from device/i);
     await user.upload(fileInput, new File(["x"], "capture.jpg", { type: "image/jpeg" }));
 
+    const doneBtn = await screen.findByText("Done");
+    await user.click(doneBtn);
+
     await waitFor(() => {
       expect(screen.getByText(/Looks like we might have this one/)).toBeInTheDocument();
     });
@@ -302,6 +340,9 @@ describe("CheckMuralModal duplicate stack (same mural id)", () => {
 
     const fileInput = screen.getByLabelText(/Choose photo from device/i);
     await user.upload(fileInput, new File(["x"], "capture.jpg", { type: "image/jpeg" }));
+
+    const doneBtn = await screen.findByText("Done");
+    await user.click(doneBtn);
 
     await waitFor(() => expect(screen.getByText(/Looks like we might have this one/)).toBeInTheDocument());
     const stackButton = screen.getByLabelText(/2 photos of this mural/);
@@ -317,6 +358,9 @@ describe("CheckMuralModal duplicate stack (same mural id)", () => {
 
     const fileInput = screen.getByLabelText(/Choose photo from device/i);
     await user.upload(fileInput, new File(["x"], "capture.jpg", { type: "image/jpeg" }));
+
+    const doneBtn = await screen.findByText("Done");
+    await user.click(doneBtn);
 
     await waitFor(() => expect(screen.getByText(/Looks like we might have this one/)).toBeInTheDocument());
     const stackButton = screen.getByLabelText(/2 photos of this mural/);
@@ -358,6 +402,9 @@ describe("CheckMuralModal duplicate stack (same mural id)", () => {
       const fileInput = screen.getByLabelText(/Choose photo from device/i);
       await user.upload(fileInput, new File(["x"], "capture.jpg", { type: "image/jpeg" }));
 
+      const doneBtn = await screen.findByText("Done");
+      await user.click(doneBtn);
+
       await waitFor(() => expect(screen.getByText(/Looks like we might have this one/)).toBeInTheDocument());
       expect(screen.getByLabelText("Select: A")).toBeInTheDocument();
       expect(screen.getByLabelText("Select: B")).toBeInTheDocument();
@@ -394,6 +441,9 @@ describe("CheckMuralModal duplicate stack (same mural id)", () => {
 
       const fileInput = screen.getByLabelText(/Choose photo from device/i);
       await user.upload(fileInput, new File(["x"], "capture.jpg", { type: "image/jpeg" }));
+
+      const doneBtn = await screen.findByText("Done");
+      await user.click(doneBtn);
 
       await waitFor(() => expect(screen.getByText(/Looks like we might have this one/)).toBeInTheDocument());
       expect(screen.getByLabelText("Select: Solo")).toBeInTheDocument();

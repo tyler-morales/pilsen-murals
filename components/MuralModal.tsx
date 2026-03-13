@@ -694,6 +694,7 @@ export function MuralModal() {
               dragConstraints: { top: 0 },
               dragElastic: { top: 0, bottom: 0.25 },
               dragControls,
+              dragListener: false,
               onDragEnd: handleDrawerDragEnd,
             })}
           >
