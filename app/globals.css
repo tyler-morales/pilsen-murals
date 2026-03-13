@@ -147,6 +147,37 @@ body {
   bottom: max(2rem, env(safe-area-inset-bottom, 0));
 }
 
+/* Landscape fallback when Screen Orientation API is unavailable (e.g. iOS Safari) */
+@media (orientation: landscape) {
+  .camera-fullscreen .camera-shutter-btn {
+    left: auto;
+    right: max(1rem, env(safe-area-inset-right, 0));
+    bottom: auto;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  .camera-fullscreen .camera-close-btn {
+    right: max(1rem, env(safe-area-inset-right, 0));
+    top: max(1rem, env(safe-area-inset-top, 0));
+  }
+
+  .camera-fullscreen .camera-picker-btn {
+    bottom: auto;
+    left: max(1rem, env(safe-area-inset-left, 0));
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  .camera-fullscreen .camera-zoom-label {
+    left: auto;
+    right: 5.5rem;
+    bottom: auto;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+}
+
 /* Glass-style header for native app feel (backdrop blur) */
 @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
   .glass-header {

@@ -63,8 +63,8 @@ const CENTER = {
 const SIDEBAR_WIDTH = "min(520px, 94vw)";
 
 const TURNSTILE_WIDGET_ID = "check-mural-turnstile";
-const TURNSTILE_CALLBACK_NAME = "checkMuralTurnstileCallback";
-const TURNSTILE_SCRIPT_URL = "https://challenges.cloudflare.com/turnstile/v0/api.js";
+const TURNSTILE_CONTAINER_SELECTOR = `#${TURNSTILE_WIDGET_ID}`;
+const TURNSTILE_SCRIPT_URL = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
 
 /** Fallback map center when user location is unavailable (Pilsen, Chicago). [lng, lat] */
 const PILSEN_CENTER: [number, number] = [-87.657, 41.852];
@@ -299,6 +299,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
   const addToDbWithTokenRef = useRef<((token: string) => void) | null>(null);
   const pendingMuralIdRef = useRef<string | null>(null);
   const pendingSubmitCoordsRef = useRef<[number, number] | null>(null);
+  const turnstileWidgetIdRef = useRef<string | null>(null);
   const zoomLevelRef = useRef(1);
   const pinchStartRef = useRef<{ distance: number; zoom: number } | null>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
@@ -325,6 +326,8 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
   const [editImageUrl, setEditImageUrl] = useState<string | null>(null);
 
   const isDesktop = useMediaQuery("(min-width: 768px)");
+  const showFullScreenCapture = isOpen && !isDesktop && phase === "capture";
+  const showModal = isOpen && (isDesktop || phase !== "capture");
 
   useEffect(() => {
     if (phase !== "checking") return;
@@ -532,6 +535,30 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
       if (phase !== "capture") stopCamera();
     };
   }, [isOpen, phase, startCamera, stopCamera]);
+
+  useEffect(() => {
+    if (!showFullScreenCapture) return;
+    type OrientWithLock = ScreenOrientation & {
+      lock?(orientation: string): Promise<void>;
+      unlock?(): void;
+    };
+    const orientation = typeof screen !== "undefined" ? (screen.orientation as OrientWithLock) : null;
+    const lock = () => {
+      try {
+        if (orientation?.lock) orientation.lock("portrait");
+      } catch {
+        // iOS Safari and some browsers do not support orientation lock
+      }
+    };
+    lock();
+    return () => {
+      try {
+        if (orientation?.unlock) orientation.unlock();
+      } catch {
+        // no-op
+      }
+    };
+  }, [showFullScreenCapture]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -790,25 +817,59 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
   );
 
   useEffect(() => {
-    (window as unknown as Record<string, (t: string) => void>)[TURNSTILE_CALLBACK_NAME] = (
-      token: string
-    ) => addToDbWithTokenRef.current?.(token);
-    return () => {
-      delete (window as unknown as Record<string, unknown>)[TURNSTILE_CALLBACK_NAME];
-    };
-  }, []);
-
-  useEffect(() => {
     addToDbWithTokenRef.current = doAddToDbWithToken;
   }, [doAddToDbWithToken]);
 
   useEffect(() => {
+    if (!isOpen) {
+      if (turnstileWidgetIdRef.current) {
+        const win = window as unknown as { turnstile?: { remove: (id: string) => void } };
+        win.turnstile?.remove(turnstileWidgetIdRef.current);
+        turnstileWidgetIdRef.current = null;
+      }
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
     if (!isOpen || !turnstileSiteKey || phase !== "result") return;
-    if (document.querySelector(`script[src="${TURNSTILE_SCRIPT_URL}"]`)) return;
-    const script = document.createElement("script");
-    script.src = TURNSTILE_SCRIPT_URL;
-    script.async = true;
-    document.head.appendChild(script);
+    const win = window as unknown as {
+      turnstile?: {
+        render: (
+          container: string,
+          options: {
+            sitekey: string;
+            callback: (token: string) => void;
+            execution: string;
+          }
+        ) => string;
+      };
+    };
+    const existingScript = document.querySelector(`script[src="${TURNSTILE_SCRIPT_URL}"]`);
+    if (!existingScript) {
+      const script = document.createElement("script");
+      script.src = TURNSTILE_SCRIPT_URL;
+      script.async = true;
+      script.onload = () => {
+        const container = document.querySelector(TURNSTILE_CONTAINER_SELECTOR);
+        if (container && win.turnstile?.render && !turnstileWidgetIdRef.current) {
+          turnstileWidgetIdRef.current = win.turnstile.render(TURNSTILE_CONTAINER_SELECTOR, {
+            sitekey: turnstileSiteKey,
+            callback: (token: string) => addToDbWithTokenRef.current?.(token),
+            execution: "execute",
+          });
+        }
+      };
+      document.head.appendChild(script);
+      return;
+    }
+    const container = document.querySelector(TURNSTILE_CONTAINER_SELECTOR);
+    if (container && win.turnstile?.render && !turnstileWidgetIdRef.current) {
+      turnstileWidgetIdRef.current = win.turnstile.render(TURNSTILE_CONTAINER_SELECTOR, {
+        sitekey: turnstileSiteKey,
+        callback: (token: string) => addToDbWithTokenRef.current?.(token),
+        execution: "execute",
+      });
+    }
   }, [isOpen, turnstileSiteKey, phase]);
 
   const executeTurnstileForSubmit = useCallback(() => {
@@ -819,9 +880,11 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
       setPhase("error");
       return;
     }
-    const w = (window as unknown as { turnstile?: { execute: (id: string) => void } }).turnstile;
+    const w = (window as unknown as {
+      turnstile?: { execute: (container: string, params: object) => void };
+    }).turnstile;
     if (w?.execute) {
-      w.execute(TURNSTILE_WIDGET_ID);
+      w.execute(TURNSTILE_CONTAINER_SELECTOR, {});
     } else {
       setSearchError(
         "Still loading — give it a moment and tap again."
@@ -880,9 +943,6 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
         ? (p.imageUrl as string)
         : null;
 
-  const showFullScreenCapture = isOpen && !isDesktop && phase === "capture";
-  const showModal = isOpen && (isDesktop || phase !== "capture");
-
   return (
     <AnimatePresence>
       {isOpen && (
@@ -894,7 +954,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
               role="dialog"
               aria-modal="true"
               aria-label="Camera — take a photo of a mural"
-              className="fixed inset-0 z-50 flex flex-col bg-black safe-top-padding safe-left safe-right safe-bottom"
+              className="camera-fullscreen fixed inset-0 z-50 flex flex-col bg-black safe-top-padding safe-left safe-right safe-bottom"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -939,12 +999,12 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
               <button
                 type="button"
                 onClick={onClose}
-                className="absolute right-4 top-4 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-black/40 text-white transition-colors hover:bg-black/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+                className="camera-close-btn absolute right-4 top-4 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-black/40 text-white transition-colors hover:bg-black/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
                 aria-label="Close"
               >
                 <X className="h-6 w-6" aria-hidden />
               </button>
-              <label className="absolute bottom-[5.5rem] left-4 z-10 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full bg-black/40 text-white transition-colors hover:bg-black/60 focus-within:ring-2 focus-within:ring-white focus-within:ring-offset-2 focus-within:ring-offset-transparent">
+              <label className="camera-picker-btn absolute bottom-[5.5rem] left-4 z-10 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full bg-black/40 text-white transition-colors hover:bg-black/60 focus-within:ring-2 focus-within:ring-white focus-within:ring-offset-2 focus-within:ring-offset-transparent">
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -958,7 +1018,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
               {!cameraError && (
                 <>
                   <div
-                    className="absolute bottom-24 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1.5 text-sm font-medium text-white/90"
+                    className="camera-zoom-label absolute bottom-24 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1.5 text-sm font-medium text-white/90"
                     aria-hidden
                   >
                     {zoomLevel.toFixed(1)}×
@@ -1010,6 +1070,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                     dragConstraints: { top: 0 },
                     dragElastic: { top: 0, bottom: 0.25 },
                     dragControls,
+                    dragListener: false,
                     onDragEnd: handleDrawerDragEnd,
                   })}
                 >
@@ -1126,11 +1187,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                     {turnstileSiteKey && (
                       <div
                         id={TURNSTILE_WIDGET_ID}
-                        className="cf-turnstile sr-only"
-                        data-sitekey={turnstileSiteKey}
-                        data-callback={TURNSTILE_CALLBACK_NAME}
-                        data-execution="execute"
-                        data-size="invisible"
+                        className="sr-only"
                         aria-hidden
                       />
                     )}
