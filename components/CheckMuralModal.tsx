@@ -538,11 +538,14 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
 
   useEffect(() => {
     if (!showFullScreenCapture) return;
+    type OrientWithLock = ScreenOrientation & {
+      lock?(orientation: string): Promise<void>;
+      unlock?(): void;
+    };
+    const orientation = typeof screen !== "undefined" ? (screen.orientation as OrientWithLock) : null;
     const lock = () => {
       try {
-        if (typeof screen !== "undefined" && screen.orientation?.lock) {
-          screen.orientation.lock("portrait");
-        }
+        if (orientation?.lock) orientation.lock("portrait");
       } catch {
         // iOS Safari and some browsers do not support orientation lock
       }
@@ -550,9 +553,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
     lock();
     return () => {
       try {
-        if (typeof screen !== "undefined" && screen.orientation?.unlock) {
-          screen.orientation.unlock();
-        }
+        if (orientation?.unlock) orientation.unlock();
       } catch {
         // no-op
       }
