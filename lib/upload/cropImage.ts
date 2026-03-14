@@ -1,7 +1,7 @@
 /**
- * Client-side crop + rotation for mural image editor.
- * Takes image URL, pixel crop area (from react-easy-crop onCropComplete), and rotation in degrees;
- * returns a JPEG Blob of the cropped region.
+ * Client-side crop and rotation for mural image editor.
+ * getCroppedImg: pixel crop of the image (no rotation; rotation applied before crop in UI).
+ * rotateImage: returns object URL of image rotated by 90° steps (caller must revoke URL when done).
  */
 
 const JPEG_QUALITY = 0.9;
@@ -22,9 +22,6 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-/**
- * Returns the width and height of the image after applying rotation (90° increments).
- */
 function rotatedSize(
   naturalWidth: number,
   naturalHeight: number,
@@ -37,9 +34,6 @@ function rotatedSize(
   return { width: naturalWidth, height: naturalHeight };
 }
 
-/**
- * Draws the image onto the canvas with rotation applied (rotation in degrees, 0/90/180/270).
- */
 function drawRotated(
   ctx: CanvasRenderingContext2D,
   img: HTMLImageElement,
@@ -59,30 +53,45 @@ function drawRotated(
 }
 
 /**
- * Produces a JPEG Blob of the cropped (and rotated) image.
- * imageSrc: blob URL or same-origin image URL.
- * pixelCrop: crop rectangle in the rotated image's coordinate system (from react-easy-crop croppedAreaPixels).
- * rotation: rotation in degrees (0, 90, 180, 270).
+ * Returns an object URL of the image rotated by the given degrees (0, 90, 180, 270).
+ * Caller must revoke the URL when no longer needed (e.g. when replacing with a new rotation).
+ */
+export async function rotateImage(
+  imageSrc: string,
+  degrees: number
+): Promise<string> {
+  const img = await loadImage(imageSrc);
+  const { width, height } = rotatedSize(
+    img.naturalWidth,
+    img.naturalHeight,
+    degrees
+  );
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas 2d context unavailable");
+  drawRotated(ctx, img, degrees);
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (b) => (b ? resolve(b) : reject(new Error("toBlob failed"))),
+      "image/jpeg",
+      JPEG_QUALITY
+    );
+  });
+  return URL.createObjectURL(blob);
+}
+
+/**
+ * Produces a JPEG Blob of the cropped region.
+ * imageSrc: blob URL or same-origin image URL (expected to be already rotated if rotation was applied in UI).
+ * pixelCrop: crop rectangle in image pixel coordinates.
  */
 export async function getCroppedImg(
   imageSrc: string,
-  pixelCrop: PixelCrop,
-  rotation: number
+  pixelCrop: PixelCrop
 ): Promise<Blob> {
   const img = await loadImage(imageSrc);
-  const { width: rotW, height: rotH } = rotatedSize(
-    img.naturalWidth,
-    img.naturalHeight,
-    rotation
-  );
-
-  const rotateCanvas = document.createElement("canvas");
-  rotateCanvas.width = rotW;
-  rotateCanvas.height = rotH;
-  const rotateCtx = rotateCanvas.getContext("2d");
-  if (!rotateCtx) throw new Error("Canvas 2d context unavailable");
-  drawRotated(rotateCtx, img, rotation);
-
   const { x, y, width, height } = pixelCrop;
   const outCanvas = document.createElement("canvas");
   outCanvas.width = Math.round(width);
@@ -90,7 +99,7 @@ export async function getCroppedImg(
   const outCtx = outCanvas.getContext("2d");
   if (!outCtx) throw new Error("Canvas 2d context unavailable");
   outCtx.drawImage(
-    rotateCanvas,
+    img,
     Math.round(x),
     Math.round(y),
     Math.round(width),
@@ -100,7 +109,6 @@ export async function getCroppedImg(
     Math.round(width),
     Math.round(height)
   );
-
   return new Promise((resolve, reject) => {
     outCanvas.toBlob(
       (blob) => (blob ? resolve(blob) : reject(new Error("toBlob failed"))),

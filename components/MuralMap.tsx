@@ -619,7 +619,7 @@ export function MuralMap({
       />
     );
   }, [hoveredMuralId]);
-  const [zoom, setZoom] = useState<number>(INTRO_END.zoom);
+  const [, setZoom] = useState<number>(INTRO_END.zoom);
   const [mapReady, setMapReady] = useState(false);
   const [loadProgress, setLoadProgress] = useState(0);
   const [introAnimating, setIntroAnimating] = useState(false);
@@ -767,7 +767,7 @@ export function MuralMap({
       if (topRight) {
         const groups = Array.from(topRight.querySelectorAll<HTMLElement>(":scope > .mapboxgl-ctrl-group"));
         if (groups.length === 4) {
-          const [navGroup, fitGroup, styleGroup, heatmapGroup] = groups;
+          const [navGroup, fitGroup, styleGroup] = groups;
           const fitBtn = fitGroup.querySelector("button");
           const styleBtn = styleGroup.querySelector("button");
           if (fitBtn) navGroup.appendChild(fitBtn);

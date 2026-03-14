@@ -796,6 +796,10 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
           haptics.success();
           setConfirmedAction("added");
           setPhase("confirmed");
+          const win = window as unknown as {
+            turnstile?: { reset?: (container: string) => void };
+          };
+          win.turnstile?.reset?.(TURNSTILE_CONTAINER_SELECTOR);
         } else {
           const data = await res.json().catch(() => ({}));
           setSearchError(
@@ -830,6 +834,14 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
     }
   }, [isOpen]);
 
+  const handleTurnstileError = useCallback((_errorCode?: number) => {
+    setAddToDbPending(false);
+    setSearchError(
+      "Security check didn't complete. Please try again or refresh the page."
+    );
+    setPhase("error");
+  }, []);
+
   useEffect(() => {
     if (!isOpen || !turnstileSiteKey || phase !== "result") return;
     const win = window as unknown as {
@@ -840,9 +852,19 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
             sitekey: string;
             callback: (token: string) => void;
             execution: string;
+            "error-callback"?: (errorCode?: number) => boolean;
           }
         ) => string;
       };
+    };
+    const renderOptions = {
+      sitekey: turnstileSiteKey,
+      callback: (token: string) => addToDbWithTokenRef.current?.(token),
+      execution: "execute" as const,
+      "error-callback": (errorCode?: number) => {
+        handleTurnstileError(errorCode);
+        return true;
+      },
     };
     const existingScript = document.querySelector(`script[src="${TURNSTILE_SCRIPT_URL}"]`);
     if (!existingScript) {
@@ -852,11 +874,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
       script.onload = () => {
         const container = document.querySelector(TURNSTILE_CONTAINER_SELECTOR);
         if (container && win.turnstile?.render && !turnstileWidgetIdRef.current) {
-          turnstileWidgetIdRef.current = win.turnstile.render(TURNSTILE_CONTAINER_SELECTOR, {
-            sitekey: turnstileSiteKey,
-            callback: (token: string) => addToDbWithTokenRef.current?.(token),
-            execution: "execute",
-          });
+          turnstileWidgetIdRef.current = win.turnstile.render(TURNSTILE_CONTAINER_SELECTOR, renderOptions);
         }
       };
       document.head.appendChild(script);
@@ -864,13 +882,9 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
     }
     const container = document.querySelector(TURNSTILE_CONTAINER_SELECTOR);
     if (container && win.turnstile?.render && !turnstileWidgetIdRef.current) {
-      turnstileWidgetIdRef.current = win.turnstile.render(TURNSTILE_CONTAINER_SELECTOR, {
-        sitekey: turnstileSiteKey,
-        callback: (token: string) => addToDbWithTokenRef.current?.(token),
-        execution: "execute",
-      });
+      turnstileWidgetIdRef.current = win.turnstile.render(TURNSTILE_CONTAINER_SELECTOR, renderOptions);
     }
-  }, [isOpen, turnstileSiteKey, phase]);
+  }, [isOpen, turnstileSiteKey, phase, handleTurnstileError]);
 
   const executeTurnstileForSubmit = useCallback(() => {
     if (!turnstileSiteKey) {
@@ -881,17 +895,22 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
       return;
     }
     const w = (window as unknown as {
-      turnstile?: { execute: (container: string, params: object) => void };
+      turnstile?: {
+        execute: (container: string, params: object) => void;
+        reset?: (container: string) => void;
+      };
     }).turnstile;
-    if (w?.execute) {
-      w.execute(TURNSTILE_CONTAINER_SELECTOR, {});
-    } else {
-      setSearchError(
-        "Still loading — give it a moment and tap again."
-      );
+    if (!w?.execute) {
+      setSearchError("Still loading — give it a moment and tap again.");
       setPhase("error");
+      return;
     }
-  }, [turnstileSiteKey]);
+    try {
+      w.execute(TURNSTILE_CONTAINER_SELECTOR, {});
+    } catch {
+      handleTurnstileError();
+    }
+  }, [turnstileSiteKey, handleTurnstileError]);
 
   const handleAddToDb = useCallback(() => {
     if (!lastSubmittedBlobRef.current) return;
@@ -907,23 +926,16 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
   );
 
   useEffect(() => {
-    if (phase !== "confirmed" || !confirmedAction) return;
-    const delayMs = confirmedAction === "match" ? 1500 : 2000;
-    const action = confirmedAction;
+    if (phase !== "confirmed" || confirmedAction !== "match") return;
     const t = setTimeout(() => {
-      if (action === "match") {
-        const muralId = pendingMuralIdRef.current;
-        if (muralId) onViewOnMap?.(muralId);
-        pendingMuralIdRef.current = null;
-        setConfirmedAction(null);
-        onClose();
-      } else {
-        setConfirmedAction(null);
-        handleCheckAnother();
-      }
-    }, delayMs);
+      const muralId = pendingMuralIdRef.current;
+      if (muralId) onViewOnMap?.(muralId);
+      pendingMuralIdRef.current = null;
+      setConfirmedAction(null);
+      onClose();
+    }, 1500);
     return () => clearTimeout(t);
-  }, [phase, confirmedAction, onViewOnMap, onClose, handleCheckAnother]);
+  }, [phase, confirmedAction, onViewOnMap, onClose]);
 
   const match = searchResult && isMatchInDb(searchResult);
   const results = searchResult?.results ?? [];
@@ -1444,6 +1456,26 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                             ? "Match confirmed! Showing on map…"
                             : "Photo added to the database!"}
                         </p>
+                        {confirmedAction !== "match" && (
+                          <div className="mt-2 flex w-full max-w-xs flex-col gap-2">
+                            <button
+                              type="button"
+                              onClick={onClose}
+                              className="min-h-[44px] w-full rounded-xl bg-[var(--color-accent)] px-4 py-2.5 text-base font-semibold text-[var(--color-accent-foreground)] shadow-sm transition-colors hover:bg-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
+                              aria-label="Done"
+                            >
+                              Done
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleCheckAnother}
+                              className="min-h-[44px] w-full rounded-xl border-2 border-zinc-300 bg-white px-4 py-2.5 text-base font-semibold text-zinc-700 transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
+                              aria-label="Check another mural"
+                            >
+                              Check another mural
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
 

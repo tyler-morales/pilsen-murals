@@ -55,7 +55,7 @@ export function createMuralBuildingLayer(
   let camera: THREE.Camera;
   let scene: THREE.Scene;
   let renderer: THREE.WebGLRenderer;
-  let meshStates: MuralMeshState[] = [];
+  const meshStates: MuralMeshState[] = [];
   let textureLoader: THREE.TextureLoader;
 
   return {
