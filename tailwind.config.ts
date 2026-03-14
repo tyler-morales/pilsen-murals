@@ -7,10 +7,12 @@ const config: Config = {
   ],
   theme: {
     extend: {
-      // Mobile typography gold standard: body 16–18px, caption 13–14px, H1 30–32px, H2 24–26px, H3 20–22px
+      // iOS 18 Dynamic Type (Large): Body 17pt, Subheadline 15pt, Footnote 13pt, Caption 2 11pt
       fontSize: {
-        "mobile-body": ["17px", { lineHeight: "1.5" }],
-        caption: ["14px", { lineHeight: "1.4" }],
+        "mobile-body": ["17px", { lineHeight: "1.47" }],
+        "mobile-subhead": ["15px", { lineHeight: "1.4" }],
+        "mobile-footnote": ["13px", { lineHeight: "1.38" }],
+        "mobile-caption": ["11px", { lineHeight: "1.36" }],
       },
       lineHeight: {
         heading: "1.25",

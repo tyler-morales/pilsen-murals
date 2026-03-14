@@ -7,6 +7,8 @@ import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { useHaptics } from "@/hooks/useHaptics";
 import { useLocationStore } from "@/store/locationStore";
+import { useCaptureStore } from "@/store/captureStore";
+import { haversineDistanceMeters } from "@/lib/geo";
 import { normalizeImageForUpload } from "@/lib/upload/normalizeImageForUpload";
 import { bucketResultsByMuralId } from "@/lib/searchUtils";
 import { ImageEditor } from "@/components/ImageEditor";
@@ -46,6 +48,10 @@ interface CheckMuralModalProps {
   onClose: () => void;
   /** When provided, "View on map" triggers this with the matched mural id and closes modal (no navigation). */
   onViewOnMap?: (muralId: string) => void;
+  /** When provided, called when a match is confirmed (before close); used to show capture-reveal animation. */
+  onCaptureConfirmed?: (muralId: string) => void;
+  /** Full mural list for computing capture distance; optional. */
+  murals?: import("@/types/mural").Mural[];
 }
 
 const SHEET = {
@@ -289,7 +295,13 @@ function ResultBucketGrid({
   );
 }
 
-export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModalProps) {
+export function CheckMuralModal({
+  isOpen,
+  onClose,
+  onViewOnMap,
+  onCaptureConfirmed,
+  murals,
+}: CheckMuralModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const fullScreenRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -324,6 +336,8 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
   const [expandedStackId, setExpandedStackId] = useState<string | null>(null);
   const [confirmedAction, setConfirmedAction] = useState<ConfirmedAction>(null);
   const [editImageUrl, setEditImageUrl] = useState<string | null>(null);
+  const [submitTitle, setSubmitTitle] = useState("");
+  const [submitArtist, setSubmitArtist] = useState("");
 
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const showFullScreenCapture = isOpen && !isDesktop && phase === "capture";
@@ -339,6 +353,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
   }, [phase]);
   const variants = isDesktop ? CENTER : SHEET;
   const userCoords = useLocationStore((s) => s.userCoords);
+  const addCapture = useCaptureStore((s) => s.addCapture);
   const dragControls = useDragControls();
   const haptics = useHaptics();
 
@@ -495,6 +510,8 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
       setSelectedResult(null);
       setExpandedStackId(null);
       setAddToDbPending(false);
+      setSubmitTitle("");
+      setSubmitArtist("");
       lastSubmittedBlobRef.current = null;
       pendingMuralIdRef.current = null;
       pendingSubmitCoordsRef.current = null;
@@ -544,8 +561,14 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
     };
     const orientation = typeof screen !== "undefined" ? (screen.orientation as OrientWithLock) : null;
     const lock = () => {
+      if (!orientation?.lock) return;
       try {
-        if (orientation?.lock) orientation.lock("portrait");
+        const p = orientation.lock("portrait");
+        if (p && typeof (p as Promise<unknown>)?.catch === "function") {
+          (p as Promise<void>).catch(() => {
+            // Not supported on this device (e.g. desktop); ignore.
+          });
+        }
       } catch {
         // iOS Safari and some browsers do not support orientation lock
       }
@@ -789,6 +812,8 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
       fd.append("image", blob, "capture.jpg");
       fd.append("lat", String(coords[1]));
       fd.append("lng", String(coords[0]));
+      if (submitTitle.trim()) fd.append("title", submitTitle.trim());
+      if (submitArtist.trim()) fd.append("artist", submitArtist.trim());
       try {
         const res = await fetch("/api/murals/submit", { method: "POST", body: fd });
         if (res.ok) {
@@ -817,7 +842,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
         setAddToDbPending(false);
       }
     },
-    [userCoords, haptics]
+    [userCoords, haptics, submitTitle, submitArtist]
   );
 
   useEffect(() => {
@@ -927,15 +952,37 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
 
   useEffect(() => {
     if (phase !== "confirmed" || confirmedAction !== "match") return;
+    const muralId = pendingMuralIdRef.current;
+    if (muralId) {
+      const mural = murals?.find((m) => m.id === muralId);
+      const lat = userCoords != null ? userCoords[1] : null;
+      const lng = userCoords != null ? userCoords[0] : null;
+      const distanceMeters =
+        userCoords && mural
+          ? haversineDistanceMeters(userCoords, mural.coordinates)
+          : null;
+      addCapture({
+        muralId,
+        capturedAt: new Date().toISOString(),
+        lat,
+        lng,
+        distanceMeters,
+      });
+      if (onCaptureConfirmed) {
+        onCaptureConfirmed(muralId);
+        pendingMuralIdRef.current = null;
+        setConfirmedAction(null);
+        return;
+      }
+    }
     const t = setTimeout(() => {
-      const muralId = pendingMuralIdRef.current;
       if (muralId) onViewOnMap?.(muralId);
       pendingMuralIdRef.current = null;
       setConfirmedAction(null);
       onClose();
     }, 1500);
     return () => clearTimeout(t);
-  }, [phase, confirmedAction, onViewOnMap, onClose]);
+  }, [phase, confirmedAction, murals, userCoords, addCapture, onCaptureConfirmed, onViewOnMap, onClose]);
 
   const match = searchResult && isMatchInDb(searchResult);
   const results = searchResult?.results ?? [];
@@ -1080,18 +1127,19 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                   {...(!isDesktop && {
                     drag: "y",
                     dragConstraints: { top: 0 },
-                    dragElastic: { top: 0, bottom: 0.25 },
+                    dragElastic: { top: 0.05, bottom: 0.4 },
                     dragControls,
                     dragListener: false,
                     onDragEnd: handleDrawerDragEnd,
+                    dragTransition: { bounceStiffness: 300, bounceDamping: 30 },
                   })}
                 >
                   <div
-                    className="flex min-h-[44px] cursor-grab active:cursor-grabbing flex-col items-center justify-center pt-3 pb-1 md:hidden"
+                    className="flex min-h-[44px] cursor-grab active:cursor-grabbing flex-col items-center justify-center pt-3 pb-1 touch-none md:hidden"
                     aria-hidden
                     onPointerDown={!isDesktop ? (e) => dragControls.start(e) : undefined}
                   >
-                    <span className="h-1.5 w-12 shrink-0 rounded-full bg-zinc-300" aria-hidden />
+                    <span className="h-[5px] w-10 shrink-0 rounded-full bg-zinc-300" aria-hidden />
                   </div>
                   <div className="flex shrink-0 items-center justify-between border-b border-zinc-200 bg-white px-4 py-3">
                     <h2
@@ -1112,7 +1160,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                     </button>
                   </div>
 
-                  <div id="check-mural-modal-desc" className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4">
+                  <div id="check-mural-modal-desc" className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain p-4">
                     {/* Desktop capture: inline viewfinder inside modal */}
                     {phase === "edit" && editImageUrl && (
                       <ImageEditor
@@ -1211,8 +1259,8 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                         aria-live="polite"
                         aria-label="Checking your photo"
                       >
-                        <p className="text-sm font-medium text-zinc-700">Checking your photo…</p>
-                        <p className="text-sm text-zinc-500">This may take a few seconds.</p>
+                        <p className="text-mobile-subhead font-medium text-zinc-700">Checking your photo…</p>
+                        <p className="text-mobile-subhead text-zinc-500">This may take a few seconds.</p>
                         {checkingPreviewUrl && (
                           <div className="relative w-full max-w-[280px] overflow-hidden rounded-xl bg-zinc-100">
                             <img
@@ -1235,7 +1283,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                           </div>
                         )}
                         <p
-                          className="max-w-[280px] text-center text-sm text-zinc-500"
+                          className="max-w-[280px] text-center text-mobile-subhead text-zinc-500"
                           aria-live="polite"
                         >
                           {PILSEN_FUN_FACTS[funFactIndex]}
@@ -1246,11 +1294,11 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                     {phase === "result" && searchResult && (
                       <div className="flex flex-col gap-4" aria-live="polite">
                         {match ? (
-                          <p className="text-base text-zinc-600">
+                          <p className="text-mobile-body text-zinc-600">
                             Looks like we might have this one. Tap the match below, or choose &quot;None of these&quot; if it&apos;s not here.
                           </p>
                         ) : (
-                          <p className="text-base text-zinc-600">
+                          <p className="text-mobile-body text-zinc-600">
                             We don&apos;t have this one in our collection yet. Add it below and we&apos;ll have it for next time.
                           </p>
                         )}
@@ -1310,10 +1358,10 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                             {overrideBuckets.length > 0 && (
                               <>
                                 <div className="h-px w-full bg-zinc-200" aria-hidden />
-                                <p className="text-sm text-zinc-600">
+                                <p className="text-mobile-subhead text-zinc-600">
                                   Think it&apos;s in our collection? Pick the mural below.
                                 </p>
-                                <p className="text-sm text-zinc-500">
+                                <p className="text-mobile-subhead text-zinc-500">
                                   Lighting and angle can affect matching. If you took this at the mural, pick it below.
                                   {userCoords && " Results are ordered by similarity and distance from you."}
                                 </p>
@@ -1427,13 +1475,45 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                     )}
 
                     {phase === "confirm-location" && (
-                      <LocationConfirm
-                        initialCenter={userCoords ?? PILSEN_CENTER}
-                        photoPreviewUrl={previewUrl}
-                        isSubmitting={addToDbPending}
-                        onConfirm={handleConfirmLocation}
-                        onBack={() => setPhase("result")}
-                      />
+                      <div className="flex flex-col gap-4">
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <label htmlFor="submit-mural-title" className="sr-only">
+                              Mural name (optional)
+                            </label>
+                            <input
+                              id="submit-mural-title"
+                              type="text"
+                              value={submitTitle}
+                              onChange={(e) => setSubmitTitle(e.target.value)}
+                              placeholder="e.g., La Cultura Cura"
+                              className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-mobile-body text-zinc-900 placeholder:text-zinc-400 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                              aria-label="Mural name (optional)"
+                            />
+                          </div>
+                          <div>
+                            <label htmlFor="submit-mural-artist" className="sr-only">
+                              Artist (optional)
+                            </label>
+                            <input
+                              id="submit-mural-artist"
+                              type="text"
+                              value={submitArtist}
+                              onChange={(e) => setSubmitArtist(e.target.value)}
+                              placeholder="e.g., Hector Duarte"
+                              className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-mobile-body text-zinc-900 placeholder:text-zinc-400 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                              aria-label="Artist (optional)"
+                            />
+                          </div>
+                        </div>
+                        <LocationConfirm
+                          initialCenter={userCoords ?? PILSEN_CENTER}
+                          photoPreviewUrl={previewUrl}
+                          isSubmitting={addToDbPending}
+                          onConfirm={handleConfirmLocation}
+                          onBack={() => setPhase("result")}
+                        />
+                      </div>
                     )}
 
                     {phase === "confirmed" && confirmedAction && (
@@ -1451,7 +1531,7 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                           className="h-16 w-16 shrink-0 text-green-600"
                           aria-hidden
                         />
-                        <p className="text-center text-base font-medium text-zinc-700">
+                        <p className="text-center text-mobile-body font-medium text-zinc-700">
                           {confirmedAction === "match"
                             ? "Match confirmed! Showing on map…"
                             : "Photo added to the database!"}
@@ -1486,10 +1566,10 @@ export function CheckMuralModal({ isOpen, onClose, onViewOnMap }: CheckMuralModa
                             className="h-10 w-10 shrink-0 text-red-600"
                             aria-hidden
                           />
-                          <p className="text-sm font-semibold text-red-800">
+                          <p className="text-mobile-subhead font-semibold text-red-800">
                             Something didn&apos;t work
                           </p>
-                          <p className="text-sm font-medium text-red-700">
+                          <p className="text-mobile-subhead font-medium text-red-700">
                             {searchError}
                           </p>
                         </div>

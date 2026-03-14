@@ -430,3 +430,58 @@ body {
     opacity: 0;
   }
 }
+
+/* Muraldex rarity borders */
+.muraldex-shimmer {
+  border: 2px solid transparent;
+  box-shadow: 0 0 0 2px #a1a1aa;
+  animation: muraldex-shimmer 2.5s ease-in-out infinite;
+}
+
+.muraldex-glow {
+  box-shadow: 0 0 12px rgba(251, 191, 36, 0.5);
+}
+
+.muraldex-holographic {
+  box-shadow:
+    0 0 0 2px rgba(245, 158, 11, 0.7),
+    0 0 16px rgba(236, 72, 153, 0.35),
+    0 0 24px rgba(139, 92, 246, 0.25);
+  animation: muraldex-holographic-pulse 2.5s ease-in-out infinite;
+}
+
+@keyframes muraldex-shimmer {
+
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px #a1a1aa, 0 0 6px rgba(163, 163, 163, 0.2);
+  }
+
+  50% {
+    box-shadow: 0 0 0 2px #e4e4e7, 0 0 10px rgba(228, 228, 231, 0.5);
+  }
+}
+
+@keyframes muraldex-holographic-pulse {
+
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px rgba(245, 158, 11, 0.7),
+      0 0 16px rgba(236, 72, 153, 0.35);
+  }
+
+  50% {
+    box-shadow:
+      0 0 0 2px rgba(139, 92, 246, 0.7),
+      0 0 20px rgba(59, 130, 246, 0.4);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  .muraldex-shimmer,
+  .muraldex-holographic {
+    animation: none;
+  }
+}

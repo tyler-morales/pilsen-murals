@@ -1,19 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Camera, Footprints, List, Map } from "lucide-react";
+import { Camera, Footprints, LayoutGrid, Map } from "lucide-react";
 import { useMuralStore } from "@/store/muralStore";
 import { useHaptics } from "@/hooks/useHaptics";
 import type { Mural } from "@/types/mural";
 import type { Collection } from "@/types/collection";
 
-type TabId = "map" | "browse" | "tours";
+type TabId = "map" | "muraldex" | "tours";
 
 interface MapHeaderProps {
   murals: Mural[];
   onMapClick?: () => void;
-  onBrowseClick?: () => void;
-  isListOpen?: boolean;
+  /** Toggles the Muraldex tab content (collection progress view). */
+  onMuraldexClick?: () => void;
+  isMuraldexOpen?: boolean;
   /** When set, header shows "Leave tour" and optional tour name. */
   activeTour?: Collection | null;
   onToursClick?: () => void;
@@ -26,8 +27,8 @@ interface MapHeaderProps {
 export function MapHeader({
   murals,
   onMapClick,
-  onBrowseClick,
-  isListOpen = false,
+  onMuraldexClick,
+  isMuraldexOpen = false,
   activeTour = null,
   onToursClick,
   onLeaveTour,
@@ -39,11 +40,11 @@ export function MapHeader({
   const haptics = useHaptics();
 
   const activeTab: TabId =
-    isListOpen ? "browse" : activeTour || isTourListOpen ? "tours" : "map";
+    isMuraldexOpen ? "muraldex" : activeTour || isTourListOpen ? "tours" : "map";
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [pill, setPill] = useState({ left: 0, width: 0 });
   const measurePill = useCallback(() => {
-    const idx = activeTab === "map" ? 0 : activeTab === "browse" ? 1 : 2;
+    const idx = activeTab === "map" ? 0 : activeTab === "muraldex" ? 1 : 2;
     const el = tabRefs.current[idx];
     if (el) {
       setPill({ left: el.offsetLeft, width: el.offsetWidth });
@@ -129,7 +130,7 @@ export function MapHeader({
         </div>
       </div>
 
-      {/* Tabs: Map | Browse | Tours — sliding fill indicates active */}
+      {/* Tabs: Map | Muraldex | Tours — sliding fill indicates active */}
       <div className="flex w-full min-w-0 flex-1 shrink-0 items-center gap-2 sm:flex-1 sm:flex-nowrap">
         <div
           ref={containerRef}
@@ -157,19 +158,19 @@ export function MapHeader({
               <span>Map</span>
             </button>
           )}
-          {onBrowseClick && (
+          {onMuraldexClick && (
             <button
               ref={(el) => { tabRefs.current[1] = el; }}
               type="button"
               role="tab"
-              aria-selected={activeTab === "browse"}
-              aria-expanded={isListOpen}
-              aria-label="Browse all murals"
-              onClick={() => { haptics.nudge(); onBrowseClick(); }}
-              className={`relative z-10 flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg text-base font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 disabled:pointer-events-none sm:flex-initial sm:px-4 ${activeTab === "browse" ? "text-[var(--color-accent-foreground)]" : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"}`}
+              aria-selected={activeTab === "muraldex"}
+              aria-expanded={isMuraldexOpen}
+              aria-label="Muraldex — collection progress"
+              onClick={() => { haptics.nudge(); onMuraldexClick(); }}
+              className={`relative z-10 flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg text-base font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 disabled:pointer-events-none sm:flex-initial sm:px-4 ${activeTab === "muraldex" ? "text-[var(--color-accent-foreground)]" : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"}`}
             >
-              <List className="h-4 w-4 shrink-0" aria-hidden />
-              <span>Browse</span>
+              <LayoutGrid className="h-4 w-4 shrink-0" aria-hidden />
+              <span>Muraldex</span>
             </button>
           )}
           {activeTour && onLeaveTour ? (

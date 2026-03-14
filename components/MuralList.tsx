@@ -190,10 +190,10 @@ export function MuralList({
                           />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="truncate font-medium text-zinc-900">
+                          <p className="truncate text-mobile-body font-medium text-zinc-900">
                             {mural.title}
                           </p>
-                          <p className="truncate text-sm text-zinc-600">
+                          <p className="truncate text-mobile-subhead text-zinc-600">
                             {mural.artistInstagramHandle &&
                               (!mural.artist?.trim() ||
                                 mural.artist === "Unknown Artist") ? (

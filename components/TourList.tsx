@@ -112,7 +112,7 @@ export function TourList({
               style={isDesktop ? undefined : { maxHeight: "calc(50vh - 56px)" }}
             >
               <p
-                className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+                className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-mobile-subhead text-amber-900"
                 role="status"
                 aria-live="polite"
               >
@@ -131,15 +131,15 @@ export function TourList({
                       className="flex w-full flex-col items-start gap-1 rounded-lg border border-zinc-200 bg-white px-4 py-3 text-left shadow-sm transition-colors hover:bg-zinc-50 hover:border-[var(--color-accent)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
                       aria-label={`Start tour: ${tour.name}, ${tour.muralIds.length} murals`}
                     >
-                      <span className="font-semibold text-zinc-900">
+                      <span className="text-mobile-body font-semibold text-zinc-900">
                         {tour.name}
                       </span>
                       {tour.description && (
-                        <span className="text-sm text-zinc-600 line-clamp-2">
+                        <span className="text-mobile-subhead text-zinc-600 line-clamp-2">
                           {tour.description}
                         </span>
                       )}
-                      <span className="text-sm text-zinc-500">
+                      <span className="text-mobile-footnote text-zinc-500">
                         {tour.muralIds.length} mural{tour.muralIds.length !== 1 ? "s" : ""}
                         {tour.estimatedMinutes != null &&
                           ` · ~${tour.estimatedMinutes} min`}

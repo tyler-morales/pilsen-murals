@@ -18,6 +18,8 @@ interface MuralState {
   goNext: () => void;
   /** Set active mural by index (clamped). Used for enlarged-view loop navigation. */
   goToIndex: (index: number) => void;
+  /** Replace active mural (and its entry in muralsOrder) after an edit. */
+  updateActiveMural: (updated: Mural) => void;
 }
 
 export const useMuralStore = create<MuralState>((set) => ({
@@ -36,6 +38,18 @@ export const useMuralStore = create<MuralState>((set) => ({
       activeIndex: index >= 0 ? index : 0,
     });
   },
+  /** Replace mural in store after edit (updates activeMural and muralsOrder entry). */
+  updateActiveMural: (updated: Mural) =>
+    set((state) => {
+      if (!state.activeMural || state.activeMural.id !== updated.id) return state;
+      const nextOrder = state.muralsOrder.map((m) =>
+        m.id === updated.id ? updated : m
+      );
+      return {
+        activeMural: updated,
+        muralsOrder: nextOrder,
+      };
+    }),
   closeModal: () => set({ isModalOpen: false, activeMural: null }),
   requestFlyTo: (mural, options) =>
     set({
