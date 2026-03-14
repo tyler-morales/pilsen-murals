@@ -23,6 +23,7 @@ dist/
 # Cache and generated
 .sync-murals-cache.json
 *.tsbuildinfo
+supabase/.temp/
 
 # Optional: raw photos (large); uncomment if you don't want them in repo
 # raw-photos/
