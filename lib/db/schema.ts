@@ -23,6 +23,16 @@
 
 export type MuralSource = "sync" | "user_submission";
 
+export interface MuralEditRow {
+  id: string;
+  mural_id: string;
+  field_name: string;
+  old_value: string | null;
+  new_value: string | null;
+  edited_at: string;
+  ip_hash: string | null;
+}
+
 export interface MuralRow {
   id: string;
   title: string;
@@ -36,6 +46,8 @@ export interface MuralRow {
   image_metadata: Record<string, string> | null;
   source: MuralSource;
   created_at: string;
+  description?: string | null;
+  year_painted?: number | null;
 }
 
 export interface MuralInsert {
@@ -50,6 +62,8 @@ export interface MuralInsert {
   thumbnail_url?: string | null;
   image_metadata?: Record<string, string> | null;
   source: MuralSource;
+  description?: string | null;
+  year_painted?: number | null;
 }
 
 /** App Mural type (from types/mural.ts) for map/modal. */
@@ -64,6 +78,8 @@ export interface MuralForApp {
   imageUrl: string;
   thumbnail?: string;
   imageMetadata?: Record<string, string>;
+  description?: string | null;
+  yearPainted?: number | null;
 }
 
 export function muralRowToApp(row: MuralRow): MuralForApp {
@@ -82,5 +98,7 @@ export function muralRowToApp(row: MuralRow): MuralForApp {
     ...(row.image_metadata && Object.keys(row.image_metadata).length > 0 && {
       imageMetadata: row.image_metadata,
     }),
+    ...(row.description != null && { description: row.description }),
+    ...(row.year_painted != null && { yearPainted: row.year_painted }),
   };
 }

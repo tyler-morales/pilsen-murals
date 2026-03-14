@@ -13,6 +13,11 @@ import { useHaptics } from "@/hooks/useHaptics";
 import type { Mural } from "@/types/mural";
 import { getDirectionsUrl } from "@/lib/directions";
 import { getArtistInstagramUrl } from "@/lib/instagram";
+import { Pencil, X } from "lucide-react";
+
+const MURAL_EDIT_TURNSTILE_ID = "mural-edit-turnstile";
+const MURAL_EDIT_TURNSTILE_SELECTOR = `#${MURAL_EDIT_TURNSTILE_ID}`;
+const TURNSTILE_SCRIPT_URL = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
 
 const MINIMAP_MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
 const MINIMAP_STYLE_STANDARD = "mapbox://styles/mapbox/standard";
@@ -89,6 +94,7 @@ export function MuralModal() {
     goNext,
     goToIndex,
     requestFlyTo,
+    updateActiveMural,
   } = useMuralStore();
   const mapStyle = useMapStore((s) => s.mapStyle);
   const [isImageExpanded, setIsImageExpanded] = useState(false);
@@ -111,8 +117,133 @@ export function MuralModal() {
   const [pendingTransition, setPendingTransition] = useState<"next" | "prev" | null>(null);
   const minimapRef = useRef<import("mapbox-gl").Map | null>(null);
 
-  useFocusTrap(panelRef, isModalOpen && !!activeMural && !isImageExpanded);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editArtist, setEditArtist] = useState("");
+  const [editInstagramHandle, setEditInstagramHandle] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const turnstileWidgetIdRef = useRef<string | null>(null);
+  const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
+
+  useFocusTrap(panelRef, isModalOpen && !!activeMural && !isImageExpanded && !isEditMode);
   useFocusTrap(enlargedRef, isImageExpanded);
+
+  const startEditMode = useCallback(() => {
+    if (!activeMural) return;
+    setEditTitle(activeMural.title);
+    setEditArtist(activeMural.artist);
+    setEditInstagramHandle(activeMural.artistInstagramHandle?.replace(/^@/, "") ?? "");
+    setEditError(null);
+    setIsEditMode(true);
+  }, [activeMural]);
+
+  const cancelEditMode = useCallback(() => {
+    setIsEditMode(false);
+    setEditError(null);
+    if (turnstileWidgetIdRef.current) {
+      const win = window as unknown as { turnstile?: { remove: (id: string) => void } };
+      win.turnstile?.remove(turnstileWidgetIdRef.current);
+      turnstileWidgetIdRef.current = null;
+    }
+  }, []);
+
+  const saveEdit = useCallback(() => {
+    if (!activeMural || !turnstileSiteKey) {
+      setEditError("Captcha is not configured. Please try again later.");
+      return;
+    }
+    const win = window as unknown as {
+      turnstile?: { execute: (container: string, params: object) => void };
+    };
+    if (!win.turnstile?.execute) {
+      setEditError("Still loading — give it a moment and try again.");
+      return;
+    }
+    try {
+      win.turnstile.execute(MURAL_EDIT_TURNSTILE_SELECTOR, {});
+    } catch {
+      setEditError("Something went wrong. Please try again.");
+    }
+  }, [activeMural, turnstileSiteKey]);
+
+  const submitEditWithToken = useCallback(
+    async (token: string) => {
+      if (!activeMural) return;
+      setEditSaving(true);
+      setEditError(null);
+      try {
+        const res = await fetch(`/api/murals/${activeMural.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            turnstileToken: token,
+            title: editTitle.trim() || undefined,
+            artist: editArtist.trim() || undefined,
+            artistInstagramHandle: editInstagramHandle.trim() ? editInstagramHandle.trim().replace(/^@/, "") : null,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setEditError(data?.error ?? "We couldn't save your changes. Please try again.");
+          return;
+        }
+        haptics.tapMedium();
+        updateActiveMural(data as Mural);
+        cancelEditMode();
+      } catch {
+        setEditError("We couldn't save your changes. Please try again.");
+      } finally {
+        setEditSaving(false);
+      }
+    },
+    [activeMural, editTitle, editArtist, editInstagramHandle, updateActiveMural, cancelEditMode, haptics]
+  );
+
+  const submitEditWithTokenRef = useRef(submitEditWithToken);
+  submitEditWithTokenRef.current = submitEditWithToken;
+
+  useEffect(() => {
+    if (!isEditMode || !turnstileSiteKey || !activeMural) return;
+    type TurnstileWin = {
+      turnstile?: {
+        render: (container: string, options: { sitekey: string; callback: (token: string) => void; execution: string; "error-callback"?: (errorCode?: number) => boolean }) => string;
+        remove: (id: string) => void;
+      };
+    };
+    const win = window as unknown as TurnstileWin;
+    const renderOptions = {
+      sitekey: turnstileSiteKey,
+      callback: (token: string) => submitEditWithTokenRef.current?.(token),
+      execution: "execute" as const,
+      "error-callback": () => {
+        setEditError("Captcha verification failed. Please try again.");
+        return true;
+      },
+    };
+    const existingScript = document.querySelector(`script[src="${TURNSTILE_SCRIPT_URL}"]`);
+    const doRender = () => {
+      const container = document.querySelector(MURAL_EDIT_TURNSTILE_SELECTOR);
+      if (container && win.turnstile?.render && !turnstileWidgetIdRef.current) {
+        turnstileWidgetIdRef.current = win.turnstile.render(MURAL_EDIT_TURNSTILE_SELECTOR, renderOptions);
+      }
+    };
+    if (!existingScript) {
+      const script = document.createElement("script");
+      script.src = TURNSTILE_SCRIPT_URL;
+      script.async = true;
+      script.onload = doRender;
+      document.head.appendChild(script);
+      return () => { };
+    }
+    doRender();
+    return () => {
+      if (turnstileWidgetIdRef.current && win.turnstile?.remove) {
+        win.turnstile.remove(turnstileWidgetIdRef.current);
+        turnstileWidgetIdRef.current = null;
+      }
+    };
+  }, [isEditMode, turnstileSiteKey, activeMural?.id]);
   const panelVariants = isDesktop ? PANEL_RIGHT : DRAWER_UP;
   const canGoPrev = muralsOrder.length > 0 && activeIndex > 0;
 
@@ -326,6 +457,7 @@ export function MuralModal() {
       setIsImageExpanded(false);
       setIsImageLoaded(false);
       setIsEnlargedImageLoaded(false);
+      setIsEditMode(false);
     }
   }, [isModalOpen]);
 
@@ -344,6 +476,7 @@ export function MuralModal() {
     if (activeMural) {
       setIsImageLoaded(false);
       setIsEnlargedImageLoaded(false);
+      setIsEditMode(false);
     }
   }, [activeMural?.id]);
 
@@ -692,20 +825,21 @@ export function MuralModal() {
             {...(!isDesktop && {
               drag: "y",
               dragConstraints: { top: 0 },
-              dragElastic: { top: 0, bottom: 0.25 },
+              dragElastic: { top: 0.05, bottom: 0.4 },
               dragControls,
               dragListener: false,
               onDragEnd: handleDrawerDragEnd,
+              dragTransition: { bounceStiffness: 300, bounceDamping: 30 },
             })}
           >
             <div
-              className="flex min-h-[44px] cursor-grab active:cursor-grabbing flex-col items-center justify-center pt-3 pb-1 md:cursor-default md:min-h-0 md:pt-0 md:pb-0"
+              className="flex min-h-[44px] cursor-grab active:cursor-grabbing flex-col items-center justify-center pt-3 pb-1 touch-none md:cursor-default md:min-h-0 md:pt-0 md:pb-0"
               aria-hidden
               onPointerDown={!isDesktop ? (e) => dragControls.start(e) : undefined}
             >
-              <span className="h-1.5 w-12 shrink-0 rounded-full bg-zinc-300" aria-hidden />
+              <span className="h-[5px] w-10 shrink-0 rounded-full bg-zinc-300" aria-hidden />
             </div>
-            <div className="flex flex-1 flex-col overflow-y-auto">
+            <div className="flex flex-1 flex-col overflow-y-auto overscroll-contain">
               <div
                 className="relative w-full shrink-0 overflow-hidden bg-zinc-100"
                 style={{ aspectRatio: getModalImageAspectRatio(activeMural) }}
@@ -749,106 +883,191 @@ export function MuralModal() {
                 />
               </div>
               <div className="flex flex-1 flex-col px-6 pb-8 pt-6">
-                <h2
-                  id="mural-modal-title"
-                  className="font-serif text-3xl font-light leading-tight tracking-tight text-zinc-900"
-                >
-                  {activeMural.title}
-                </h2>
-                <p className="mt-1 text-zinc-600">
-                  by{" "}
-                  {activeMural.artistInstagramHandle &&
-                    (!activeMural.artist?.trim() || activeMural.artist === "Unknown Artist") ? (
-                    <a
-                      href={getArtistInstagramUrl(activeMural.artistInstagramHandle)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium text-amber-700 underline decoration-amber-700/50 underline-offset-2 transition-colors hover:text-amber-800 hover:decoration-amber-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
-                      aria-label="View artist on Instagram"
-                    >
-                      @{activeMural.artistInstagramHandle.replace(/^@/, "")}
-                    </a>
-                  ) : (
-                    <>
-                      {activeMural.artist}
-                      {activeMural.artistInstagramHandle && (
+                {isEditMode ? (
+                  <>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1 space-y-3">
+                        <label htmlFor="mural-edit-title" className="sr-only">Mural name</label>
+                        <input
+                          id="mural-edit-title"
+                          type="text"
+                          value={editTitle}
+                          onChange={(e) => setEditTitle(e.target.value)}
+                          placeholder="Mural name"
+                          className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-serif text-xl text-zinc-900 placeholder:text-zinc-400 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                          aria-label="Mural name"
+                          autoFocus
+                        />
+                        <label htmlFor="mural-edit-artist" className="sr-only">Artist</label>
+                        <input
+                          id="mural-edit-artist"
+                          type="text"
+                          value={editArtist}
+                          onChange={(e) => setEditArtist(e.target.value)}
+                          placeholder="Artist name"
+                          className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-mobile-body text-zinc-900 placeholder:text-zinc-400 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                          aria-label="Artist"
+                        />
+                        <label htmlFor="mural-edit-instagram" className="sr-only">Instagram handle</label>
+                        <input
+                          id="mural-edit-instagram"
+                          type="text"
+                          value={editInstagramHandle}
+                          onChange={(e) => setEditInstagramHandle(e.target.value)}
+                          placeholder="@username (optional)"
+                          className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-mobile-body text-zinc-900 placeholder:text-zinc-400 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                          aria-label="Artist Instagram handle"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={cancelEditMode}
+                        className="shrink-0 rounded-lg p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
+                        aria-label="Cancel edit"
+                      >
+                        <X className="h-5 w-5" aria-hidden />
+                      </button>
+                    </div>
+                    {editError && (
+                      <p className="mt-2 text-sm text-red-600" role="alert">
+                        {editError}
+                      </p>
+                    )}
+                    <div id={MURAL_EDIT_TURNSTILE_ID} className="mt-2 min-h-[1px]" aria-hidden />
+                    <div className="mt-4 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={cancelEditMode}
+                        className="flex-1 min-h-[44px] rounded-lg border border-zinc-200 bg-white py-3 text-base font-medium text-zinc-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={saveEdit}
+                        disabled={editSaving}
+                        className="flex-1 min-h-[44px] rounded-lg border border-amber-600 bg-amber-600 py-3 text-base font-medium text-white shadow-sm transition-colors hover:bg-amber-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 disabled:opacity-50"
+                      >
+                        {editSaving ? "Saving…" : "Save"}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-start justify-between gap-2">
+                      <h2
+                        id="mural-modal-title"
+                        className="font-serif text-3xl font-light leading-tight tracking-tight text-zinc-900"
+                      >
+                        {activeMural.title}
+                      </h2>
+                      {turnstileSiteKey && (
+                        <button
+                          type="button"
+                          onClick={startEditMode}
+                          className="shrink-0 rounded-lg p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
+                          aria-label="Edit mural details"
+                        >
+                          <Pencil className="h-5 w-5" aria-hidden />
+                        </button>
+                      )}
+                    </div>
+                    <p className="mt-1 text-mobile-body text-zinc-600">
+                      by{" "}
+                      {activeMural.artistInstagramHandle &&
+                        (!activeMural.artist?.trim() || activeMural.artist === "Unknown Artist") ? (
+                        <a
+                          href={getArtistInstagramUrl(activeMural.artistInstagramHandle)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-medium text-amber-700 underline decoration-amber-700/50 underline-offset-2 transition-colors hover:text-amber-800 hover:decoration-amber-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
+                          aria-label="View artist on Instagram"
+                        >
+                          @{activeMural.artistInstagramHandle.replace(/^@/, "")}
+                        </a>
+                      ) : (
                         <>
-                          {" "}
-                          <a
-                            href={getArtistInstagramUrl(activeMural.artistInstagramHandle)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="font-medium text-amber-700 underline decoration-amber-700/50 underline-offset-2 transition-colors hover:text-amber-800 hover:decoration-amber-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
-                            aria-label={`View ${activeMural.artist} on Instagram`}
-                          >
-                            @{activeMural.artistInstagramHandle.replace(/^@/, "")}
-                          </a>
+                          {activeMural.artist}
+                          {activeMural.artistInstagramHandle && (
+                            <>
+                              {" "}
+                              <a
+                                href={getArtistInstagramUrl(activeMural.artistInstagramHandle)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="font-medium text-amber-700 underline decoration-amber-700/50 underline-offset-2 transition-colors hover:text-amber-800 hover:decoration-amber-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
+                                aria-label={`View ${activeMural.artist} on Instagram`}
+                              >
+                                @{activeMural.artistInstagramHandle.replace(/^@/, "")}
+                              </a>
+                            </>
+                          )}
                         </>
                       )}
-                    </>
-                  )}
-                </p>
-                {formatPhotoDate(activeMural.imageMetadata?.["Date taken"]) && (
-                  <p className="mt-2 text-sm font-medium text-zinc-700" aria-label="Date photo was captured">
-                    Photo captured: {formatPhotoDate(activeMural.imageMetadata?.["Date taken"])}
-                  </p>
-                )}
-                <div className="mt-3 flex flex-wrap items-center gap-3">
-                  <a
-                    href={getDirectionsUrl(activeMural)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex w-fit items-center gap-2 text-sm font-medium text-amber-700 underline decoration-amber-700/50 underline-offset-2 transition-colors hover:text-amber-800 hover:decoration-amber-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
-                    aria-label="Get directions to this mural in Google Maps"
-                  >
-                    Get directions
-                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                    </svg>
-                  </a>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      closeModal();
-                      requestFlyTo(activeMural, { openModalAfterFly: false });
-                    }}
-                    className="inline-flex items-center gap-2 text-sm font-medium text-zinc-700 underline decoration-zinc-400 underline-offset-2 transition-colors hover:text-zinc-900 hover:decoration-zinc-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
-                    aria-label="View this mural on the map"
-                  >
-                    View on map
-                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
-                  </button>
-                </div>
-                <details
-                  id="mural-modal-desc"
-                  className="mt-6 border-t border-zinc-200 pt-6 group/details"
-                  aria-labelledby="image-metadata-heading"
-                >
-                  <summary
-                    id="image-metadata-heading"
-                    className="cursor-pointer list-none text-sm font-medium uppercase tracking-wider text-zinc-500 hover:text-zinc-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
-                  >
-                    Image metadata
-                  </summary>
-                  <dl className="mt-3 grid gap-2 sm:grid-cols-2">
-                    <div>
-                      <dt className="text-sm text-zinc-500">Coordinates</dt>
-                      <dd className="mt-0.5 font-mono text-sm text-zinc-700" aria-label="Mural location coordinates">
-                        {activeMural.coordinates[1].toFixed(5)}°, {activeMural.coordinates[0].toFixed(5)}°
-                      </dd>
+                    </p>
+                    {formatPhotoDate(activeMural.imageMetadata?.["Date taken"]) && (
+                      <p className="mt-2 text-mobile-subhead font-medium text-zinc-700" aria-label="Date photo was captured">
+                        Photo captured: {formatPhotoDate(activeMural.imageMetadata?.["Date taken"])}
+                      </p>
+                    )}
+                    <div className="mt-3 flex flex-wrap items-center gap-3">
+                      <a
+                        href={getDirectionsUrl(activeMural)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex w-fit items-center gap-2 text-mobile-subhead font-medium text-amber-700 underline decoration-amber-700/50 underline-offset-2 transition-colors hover:text-amber-800 hover:decoration-amber-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
+                        aria-label="Get directions to this mural in Google Maps"
+                      >
+                        Get directions
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          closeModal();
+                          requestFlyTo(activeMural, { openModalAfterFly: false });
+                        }}
+                        className="inline-flex items-center gap-2 text-mobile-subhead font-medium text-zinc-700 underline decoration-zinc-400 underline-offset-2 transition-colors hover:text-zinc-900 hover:decoration-zinc-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
+                        aria-label="View this mural on the map"
+                      >
+                        View on map
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                      </button>
                     </div>
-                    {activeMural.imageMetadata &&
-                      Object.entries(activeMural.imageMetadata).map(([label, value]) => (
-                        <div key={label}>
-                          <dt className="text-sm text-zinc-500">{label}</dt>
-                          <dd className="mt-0.5 font-mono text-sm text-zinc-700">{value}</dd>
+                    <details
+                      id="mural-modal-desc"
+                      className="mt-6 border-t border-zinc-200 pt-6 group/details"
+                      aria-labelledby="image-metadata-heading"
+                    >
+                      <summary
+                        id="image-metadata-heading"
+                        className="cursor-pointer list-none text-sm font-medium uppercase tracking-wider text-zinc-500 hover:text-zinc-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
+                      >
+                        Image metadata
+                      </summary>
+                      <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+                        <div>
+                          <dt className="text-sm text-zinc-500">Coordinates</dt>
+                          <dd className="mt-0.5 font-mono text-sm text-zinc-700" aria-label="Mural location coordinates">
+                            {activeMural.coordinates[1].toFixed(5)}°, {activeMural.coordinates[0].toFixed(5)}°
+                          </dd>
                         </div>
-                      ))}
-                  </dl>
-                </details>
+                        {activeMural.imageMetadata &&
+                          Object.entries(activeMural.imageMetadata).map(([label, value]) => (
+                            <div key={label}>
+                              <dt className="text-sm text-zinc-500">{label}</dt>
+                              <dd className="mt-0.5 font-mono text-sm text-zinc-700">{value}</dd>
+                            </div>
+                          ))}
+                      </dl>
+                    </details>
+                  </>
+                )}
               </div>
             </div>
             <div className="safe-bottom-footer border-t border-zinc-200 bg-zinc-50 p-4">
