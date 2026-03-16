@@ -68,7 +68,7 @@ export function NearbyMuralCard({
       haptics.pulse();
     }
     if (!currentNearby) prevNearbyIdRef.current = null;
-  }, [currentNearby?.id, haptics]);
+  }, [currentNearby, haptics]);
 
   const tourContext = useMemo(() => {
     if (!activeTour || !currentNearby || !orderedMurals.length) return null;

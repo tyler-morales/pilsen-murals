@@ -13,6 +13,7 @@ import {
   saveDraft,
   clearDraft,
   draftImageBase64ToBlob,
+  type DraftPhase,
 } from "@/store/checkMuralDraftStore";
 import { haversineDistanceMeters } from "@/lib/geo";
 import { normalizeImageForUpload } from "@/lib/upload/normalizeImageForUpload";
@@ -602,7 +603,7 @@ export function CheckMuralModal({
           ? "none"
           : selectedResult.id;
     saveDraft({
-      phase,
+      phase: phase as DraftPhase,
       searchResult: searchResult ?? undefined,
       selectedResultId,
       submitTitle,
