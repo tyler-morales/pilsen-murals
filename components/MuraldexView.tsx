@@ -1,13 +1,19 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useDragControls } from "framer-motion";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { useHaptics } from "@/hooks/useHaptics";
 import { useCaptureStore } from "@/store/captureStore";
 import { useLocationStore } from "@/store/locationStore";
+import {
+  DRAWER_DRAG_PROPS,
+  DRAG_HANDLE_ROW_CLASSES,
+  MOBILE_SHEET_BASE_CLASSES,
+  shouldCloseDrawerOnDragEnd,
+} from "@/lib/drawerSheet";
 import { computeRarity, type Rarity } from "@/lib/rarity";
 import { getMuralsWithinRadius, formatDistance } from "@/lib/geo";
 import type { Mural } from "@/types/mural";
@@ -89,6 +95,19 @@ export function MuraldexView({
     }
   }, [murals, filter, hasCaptured, nearbyMurals]);
 
+  const dragControls = useDragControls();
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+
+  const handleDrawerDragEnd = useCallback(
+    (_: unknown, info: { offset: { y: number }; velocity: { y: number } }) => {
+      if (shouldCloseDrawerOnDragEnd(info)) {
+        haptics.nudge();
+        onClose();
+      }
+    },
+    [haptics, onClose]
+  );
+
   const handleSelect = (mural: Mural) => {
     haptics.tap();
     onSelectMural(mural);
@@ -96,6 +115,9 @@ export function MuraldexView({
   };
 
   const variants = isDesktop ? SIDEBAR : SHEET;
+
+  const MURALDEX_DESKTOP_CLASSES =
+    "md:left-auto md:right-0 md:top-0 md:bottom-0 md:max-h-none md:w-full md:max-w-[420px] md:rounded-l-2xl md:rounded-tr-none md:border-l md:border-t-0";
 
   return (
     <AnimatePresence>
@@ -116,14 +138,26 @@ export function MuraldexView({
             role="dialog"
             aria-modal="true"
             aria-label="Muraldex — collection progress"
-            className="safe-bottom fixed z-50 flex flex-col overflow-hidden border-zinc-200 bg-white shadow-xl bottom-0 left-0 right-0 max-h-[85vh] rounded-t-3xl border-t md:left-auto md:right-0 md:top-0 md:bottom-0 md:max-h-none md:w-full md:max-w-[420px] md:rounded-l-2xl md:rounded-tr-none md:border-l md:border-t-0"
+            className={`${MOBILE_SHEET_BASE_CLASSES} ${MURALDEX_DESKTOP_CLASSES}`}
             variants={variants}
             initial="hidden"
             animate="visible"
             exit="exit"
             transition={{ type: "spring", damping: 28, stiffness: 300 }}
             onClick={(e) => e.stopPropagation()}
+            {...(!isDesktop && {
+              ...DRAWER_DRAG_PROPS,
+              dragControls,
+              onDragEnd: handleDrawerDragEnd,
+            })}
           >
+            <div
+              className={DRAG_HANDLE_ROW_CLASSES}
+              aria-hidden
+              onPointerDown={!isDesktop ? (e) => dragControls.start(e) : undefined}
+            >
+              <span className="h-[5px] w-10 shrink-0 rounded-full bg-zinc-300" aria-hidden />
+            </div>
             <div className="flex shrink-0 flex-col gap-3 border-b border-zinc-200 bg-white p-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-[22px] font-bold text-zinc-900">Muraldex</h2>
@@ -183,7 +217,11 @@ export function MuraldexView({
                 ))}
               </div>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            <div
+              ref={scrollAreaRef}
+              className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 touch-pan-y"
+              style={{ WebkitOverflowScrolling: "touch" }}
+            >
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
                 {filteredMurals.map((mural) => {
                   const captured = hasCaptured(mural.id);

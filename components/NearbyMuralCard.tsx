@@ -174,7 +174,7 @@ export function NearbyMuralCard({
           animate={{ opacity: 1, y: 0, x: 0 }}
           exit={{ opacity: 0, x: exitX }}
           transition={transition}
-          className="safe-bottom absolute bottom-4 left-2 right-2 z-20 overflow-visible rounded-xl sm:left-4 sm:right-14 sm:max-w-sm"
+          className="safe-bottom absolute bottom-24 left-2 right-2 z-20 overflow-visible rounded-xl sm:left-4 sm:right-14 sm:max-w-sm md:bottom-4"
         >
           <motion.div
             className="overflow-hidden rounded-xl border border-white/20 bg-white/95 shadow-xl backdrop-blur-sm border-t-4"

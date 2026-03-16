@@ -292,6 +292,33 @@ body {
   z-index: 1;
 }
 
+/* Map marker/cluster zoom lifecycle: fade + slight scale on exit; entrance for clusters */
+.mural-marker-wrapper {
+  transition: opacity 200ms ease-out, transform 200ms ease-out;
+}
+
+.mural-marker-wrapper.mural-marker-exiting {
+  opacity: 0;
+  transform: scale(0.96);
+  pointer-events: none;
+}
+
+.mural-marker-wrapper.mural-marker-entering {
+  opacity: 0;
+  transform: scale(0.92);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mural-marker-wrapper.mural-marker-exiting {
+    transition-duration: 0ms;
+  }
+
+  .mural-marker-wrapper.mural-marker-entering {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* 3D intro fly-in: cinematic title fade */
 @keyframes intro-title-fade-in {
   from {

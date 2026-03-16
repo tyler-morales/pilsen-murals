@@ -30,15 +30,16 @@ Proof of concept for a high-end, dynamic-lighting “digital twin” map of stre
 
 ## Testing
 
-Tests use Vitest and React Testing Library. Run once: `npm run test`. Watch mode: `npm run test:watch`. Coverage: `npm run test:coverage`. Marker thumbnail pins use a staggered drop (10px) + fade-in on load; `prefers-reduced-motion` skips the animation.
+Tests use Vitest and React Testing Library. Run once: `npm run test`. Watch mode: `npm run test:watch`. Coverage: `npm run test:coverage`. Marker thumbnail pins use a staggered drop + fade and subtle scale (bounce-in) on load; zoom in/out triggers fade + scale exit/entrance. `prefers-reduced-motion` skips animations.
 
 ## Features
 
 - **Dynamic lighting**: UI and map lighting are driven by the **sun’s position** over Pilsen, Chicago (America/Chicago). Brightness updates **every 60 seconds** so dawn, noon, dusk, and night each have distinct lighting—not just a switch at sunrise/sunset.
 - **Map**: Full-screen Mapbox dark style with 3D building extrusions (matte silhouettes), plus a time-of-day overlay that lightens the map by sun altitude.
-- **Markers**: Thumbnail image pins per mural (from canonical DB or fallback `data/murals.json`); each pin drops ~10px and fades in with a short stagger on load. Glow uses each mural’s dominant color. Respects `prefers-reduced-motion`.
+- **Markers**: Thumbnail image pins per mural (from canonical DB or fallback `data/murals.json`). Murals at the same location are stacked (one card + count badge); hover or focus expands the stack into a fan of cards. Pins fade in with a short stagger and subtle bounce on load; when zooming, markers and clusters fade out then new ones fade in. Glow uses each mural’s dominant color. Keyboard focus syncs with hover for expansion. Respects `prefers-reduced-motion`.
 - **Fly-to**: Click a marker to fly the camera to street level with pitch; when the animation ends, the detail modal opens.
 - **Modal**: Slide-in panel (Framer Motion) with editorial layout: image, title, artist, address, and dominant color swatch. State is managed with Zustand (`activeMural`, modal open/closed).
+- **Murals and Tours drawers**: On mobile, the Murals (Muraldex) and Tours tab content open in draggable bottom sheets with a visible top grabber; drag down from the handle to dismiss. Both drawers share the same base styles and behavior; on desktop they appear as side panels (Murals on the right, Tours on the left).
 - **Proximity alerts**: On first load you can enable location; when you’re within ~80 m of a mural, a card appears with the closest mural (and “View” / “Dismiss”). If several murals are nearby, the queue shows the next after you dismiss or view. Alerts work only while the app is open; true background notifications would require a native app or server-side geofencing + push.
 
 ## Lighthouse / SEO

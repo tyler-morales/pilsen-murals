@@ -73,6 +73,8 @@ interface MuralMarkerProps {
   isNearby?: boolean;
   /** When true, hide the pin (e.g. when using a shared pin). */
   hidePin?: boolean;
+  /** When set and > 1, show stack count badge (e.g. "3" for 3 murals at this spot). */
+  stackCount?: number;
   /** When true, lower opacity (e.g. when another card in the fan is hovered). */
   isDimmed?: boolean;
   /** When true, lift the card visually (e.g. when this card is hovered/focused in a fan). */
@@ -97,6 +99,7 @@ export function MuralMarker({
   tourRole,
   isNearby = false,
   hidePin = false,
+  stackCount,
   isDimmed = false,
   isLifted = false,
   onFocus,
@@ -138,108 +141,125 @@ export function MuralMarker({
   const opacity = visible ? (isDimmed ? 0.55 : 1) : 0;
   const liftTransform = getLiftTransform(isLifted, prefersReducedMotion);
 
+  const entranceTransform = getEntranceTransform(
+    offset,
+    visible,
+    undefined,
+    prefersReducedMotion
+  );
+
   return (
     <span
       className="relative inline-flex flex-col items-center ease-out"
       style={{
         opacity,
-        transform: getEntranceTransform(offset, visible),
-        transition: `opacity ${DIM_LIFT_DURATION_MS}ms ease-out, transform ${REVEAL_DURATION_MS}ms ease-out`,
+        transition: `opacity ${DIM_LIFT_DURATION_MS}ms ease-out`,
       }}
       aria-hidden
     >
-      {isNearby && (
-        <span
-          className="absolute left-1/2 top-0 z-20 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md border-2 border-amber-500 bg-amber-500 px-2 py-0.5 text-sm font-semibold text-amber-950 shadow-md"
-          style={{ marginTop: "-4px" }}
-          aria-hidden
-        >
-          You&apos;re near
-        </span>
-      )}
-      {tourRole != null && (
-        <span
-          className={`absolute left-1/2 top-0 z-30 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded px-2 py-0.5 text-sm font-bold shadow-md ${tourRole === "start" ? "bg-emerald-500 text-white" : "bg-rose-600 text-white"}`}
-          style={{ marginTop: "-4px" }}
-          aria-hidden
-        >
-          {tourRole === "start" ? "Start" : "End"}
-        </span>
-      )}
       <span
-        className="block transition-[transform,box-shadow] duration-[180ms] ease-out"
+        className="flex flex-col items-center ease-out"
         style={{
-          transform: liftTransform,
-          boxShadow:
-            isLifted && !prefersReducedMotion
-              ? "0 8px 24px -4px rgba(0,0,0,0.25)"
-              : undefined,
+          transform: entranceTransform,
+          transition: `transform ${REVEAL_DURATION_MS}ms ease-out`,
         }}
         aria-hidden
       >
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onClick(mural);
-          }}
-          onFocus={onFocus}
-          onBlur={onBlur}
-          onPointerEnter={onPointerEnter}
-          onPointerLeave={onPointerLeave}
-          className="mural-marker group relative flex items-center justify-center overflow-visible focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 ring-offset-dynamic-surface"
-          style={{
-            minHeight: minTouch,
-            minWidth: minTouch,
-            height: touchHeight,
-            width: touchWidth,
-            boxShadow: `0 0 20px 4px ${mural.dominantColor}40, 0 0 40px 8px ${mural.dominantColor}20`,
-          }}
-          aria-label={
-            isNearby
-              ? `You're near this mural. View: ${mural.title} by ${mural.artist}`
-              : tourRole === "start"
-                ? `Start: Stop ${tourIndex ?? 1}, ${mural.title} by ${mural.artist}`
-                : tourRole === "end"
-                  ? `End: Stop ${tourIndex ?? ""}, ${mural.title} by ${mural.artist}`
-                  : tourIndex != null
-                    ? `Stop ${tourIndex}: View mural ${mural.title} by ${mural.artist}`
-                    : `View mural: ${mural.title} by ${mural.artist}`
-          }
-        >
+        {isNearby && (
           <span
-            className={`relative flex overflow-hidden bg-dynamic shadow-md transition-transform group-hover:scale-105 group-focus-visible:scale-105 ${isNearby ? "border-[3px] border-amber-500 ring-2 ring-amber-400/80" : "border-4 border-white"
-              }`}
-            style={{ height: heightPx, width: widthPx }}
+            className="absolute left-1/2 top-0 z-20 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md border-2 border-amber-500 bg-amber-500 px-2 py-0.5 text-sm font-semibold text-amber-950 shadow-md"
+            style={{ marginTop: "-4px" }}
+            aria-hidden
+          >
+            You&apos;re near
+          </span>
+        )}
+        {tourRole != null && (
+          <span
+            className={`absolute left-1/2 top-0 z-30 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded px-2 py-0.5 text-sm font-bold shadow-md ${tourRole === "start" ? "bg-emerald-500 text-white" : "bg-rose-600 text-white"}`}
+            style={{ marginTop: "-4px" }}
+            aria-hidden
+          >
+            {tourRole === "start" ? "Start" : "End"}
+          </span>
+        )}
+        <span
+          className="block transition-[transform,box-shadow] duration-[180ms] ease-out"
+          style={{
+            transform: liftTransform,
+            boxShadow:
+              isLifted && !prefersReducedMotion
+                ? "0 8px 24px -4px rgba(0,0,0,0.25)"
+                : undefined,
+          }}
+          aria-hidden
+        >
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClick(mural);
+            }}
+            onFocus={onFocus}
+            onBlur={onBlur}
+            onPointerEnter={onPointerEnter}
+            onPointerLeave={onPointerLeave}
+            className="mural-marker group relative flex items-center justify-center overflow-visible focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 ring-offset-dynamic-surface"
+            style={{
+              minHeight: minTouch,
+              minWidth: minTouch,
+              height: touchHeight,
+              width: touchWidth,
+              boxShadow: `0 0 20px 4px ${mural.dominantColor}40, 0 0 40px 8px ${mural.dominantColor}20`,
+            }}
+            aria-label={
+              isNearby
+                ? `You're near this mural. View: ${mural.title} by ${mural.artist}`
+                : tourRole === "start"
+                  ? `Start: Stop ${tourIndex ?? 1}, ${mural.title} by ${mural.artist}`
+                  : tourRole === "end"
+                    ? `End: Stop ${tourIndex ?? ""}, ${mural.title} by ${mural.artist}`
+                    : tourIndex != null
+                      ? `Stop ${tourIndex}: View mural ${mural.title} by ${mural.artist}`
+                      : stackCount != null && stackCount > 1
+                        ? `${stackCount} murals here: ${mural.title} and others — expand to view`
+                        : `View mural: ${mural.title} by ${mural.artist}`
+            }
           >
             <span
-              className="absolute inset-0 opacity-50 transition-opacity group-hover:animate-glow-pulse group-focus-visible:animate-glow-pulse"
-              style={{
-                boxShadow: `inset 0 0 24px 6px ${mural.dominantColor}30`,
-              }}
-              aria-hidden
-            />
-            <img
-              src={thumbSrc}
-              srcSet={`${mural.thumbnail ?? mural.imageUrl} 400w, ${mural.imageUrl} 1600w`}
-              sizes={`${widthPx}px`}
-              alt=""
-              className="relative z-10 h-full w-full object-cover"
-              width={widthPx}
-              height={heightPx}
-              loading="lazy"
-              decoding="async"
-            />
-            {tourIndex != null && (
+              className={`relative flex overflow-hidden bg-dynamic shadow-md transition-transform group-hover:scale-105 group-focus-visible:scale-105 ${isNearby ? "border-[3px] border-amber-500 ring-2 ring-amber-400/80" : "border-4 border-white"
+                }`}
+              style={{ height: heightPx, width: widthPx }}
+            >
               <span
-                className="absolute bottom-0.5 right-0.5 z-20 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-white bg-amber-500 text-sm font-semibold text-white shadow-md"
+                className="absolute inset-0 opacity-50 transition-opacity group-hover:animate-glow-pulse group-focus-visible:animate-glow-pulse"
+                style={{
+                  boxShadow: `inset 0 0 24px 6px ${mural.dominantColor}30`,
+                }}
                 aria-hidden
-              >
-                {tourIndex}
-              </span>
-            )}
-          </span>
-        </button>
+              />
+              <img
+                src={thumbSrc}
+                srcSet={`${mural.thumbnail ?? mural.imageUrl} 400w, ${mural.imageUrl} 1600w`}
+                sizes={`${widthPx}px`}
+                alt=""
+                className="relative z-10 h-full w-full object-cover"
+                width={widthPx}
+                height={heightPx}
+                loading="lazy"
+                decoding="async"
+              />
+              {(tourIndex != null || (stackCount != null && stackCount > 1)) && (
+                <span
+                  className="absolute bottom-0.5 right-0.5 z-20 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-white bg-amber-500 text-sm font-semibold text-white shadow-md"
+                  aria-hidden
+                >
+                  {tourIndex ?? stackCount}
+                </span>
+              )}
+            </span>
+          </button>
+        </span>
       </span>
       {!hidePin && (
         <span

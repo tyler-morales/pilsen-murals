@@ -130,8 +130,8 @@ export function MapHeader({
         </div>
       </div>
 
-      {/* Tabs: Map | Muraldex | Tours — sliding fill indicates active */}
-      <div className="flex w-full min-w-0 flex-1 shrink-0 items-center gap-2 sm:flex-1 sm:flex-nowrap">
+      {/* Tabs: Map | Muraldex | Tours — sliding fill indicates active (desktop only; mobile uses MobileBottomNav) */}
+      <div className="hidden w-full min-w-0 flex-1 shrink-0 items-center gap-2 sm:flex-1 sm:flex-nowrap md:flex">
         <div
           ref={containerRef}
           className="relative flex min-h-[44px] min-w-0 flex-1 flex-row overflow-hidden rounded-xl bg-zinc-100/90 p-1 sm:min-w-0 sm:flex-1"
@@ -170,7 +170,7 @@ export function MapHeader({
               className={`relative z-10 flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg text-base font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 disabled:pointer-events-none sm:flex-initial sm:px-4 ${activeTab === "muraldex" ? "text-[var(--color-accent-foreground)]" : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"}`}
             >
               <LayoutGrid className="h-4 w-4 shrink-0" aria-hidden />
-              <span>Muraldex</span>
+              <span>Murals</span>
             </button>
           )}
           {activeTour && onLeaveTour ? (

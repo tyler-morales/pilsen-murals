@@ -9,6 +9,18 @@ import {
   type SearchResponse,
   type SearchResultItem,
 } from "../CheckMuralModal";
+import {
+  loadDraft,
+  clearDraft,
+  draftImageBase64ToBlob,
+} from "@/store/checkMuralDraftStore";
+
+vi.mock("@/store/checkMuralDraftStore", () => ({
+  loadDraft: vi.fn(() => null),
+  saveDraft: vi.fn(() => Promise.resolve()),
+  clearDraft: vi.fn(),
+  draftImageBase64ToBlob: vi.fn(() => null),
+}));
 
 vi.mock("@/lib/upload/normalizeImageForUpload", () => ({
   normalizeImageForUpload: vi.fn((_file: File) =>
@@ -449,5 +461,92 @@ describe("CheckMuralModal duplicate stack (same mural id)", () => {
       expect(screen.getByLabelText("Select: Solo")).toBeInTheDocument();
       expect(screen.getByLabelText(/2 photos of this mural/)).toBeInTheDocument();
     });
+  });
+});
+
+describe("CheckMuralModal draft persistence", () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(() => ({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+        onchange: null,
+        media: "",
+      }))
+    );
+    vi.mocked(loadDraft).mockReturnValue(null);
+    vi.mocked(draftImageBase64ToBlob).mockReturnValue(null);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("restores to result phase when draft exists with image and searchResult", async () => {
+    const noMatchResponse: SearchResponse = { results: [] };
+    vi.mocked(loadDraft).mockReturnValueOnce({
+      phase: "result",
+      searchResult: noMatchResponse,
+      selectedResultId: null,
+      submitTitle: "",
+      submitArtist: "",
+    });
+    vi.mocked(draftImageBase64ToBlob).mockReturnValueOnce(
+      new Blob(["x"], { type: "image/jpeg" })
+    );
+
+    render(<CheckMuralModal isOpen onClose={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/We don't have this one in our collection yet/i)
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.getByRole("button", { name: /Retake photo/i, hidden: true })
+    ).toBeInTheDocument();
+  });
+
+  it("calls clearDraft when user clicks Retake photo", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string | URL) => {
+        const path = typeof url === "string" ? url : url.toString();
+        if (path.includes("/api/search")) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ results: [] }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            })
+          );
+        }
+        return Promise.reject(new Error(`Unexpected fetch: ${path}`));
+      })
+    );
+
+    const user = userEvent.setup();
+    render(<CheckMuralModal isOpen onClose={vi.fn()} />);
+
+    const fileInput = screen.getByLabelText(/Choose photo from device/i);
+    await user.upload(fileInput, new File(["x"], "capture.jpg", { type: "image/jpeg" }));
+    const doneBtn = await screen.findByText("Done");
+    await user.click(doneBtn);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /Retake photo/i, hidden: true })
+      ).toBeInTheDocument();
+    });
+
+    await user.click(
+      screen.getByRole("button", { name: /Retake photo/i, hidden: true })
+    );
+
+    expect(clearDraft).toHaveBeenCalled();
   });
 });

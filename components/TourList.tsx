@@ -1,11 +1,17 @@
 "use client";
 
-import { useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useCallback, useRef } from "react";
+import { motion, AnimatePresence, useDragControls } from "framer-motion";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { useHaptics } from "@/hooks/useHaptics";
 import { useTourStore } from "@/store/tourStore";
+import {
+  DRAWER_DRAG_PROPS,
+  DRAG_HANDLE_ROW_CLASSES,
+  MOBILE_SHEET_BASE_CLASSES,
+  shouldCloseDrawerOnDragEnd,
+} from "@/lib/drawerSheet";
 import type { Collection } from "@/types/collection";
 
 const SHEET = {
@@ -28,6 +34,9 @@ interface TourListProps {
   onClose: () => void;
 }
 
+const TOUR_LIST_DESKTOP_CLASSES =
+  "md:left-0 md:right-auto md:top-0 md:bottom-0 md:max-h-none md:w-full md:max-w-[380px] md:rounded-r-2xl md:rounded-tl-none md:rounded-t-2xl md:border-l md:border-t-0";
+
 export function TourList({
   collections,
   isOpen,
@@ -38,8 +47,20 @@ export function TourList({
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const variants = isDesktop ? SIDEBAR : SHEET;
   const haptics = useHaptics();
+  const dragControls = useDragControls();
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   useFocusTrap(dialogRef, isOpen);
+
+  const handleDrawerDragEnd = useCallback(
+    (_: unknown, info: { offset: { y: number }; velocity: { y: number } }) => {
+      if (shouldCloseDrawerOnDragEnd(info)) {
+        haptics.nudge();
+        onClose();
+      }
+    },
+    [haptics, onClose]
+  );
 
   const handleSelectTour = (tour: Collection) => {
     haptics.nudge();
@@ -66,7 +87,7 @@ export function TourList({
             role="dialog"
             aria-modal="true"
             aria-label="Walking tours"
-            className="safe-bottom fixed z-50 flex flex-col overflow-hidden border-zinc-200 bg-white shadow-[0_-8px_32px_rgba(0,0,0,0.12)] bottom-0 left-0 right-0 max-h-[55vh] rounded-t-3xl border-t md:left-0 md:right-auto md:top-0 md:bottom-0 md:max-h-none md:w-full md:max-w-[380px] md:rounded-r-2xl md:rounded-tl-none md:rounded-t-2xl md:border-l md:border-t-0"
+            className={`${MOBILE_SHEET_BASE_CLASSES} ${TOUR_LIST_DESKTOP_CLASSES}`}
             style={isDesktop ? { width: SIDEBAR_WIDTH } : undefined}
             variants={variants}
             initial="hidden"
@@ -74,12 +95,18 @@ export function TourList({
             exit="exit"
             transition={{ type: "spring", damping: 28, stiffness: 300 }}
             onClick={(e) => e.stopPropagation()}
+            {...(!isDesktop && {
+              ...DRAWER_DRAG_PROPS,
+              dragControls,
+              onDragEnd: handleDrawerDragEnd,
+            })}
           >
             <div
-              className="flex justify-center pt-3 pb-1 md:hidden"
+              className={DRAG_HANDLE_ROW_CLASSES}
               aria-hidden
+              onPointerDown={!isDesktop ? (e) => dragControls.start(e) : undefined}
             >
-              <span className="h-1.5 w-12 shrink-0 rounded-full bg-zinc-300" aria-hidden />
+              <span className="h-[5px] w-10 shrink-0 rounded-full bg-zinc-300" aria-hidden />
             </div>
             <div className="sticky top-0 flex shrink-0 items-center justify-between border-b border-zinc-200 bg-white px-4 py-3">
               <h2 className="text-2xl font-semibold leading-tight text-zinc-900">
@@ -108,8 +135,13 @@ export function TourList({
               </button>
             </div>
             <div
-              className="min-h-0 flex-1 overflow-y-auto p-4"
-              style={isDesktop ? undefined : { maxHeight: "calc(50vh - 56px)" }}
+              ref={scrollAreaRef}
+              className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 touch-pan-y"
+              style={
+                isDesktop
+                  ? undefined
+                  : { maxHeight: "calc(85vh - 56px)", WebkitOverflowScrolling: "touch" }
+              }
             >
               <p
                 className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-mobile-subhead text-amber-900"

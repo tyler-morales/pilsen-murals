@@ -1,11 +1,15 @@
 import { describe, it, expect } from "vitest";
 import {
   DROP_OFFSET_PX,
+  ENTRANCE_SCALE_MIN,
+  EXIT_DURATION_MS,
   getEntranceTransform,
+  getExitScale,
   getLiftTransform,
   getRevealDelay,
   LIFT_TRANSLATE_PX,
   MARKER_CHUNK_SIZE,
+  REVEAL_DURATION_MS,
   REVEAL_STAGGER_MS,
 } from "../markerAnimation";
 
@@ -40,11 +44,18 @@ describe("getEntranceTransform", () => {
     expect(t).not.toContain("translateY");
   });
 
-  it("when not visible includes translateY drop for natural entrance", () => {
+  it("when not visible includes translateY drop and scale for natural entrance", () => {
     const t = getEntranceTransform(offset, false);
     expect(t).toContain(`translateY(${DROP_OFFSET_PX}px)`);
     expect(t).toContain("rotate(5deg)");
     expect(t).toContain("translate(2px, -1px)");
+    expect(t).toContain("scale(");
+  });
+
+  it("when not visible and prefersReducedMotion omits scale", () => {
+    const t = getEntranceTransform(offset, false, DROP_OFFSET_PX, true);
+    expect(t).not.toContain("scale(");
+    expect(t).toContain(`translateY(${DROP_OFFSET_PX}px)`);
   });
 
   it("accepts custom drop px", () => {
@@ -65,5 +76,29 @@ describe("getLiftTransform", () => {
 
   it("returns translateY lift when lifted and not reduced motion", () => {
     expect(getLiftTransform(true, false)).toBe(`translateY(${LIFT_TRANSLATE_PX}px)`);
+  });
+});
+
+describe("zoom lifecycle constants", () => {
+  it("EXIT_DURATION_MS is positive and used for teardown delay", () => {
+    expect(EXIT_DURATION_MS).toBeGreaterThan(0);
+    expect(EXIT_DURATION_MS).toBeLessThanOrEqual(REVEAL_DURATION_MS + 50);
+  });
+
+  it("ENTRANCE_SCALE_MIN is below 1 for bounce-in", () => {
+    expect(ENTRANCE_SCALE_MIN).toBeLessThan(1);
+    expect(ENTRANCE_SCALE_MIN).toBeGreaterThan(0);
+  });
+});
+
+describe("getExitScale", () => {
+  it("returns 1 when prefers reduced motion (no scale animation)", () => {
+    expect(getExitScale(true)).toBe(1);
+  });
+
+  it("returns value < 1 when not reduced motion for subtle shrink on exit", () => {
+    const scale = getExitScale(false);
+    expect(scale).toBeLessThan(1);
+    expect(scale).toBeGreaterThan(0);
   });
 });

@@ -12,11 +12,14 @@ import { useMapStore } from "@/store/mapStore";
 import { useThemeStore } from "@/store/themeStore";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { useHaptics } from "@/hooks/useHaptics";
-import { getRevealDelay } from "@/lib/markerAnimation";
 import {
-  groupLeavesIntoPlacements,
+  EXIT_DURATION_MS,
+  getRevealDelay,
+} from "@/lib/markerAnimation";
+import {
+  getFanoutScreenOffsets,
+  groupLeavesIntoStackedPlacements,
   muralToPoint,
-  spreadOverlappingPlacements,
   type Placement,
 } from "@/lib/markerPlacement";
 import { GEOFENCE_RADIUS_M, circlePolygon } from "@/lib/geo";
@@ -239,6 +242,8 @@ interface PlacementInstance {
 
 type LeafMarkerRef = MarkerInstance | PlacementInstance;
 
+const FANOUT_RADIUS_PX = 58;
+
 interface PlacementMarkersProps {
   wrappers: HTMLDivElement[];
   placements: Placement[];
@@ -265,25 +270,75 @@ function PlacementMarkers({
       {placements.map((placement, i) => {
         const wrapper = wrappers[i];
         if (!wrapper) return null;
-        const mural = placement.murals[0];
-        if (!mural) return null;
+        const murals = placement.murals;
+        const first = murals[0];
+        if (!first) return null;
         const revealDelay = getRevealDelay(i);
-        const isHovered = hoveredMuralId === mural.id;
+        const isStack = murals.length > 1;
+        const isPlacementHovered = isStack && murals.some((m) => m.id === hoveredMuralId);
+        const showFanout = isStack && isPlacementHovered;
+
+        if (showFanout) {
+          const offsets = getFanoutScreenOffsets(murals.length, FANOUT_RADIUS_PX);
+          return createPortal(
+            <span className="relative block w-0 h-0" aria-hidden>
+              {murals.map((mural, j) => {
+                const { x, y } = offsets[j] ?? { x: 0, y: 0 };
+                const isHovered = hoveredMuralId === mural.id;
+                return (
+                  <span
+                    key={mural.id}
+                    className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-full"
+                    style={{ transform: `translate(-50%, -100%) translate(${x}px, ${y}px)` }}
+                  >
+                    <MuralMarker
+                      mural={mural}
+                      zoom={zoom}
+                      onClick={onClick}
+                      revealDelay={j === 0 ? revealDelay : 0}
+                      prefersReducedMotion={prefersReducedMotion}
+                      isNearby={mural.id === nearbyMuralId}
+                      hidePin={true}
+                      isDimmed={hoveredMuralId != null && !isHovered}
+                      isLifted={isHovered}
+                      onFocus={() => onHover(mural.id)}
+                      onBlur={() => {
+                        setTimeout(() => onHover(null), 0);
+                      }}
+                      onPointerEnter={() => onHover(mural.id)}
+                      onPointerLeave={() => onHover(null)}
+                    />
+                  </span>
+                );
+              })}
+            </span>,
+            wrapper,
+            `placement-${i}-fanout`
+          );
+        }
+
+        const isHovered = hoveredMuralId === first.id;
         return createPortal(
           <MuralMarker
-            mural={mural}
+            mural={first}
             zoom={zoom}
             onClick={onClick}
             revealDelay={revealDelay}
             prefersReducedMotion={prefersReducedMotion}
-            isNearby={mural.id === nearbyMuralId}
+            isNearby={first.id === nearbyMuralId}
+            stackCount={isStack ? murals.length : undefined}
+            hidePin={isStack}
             isDimmed={hoveredMuralId != null && !isHovered}
             isLifted={isHovered}
-            onPointerEnter={() => onHover(mural.id)}
+            onFocus={() => onHover(first.id)}
+            onBlur={() => {
+              setTimeout(() => onHover(null), 0);
+            }}
+            onPointerEnter={() => onHover(first.id)}
             onPointerLeave={() => onHover(null)}
           />,
           wrapper,
-          mural.id
+          first.id
         );
       })}
     </>
@@ -828,6 +883,8 @@ export function MuralMap({
         const root = createRoot(rootContainer);
         singleRootRef.current = root;
 
+        let exitTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
         function getBbox(): [number, number, number, number] {
           const bounds = map.getBounds();
           if (!bounds) return [-180, -90, 180, 90];
@@ -836,20 +893,31 @@ export function MuralMap({
           return [sw.lng, sw.lat, ne.lng, ne.lat];
         }
 
-        function updateMarkers() {
-          if (introAnimatingRef.current) return;
-          const clustersToTeardown = clusterRefsRef.current;
-          const markersToTeardown = markerRefsRef.current;
-          clusterRefsRef.current = [];
-          markerRefsRef.current = [];
-          queueMicrotask(() => {
-            clustersToTeardown.forEach(({ marker, root }) => {
-              root.unmount();
-              marker.remove();
-            });
-            markersToTeardown.forEach(({ marker }) => marker.remove());
+        function applyExitToWrappers(
+          clusters: ClusterInstance[],
+          markerRefs: LeafMarkerRef[]
+        ): void {
+          clusters.forEach(({ marker }) => {
+            const el = marker.getElement();
+            if (el instanceof HTMLElement) el.classList.add("mural-marker-exiting");
           });
+          markerRefs.forEach((ref) => {
+            ref.wrapperEl?.classList.add("mural-marker-exiting");
+          });
+        }
 
+        function teardownMarkers(
+          clusters: ClusterInstance[],
+          markerRefs: LeafMarkerRef[]
+        ): void {
+          clusters.forEach(({ marker, root }) => {
+            root.unmount();
+            marker.remove();
+          });
+          markerRefs.forEach(({ marker }) => marker.remove());
+        }
+
+        function renderNewMarkers(): void {
           const z = map.getZoom();
           setZoom(z);
 
@@ -902,6 +970,7 @@ export function MuralMap({
               const [lng, lat] = feature.geometry.coordinates as [number, number];
               const el = document.createElement("div");
               el.className = "mural-marker-wrapper";
+              if (!prefersReducedMotion) el.classList.add("mural-marker-entering");
               const clusterRoot = createRoot(el);
               clusterRoot.render(
                 <ClusterMarker
@@ -920,6 +989,11 @@ export function MuralMap({
               const marker = new mapboxgl.Marker({ element: el, anchor: "bottom" })
                 .setLngLat([lng, lat])
                 .addTo(map);
+              if (!prefersReducedMotion) {
+                requestAnimationFrame(() => {
+                  requestAnimationFrame(() => el.classList.remove("mural-marker-entering"));
+                });
+              }
               clusterRefsRef.current.push({ marker, root: clusterRoot });
             } else {
               const muralId = props.muralId;
@@ -929,9 +1003,8 @@ export function MuralMap({
             }
           }
 
-          const placements = groupLeavesIntoPlacements(leaves);
-          spreadOverlappingPlacements(
-            placements,
+          const placements = groupLeavesIntoStackedPlacements(
+            leaves,
             (coords) => map.project(coords),
             (point) => {
               const ll = map.unproject([point.x, point.y]);
@@ -980,6 +1053,38 @@ export function MuralMap({
             />
           );
           updateMarkersRef.current = updateMarkers;
+        }
+
+        function updateMarkers() {
+          if (introAnimatingRef.current) return;
+          if (exitTimeoutId != null) {
+            clearTimeout(exitTimeoutId);
+            exitTimeoutId = null;
+          }
+          const clustersToTeardown = clusterRefsRef.current;
+          const markersToTeardown = markerRefsRef.current;
+          const doTeardownAndRender = () => {
+            exitTimeoutId = null;
+            clusterRefsRef.current = [];
+            markerRefsRef.current = [];
+            teardownMarkers(clustersToTeardown, markersToTeardown);
+            renderNewMarkers();
+          };
+
+          if (prefersReducedMotion) {
+            doTeardownAndRender();
+            return;
+          }
+
+          if (clustersToTeardown.length === 0 && markersToTeardown.length === 0) {
+            clusterRefsRef.current = [];
+            markerRefsRef.current = [];
+            renderNewMarkers();
+            return;
+          }
+
+          applyExitToWrappers(clustersToTeardown, markersToTeardown);
+          exitTimeoutId = setTimeout(doTeardownAndRender, EXIT_DURATION_MS);
         }
 
         if (prefersReducedMotion) {

@@ -51,3 +51,45 @@ export function spreadOverlappingPlacements(
     });
   }
 }
+
+/** Group leaves by same/similar map position into stacked placements (one marker per location, multiple murals). */
+export function groupLeavesIntoStackedPlacements(
+  leaves: { mural: Mural; coordinates: [number, number] }[],
+  project: (coords: [number, number]) => { x: number; y: number },
+  _unproject: (point: { x: number; y: number }) => [number, number],
+  _stackRadiusPx: number = 55
+): Placement[] {
+  if (leaves.length === 0) return [];
+  const key = (c: [number, number]) =>
+    `${Math.round(c[0] * 1e5)}_${Math.round(c[1] * 1e5)}`;
+  const byKey = new Map<string, { center: [number, number]; murals: Mural[] }>();
+  for (const l of leaves) {
+    const k = key(l.coordinates);
+    if (!byKey.has(k)) {
+      byKey.set(k, { center: l.coordinates, murals: [] });
+    }
+    byKey.get(k)!.murals.push(l.mural);
+  }
+  return Array.from(byKey.values()).map(({ center, murals }) => ({
+    center,
+    murals,
+  }));
+}
+
+/** Screen-space offsets (px) for fanout layout: n items on a circle. Used when a stack is expanded (hover/focus). */
+export function getFanoutScreenOffsets(
+  count: number,
+  radiusPx: number
+): { x: number; y: number }[] {
+  if (count <= 0) return [];
+  if (count === 1 || radiusPx <= 0) return Array(count).fill({ x: 0, y: 0 });
+  const result: { x: number; y: number }[] = [];
+  for (let i = 0; i < count; i++) {
+    const angle = (2 * Math.PI * i) / count;
+    result.push({
+      x: Math.round(radiusPx * Math.cos(angle)),
+      y: Math.round(radiusPx * Math.sin(angle)),
+    });
+  }
+  return result;
+}

@@ -8,6 +8,12 @@ import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { useHaptics } from "@/hooks/useHaptics";
 import { useLocationStore } from "@/store/locationStore";
 import { useCaptureStore } from "@/store/captureStore";
+import {
+  loadDraft,
+  saveDraft,
+  clearDraft,
+  draftImageBase64ToBlob,
+} from "@/store/checkMuralDraftStore";
 import { haversineDistanceMeters } from "@/lib/geo";
 import { normalizeImageForUpload } from "@/lib/upload/normalizeImageForUpload";
 import { bucketResultsByMuralId } from "@/lib/searchUtils";
@@ -308,6 +314,7 @@ export function CheckMuralModal({
   const streamRef = useRef<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastSubmittedBlobRef = useRef<Blob | null>(null);
+  const draftBlobRef = useRef<Blob | null>(null);
   const addToDbWithTokenRef = useRef<((token: string) => void) | null>(null);
   const pendingMuralIdRef = useRef<string | null>(null);
   const pendingSubmitCoordsRef = useRef<[number, number] | null>(null);
@@ -513,6 +520,7 @@ export function CheckMuralModal({
       setSubmitTitle("");
       setSubmitArtist("");
       lastSubmittedBlobRef.current = null;
+      draftBlobRef.current = null;
       pendingMuralIdRef.current = null;
       pendingSubmitCoordsRef.current = null;
       if (previewUrl) {
@@ -523,8 +531,98 @@ export function CheckMuralModal({
         URL.revokeObjectURL(checkingPreviewUrl);
         setCheckingPreviewUrl(null);
       }
+      if (editImageUrl) {
+        URL.revokeObjectURL(editImageUrl);
+        setEditImageUrl(null);
+      }
     }
-  }, [isOpen, stopCamera, previewUrl, checkingPreviewUrl]);
+  }, [isOpen, stopCamera, previewUrl, checkingPreviewUrl, editImageUrl]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const draft = loadDraft();
+    if (!draft) return;
+    const phaseNeedsImage =
+      draft.phase === "edit" ||
+      draft.phase === "checking" ||
+      draft.phase === "result" ||
+      draft.phase === "confirm-location" ||
+      draft.phase === "error";
+    const blob = draftImageBase64ToBlob(draft);
+    if (phaseNeedsImage && !blob) {
+      setSearchError(
+        "Your previous photo wasn't saved. Please take or upload a new one."
+      );
+      setPhase("capture");
+      if (draft.imageOmitted) clearDraft();
+      return;
+    }
+    if (draft.searchResult) setSearchResult(draft.searchResult);
+    setSubmitTitle(draft.submitTitle ?? "");
+    setSubmitArtist(draft.submitArtist ?? "");
+    if (draft.searchError) setSearchError(draft.searchError);
+    const restorePhase = draft.phase === "checking" ? "edit" : draft.phase;
+    if (blob) {
+      lastSubmittedBlobRef.current = blob;
+      if (restorePhase === "edit") {
+        draftBlobRef.current = blob;
+        setEditImageUrl(URL.createObjectURL(blob));
+      }
+    }
+    if (
+      draft.selectedResultId !== undefined &&
+      draft.searchResult?.results
+    ) {
+      if (draft.selectedResultId === "none") setSelectedResult("none");
+      else {
+        const item = draft.searchResult.results.find(
+          (r) => r.id === draft.selectedResultId
+        );
+        setSelectedResult(item ?? null);
+      }
+    }
+    setPhase(restorePhase);
+  }, [isOpen]);
+
+  const persistablePhases: Phase[] = [
+    "edit",
+    "checking",
+    "result",
+    "confirm-location",
+    "error",
+  ];
+  useEffect(() => {
+    if (!isOpen || !persistablePhases.includes(phase)) return;
+    const blob =
+      phase === "edit" ? draftBlobRef.current : lastSubmittedBlobRef.current;
+    const selectedResultId: string | "none" | null =
+      selectedResult === null
+        ? null
+        : selectedResult === "none"
+          ? "none"
+          : selectedResult.id;
+    saveDraft({
+      phase,
+      searchResult: searchResult ?? undefined,
+      selectedResultId,
+      submitTitle,
+      submitArtist,
+      searchError: searchError ?? undefined,
+      imageBlob: blob ?? undefined,
+    }).catch(() => { });
+  }, [
+    isOpen,
+    phase,
+    searchResult,
+    selectedResult,
+    submitTitle,
+    submitArtist,
+    searchError,
+  ]);
+
+  useEffect(() => {
+    if (phase === "confirmed") clearDraft();
+  }, [phase]);
 
   useEffect(() => {
     if ((phase === "result" || phase === "confirm-location") && lastSubmittedBlobRef.current) {
@@ -656,6 +754,7 @@ export function CheckMuralModal({
   const goToEdit = useCallback(
     (blob: Blob) => {
       if (editImageUrl) URL.revokeObjectURL(editImageUrl);
+      draftBlobRef.current = blob;
       stopCamera();
       setEditImageUrl(URL.createObjectURL(blob));
       setPhase("edit");
@@ -668,6 +767,7 @@ export function CheckMuralModal({
       URL.revokeObjectURL(editImageUrl);
       setEditImageUrl(null);
     }
+    draftBlobRef.current = null;
     setPhase("capture");
     startCamera();
   }, [editImageUrl, startCamera]);
@@ -678,6 +778,7 @@ export function CheckMuralModal({
         URL.revokeObjectURL(editImageUrl);
         setEditImageUrl(null);
       }
+      draftBlobRef.current = null;
       const file = new File([blob], "capture.jpg", { type: blob.type || "image/jpeg" });
       normalizeImageForUpload(file)
         .then((normalized) => submitImage(normalized))
@@ -775,6 +876,8 @@ export function CheckMuralModal({
       URL.revokeObjectURL(previewUrl);
       setPreviewUrl(null);
     }
+    clearDraft();
+    draftBlobRef.current = null;
     setPhase("capture");
     setSearchResult(null);
     setSelectedResult(null);

@@ -66,7 +66,7 @@ describe("MuralMarker", () => {
       />
     );
     const button = screen.getByRole("button", { name: /View mural: Test Mural/, hidden: true });
-    const wrapper = button.parentElement?.parentElement as HTMLElement;
+    const wrapper = button.parentElement?.parentElement?.parentElement as HTMLElement;
     expect(wrapper).toBeTruthy();
     expect(wrapper).toHaveStyle({ opacity: "0" });
 
@@ -85,7 +85,7 @@ describe("MuralMarker", () => {
       />
     );
     const button = screen.getByRole("button", { name: /View mural: Test Mural/, hidden: true });
-    const wrapper = button.parentElement?.parentElement as HTMLElement;
+    const wrapper = button.parentElement?.parentElement?.parentElement as HTMLElement;
     expect(wrapper).toHaveStyle({ opacity: "1" });
     vi.advanceTimersByTime(100);
     expect(wrapper).toHaveStyle({ opacity: "1" });
@@ -112,7 +112,7 @@ describe("MuralMarker", () => {
       />
     );
     const button = screen.getByRole("button", { name: /View mural: Test Mural/, hidden: true });
-    const wrapper = button.parentElement?.parentElement as HTMLElement;
+    const wrapper = button.parentElement?.parentElement?.parentElement as HTMLElement;
     expect(wrapper).toHaveStyle({ opacity: "1" });
   });
 });

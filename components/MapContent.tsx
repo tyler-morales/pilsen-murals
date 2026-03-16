@@ -6,6 +6,7 @@ import { CaptureRevealAnimation } from "@/components/CaptureRevealAnimation";
 import { CheckMuralModal } from "@/components/CheckMuralModal";
 import { LocationPrompt } from "@/components/LocationPrompt";
 import { MapHeader } from "@/components/MapHeader";
+import { MobileBottomNav } from "@/components/MobileBottomNav";
 import { MuralMap } from "@/components/MuralMap";
 import { MuralModal } from "@/components/MuralModal";
 import { MuraldexView } from "@/components/MuraldexView";
@@ -126,6 +127,15 @@ export function MapContent({ murals, collections }: MapContentProps) {
       <MapHeader
         murals={displayMurals}
         onMapClick={() => { setMuraldexOpen(false); setTourListOpen(false); }}
+        onMuraldexClick={murals.length > 0 ? () => setMuraldexOpen((o) => !o) : undefined}
+        isMuraldexOpen={muraldexOpen}
+        activeTour={activeTour}
+        onToursClick={() => setTourListOpen(true)}
+        onLeaveTour={() => setActiveTour(null)}
+        isTourListOpen={tourListOpen}
+        onCheckMuralClick={enableCheckMural ? () => setCheckMuralOpen(true) : undefined}
+      />
+      <MobileBottomNav
         onMuraldexClick={murals.length > 0 ? () => setMuraldexOpen((o) => !o) : undefined}
         isMuraldexOpen={muraldexOpen}
         activeTour={activeTour}
