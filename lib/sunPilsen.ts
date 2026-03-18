@@ -18,7 +18,7 @@ function altitudeDegrees(altitudeRad: number): number {
  * Maps sun altitude (degrees) to a 0–1 brightness factor.
  * Altitude < 0 → 0 (night). 0–90° → smooth curve (dawn/dusk dimmer than noon).
  */
-export function altitudeToBrightness(altitudeDeg: number): number {
+function altitudeToBrightness(altitudeDeg: number): number {
   if (altitudeDeg < 0) return 0;
   // 0° ≈ 0.12, 90° = 1; linear in between
   return Math.min(1, (altitudeDeg + 12) / 102);

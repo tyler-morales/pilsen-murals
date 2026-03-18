@@ -8,6 +8,7 @@ import {
   getEntranceTransform,
   getLiftTransform,
 } from "@/lib/markerAnimation";
+import { parsePx } from "@/lib/imageMetadata";
 
 const ZOOM_MIN = 11;
 const ZOOM_MAX = 18;
@@ -20,12 +21,6 @@ const revealedMuralIds = new Set<string>();
 /** For tests: reset session reveal cache so delay/visibility can be re-tested. */
 export function resetRevealedMurals(): void {
   revealedMuralIds.clear();
-}
-
-function parsePx(value: string | undefined): number | null {
-  if (!value) return null;
-  const n = parseInt(value.replace(/px$/i, ""), 10);
-  return Number.isNaN(n) ? null : n;
 }
 
 function getThumbnailAspectRatio(mural: Mural): number {

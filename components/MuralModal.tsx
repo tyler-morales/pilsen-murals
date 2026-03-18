@@ -15,6 +15,9 @@ import type { Mural } from "@/types/mural";
 import { getDirectionsUrl } from "@/lib/directions";
 import { getArtistInstagramUrl } from "@/lib/instagram";
 import { isLightColor, normalizeHexToSix, getContentOverlay } from "@/lib/colorUtils";
+import { MAPBOX_STYLE_URLS } from "@/lib/mapbox";
+import { parsePx } from "@/lib/imageMetadata";
+import { ImageEditor } from "@/components/ImageEditor";
 import { ExternalLink, Pencil, X } from "lucide-react";
 
 const MURAL_EDIT_TURNSTILE_ID = "mural-edit-turnstile";
@@ -22,8 +25,8 @@ const MURAL_EDIT_TURNSTILE_SELECTOR = `#${MURAL_EDIT_TURNSTILE_ID}`;
 const TURNSTILE_SCRIPT_URL = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
 
 const MINIMAP_MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
-const MINIMAP_STYLE_STANDARD = "mapbox://styles/mapbox/standard";
-const MINIMAP_STYLE_SATELLITE = "mapbox://styles/mapbox/satellite-streets-v12";
+const MINIMAP_STYLE_STANDARD = MAPBOX_STYLE_URLS.standard;
+const MINIMAP_STYLE_SATELLITE = MAPBOX_STYLE_URLS.satellite;
 const MINIMAP_ZOOM = 15;
 const MINIMAP_MURAL_SOURCE_ID = "minimap-mural";
 const MINIMAP_MURAL_LAYER_ID = "minimap-mural-dot";
@@ -49,12 +52,6 @@ const DRAWER_UP = {
 const ASPECT_MIN = 9 / 16;
 const ASPECT_MAX = 2;
 const ASPECT_DEFAULT = 4 / 5;
-
-function parsePx(value: string | undefined): number | null {
-  if (!value) return null;
-  const n = parseInt(value.replace(/px$/i, ""), 10);
-  return Number.isNaN(n) ? null : n;
-}
 
 function getModalImageAspectRatio(mural: Mural): number {
   const w = parsePx(mural.imageMetadata?.Width);
@@ -119,6 +116,10 @@ export function MuralModal() {
   });
 
   const [isEditMode, setIsEditMode] = useState(false);
+  const [isCropMode, setIsCropMode] = useState(false);
+  const [croppedBlob, setCroppedBlob] = useState<Blob | null>(null);
+  const [croppedPreviewUrl, setCroppedPreviewUrl] = useState<string | null>(null);
+  const [cropImageUrl, setCropImageUrl] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editArtist, setEditArtist] = useState("");
   const [editInstagramHandle, setEditInstagramHandle] = useState("");
@@ -137,10 +138,25 @@ export function MuralModal() {
     setEditArtist(activeMural.artist);
     setEditInstagramHandle(activeMural.artistInstagramHandle?.replace(/^@/, "") ?? "");
     setEditError(null);
+    setCroppedBlob(null);
+    setCropImageUrl(null);
+    setIsCropMode(false);
     setIsEditMode(true);
   }, [activeMural]);
 
+  const cropImageUrlRef = useRef<string | null>(null);
+  useEffect(() => {
+    cropImageUrlRef.current = cropImageUrl;
+  }, [cropImageUrl]);
+
   const cancelEditMode = useCallback(() => {
+    if (cropImageUrlRef.current) {
+      URL.revokeObjectURL(cropImageUrlRef.current);
+      cropImageUrlRef.current = null;
+      setCropImageUrl(null);
+    }
+    setCroppedBlob(null);
+    setIsCropMode(false);
     setIsEditMode(false);
     setEditError(null);
     if (turnstileWidgetIdRef.current) {
@@ -149,6 +165,49 @@ export function MuralModal() {
       turnstileWidgetIdRef.current = null;
     }
   }, []);
+
+  const startCropMode = useCallback(async () => {
+    if (!activeMural?.imageUrl) return;
+    setEditError(null);
+    try {
+      const res = await fetch(activeMural.imageUrl);
+      if (!res.ok) throw new Error("Fetch failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      setCropImageUrl(url);
+      setIsCropMode(true);
+    } catch {
+      setEditError("Could not load image for cropping. Try again.");
+    }
+  }, [activeMural?.imageUrl]);
+
+  const handleCropComplete = useCallback((blob: Blob) => {
+    if (cropImageUrl) {
+      URL.revokeObjectURL(cropImageUrl);
+      setCropImageUrl(null);
+    }
+    setCroppedBlob(blob);
+    setIsCropMode(false);
+  }, [cropImageUrl]);
+
+  const handleCropBack = useCallback(() => {
+    if (cropImageUrl) {
+      URL.revokeObjectURL(cropImageUrl);
+      setCropImageUrl(null);
+    }
+    setIsCropMode(false);
+  }, [cropImageUrl]);
+
+  useEffect(() => {
+    if (!croppedBlob) {
+      setCroppedPreviewUrl(null);
+      return;
+    }
+    setIsImageLoaded(false);
+    const url = URL.createObjectURL(croppedBlob);
+    setCroppedPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [croppedBlob]);
 
   const handleShare = useCallback(async () => {
     if (!activeMural) return;
@@ -205,23 +264,48 @@ export function MuralModal() {
       setEditSaving(true);
       setEditError(null);
       try {
-        const res = await fetch(`/api/murals/${activeMural.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            turnstileToken: token,
-            title: editTitle.trim() || undefined,
-            artist: editArtist.trim() || undefined,
-            artistInstagramHandle: editInstagramHandle.trim() ? editInstagramHandle.trim().replace(/^@/, "") : null,
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          setEditError(data?.error ?? "We couldn't save your changes. Please try again.");
-          return;
+        let currentMural = activeMural;
+        if (croppedBlob) {
+          const formData = new FormData();
+          formData.append("image", croppedBlob);
+          formData.append("turnstileToken", token);
+          const imageRes = await fetch(`/api/murals/${activeMural.id}/image`, {
+            method: "PATCH",
+            body: formData,
+          });
+          const imageData = await imageRes.json();
+          if (!imageRes.ok) {
+            setEditError(imageData?.error ?? "We couldn't save the new image. Please try again.");
+            return;
+          }
+          haptics.tapMedium();
+          updateActiveMural(imageData as Mural);
+          currentMural = imageData as Mural;
+          setCroppedBlob(null);
         }
-        haptics.tapMedium();
-        updateActiveMural(data as Mural);
+        const metadataChanged =
+          (editTitle.trim() || "") !== (currentMural.title || "") ||
+          (editArtist.trim() || "") !== (currentMural.artist || "") ||
+          (editInstagramHandle.trim().replace(/^@/, "") || "") !== (currentMural.artistInstagramHandle?.replace(/^@/, "") || "");
+        if (metadataChanged) {
+          const res = await fetch(`/api/murals/${activeMural.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              turnstileToken: token,
+              title: editTitle.trim() || undefined,
+              artist: editArtist.trim() || undefined,
+              artistInstagramHandle: editInstagramHandle.trim() ? editInstagramHandle.trim().replace(/^@/, "") : null,
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            setEditError(data?.error ?? "We couldn't save your changes. Please try again.");
+            return;
+          }
+          haptics.tapMedium();
+          updateActiveMural(data as Mural);
+        }
         cancelEditMode();
       } catch {
         setEditError("We couldn't save your changes. Please try again.");
@@ -229,7 +313,7 @@ export function MuralModal() {
         setEditSaving(false);
       }
     },
-    [activeMural, editTitle, editArtist, editInstagramHandle, updateActiveMural, cancelEditMode, haptics]
+    [activeMural, croppedBlob, editTitle, editArtist, editInstagramHandle, updateActiveMural, cancelEditMode, haptics]
   );
 
   const submitEditWithTokenRef = useRef(submitEditWithToken);
@@ -800,49 +884,83 @@ export function MuralModal() {
               <div
                 className="relative w-full shrink-0 overflow-hidden"
                 style={{
-                  aspectRatio: getModalImageAspectRatio(activeMural),
+                  aspectRatio: isEditMode && isCropMode && cropImageUrl ? undefined : getModalImageAspectRatio(activeMural),
                   backgroundColor: activeMural.dominantColor,
+                  minHeight: isEditMode && isCropMode && cropImageUrl ? "280px" : undefined,
                 }}
               >
-                {!isImageLoaded && (
-                  <div
-                    className="absolute inset-0 loading-skeleton-soft bg-zinc-200/80"
-                    aria-hidden
-                  />
+                {isEditMode && isCropMode && cropImageUrl ? (
+                  <div className="p-4">
+                    <ImageEditor
+                      imageUrl={cropImageUrl}
+                      onComplete={handleCropComplete}
+                      onBack={handleCropBack}
+                    />
+                  </div>
+                ) : (
+                  <>
+                    {!isImageLoaded && (
+                      <div
+                        className="absolute inset-0 loading-skeleton-soft bg-zinc-200/80"
+                        aria-hidden
+                      />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        haptics.tapMedium();
+                        setIsImageExpanded(true);
+                      }}
+                      className="relative h-full w-full cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-inset"
+                      aria-label={`View larger image of ${activeMural.title}`}
+                    >
+                      <Image
+                        src={isEditMode && croppedPreviewUrl ? croppedPreviewUrl : activeMural.imageUrl}
+                        alt={`Mural: ${activeMural.title} by ${activeMural.artist}`}
+                        fill
+                        sizes="(max-width: 512px) 100vw, 512px"
+                        className={`object-contain transition-opacity duration-300 ease-out ${isImageLoaded ? "opacity-100" : "opacity-0"}`}
+                        onLoad={() => setIsImageLoaded(true)}
+                        onError={() => setIsImageLoaded(true)}
+                      />
+                    </button>
+                    {isEditMode && !isCropMode && (
+                      <div className="absolute bottom-4 left-4 right-4 z-10 flex justify-center pointer-events-none">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            haptics.tapMedium();
+                            startCropMode();
+                          }}
+                          className="pointer-events-auto rounded-lg border border-white/40 bg-black/50 px-4 py-2.5 text-sm font-medium text-white/95 backdrop-blur-sm transition-opacity hover:bg-black/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
+                          aria-label="Re-crop mural image"
+                        >
+                          Re-crop image
+                        </button>
+                      </div>
+                    )}
+                    <div
+                      className="absolute bottom-0 left-0 right-0 h-40 pointer-events-none"
+                      style={{
+                        background: (() => {
+                          const hex = normalizeHexToSix(activeMural.dominantColor);
+                          return `linear-gradient(to top, #${hex}, #${hex}cc 40%, #${hex}66 70%, transparent)`;
+                        })(),
+                      }}
+                      aria-hidden
+                    />
+                  </>
                 )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    haptics.tapMedium();
-                    setIsImageExpanded(true);
-                  }}
-                  className="relative h-full w-full cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-inset"
-                  aria-label={`View larger image of ${activeMural.title}`}
-                >
-                  <Image
-                    src={activeMural.imageUrl}
-                    alt={`Mural: ${activeMural.title} by ${activeMural.artist}`}
-                    fill
-                    sizes="(max-width: 512px) 100vw, 512px"
-                    className={`object-contain transition-opacity duration-300 ease-out ${isImageLoaded ? "opacity-100" : "opacity-0"}`}
-                    onLoad={() => setIsImageLoaded(true)}
-                    onError={() => setIsImageLoaded(true)}
-                  />
-                </button>
-                <div
-                  className="absolute bottom-0 left-0 right-0 h-40 pointer-events-none"
-                  style={{
-                    background: (() => {
-                      const hex = normalizeHexToSix(activeMural.dominantColor);
-                      return `linear-gradient(to top, #${hex}, #${hex}cc 40%, #${hex}66 70%, transparent)`;
-                    })(),
-                  }}
-                  aria-hidden
-                />
               </div>
               <div className="flex flex-1 flex-col px-6 pb-8 pt-5" style={{ backgroundColor: contentOverlay }}>
                 {isEditMode ? (
                   <>
+                    {croppedBlob && !isCropMode && (
+                      <p className={`mb-2 text-sm ${isLight ? "text-zinc-600" : "text-white/80"}`} role="status">
+                        Cropped image ready — tap Save to apply.
+                      </p>
+                    )}
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1 space-y-3">
                         <label htmlFor="mural-edit-title" className="sr-only">Mural name</label>

@@ -2,10 +2,11 @@
 
 import { useRef, useEffect, useState, useCallback } from "react";
 import { Loader2 } from "lucide-react";
+import { MAPBOX_STYLE_URLS } from "@/lib/mapbox";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
-const STYLE_STANDARD = "mapbox://styles/mapbox/standard";
-const STYLE_SATELLITE = "mapbox://styles/mapbox/satellite-streets-v12";
+const STYLE_STANDARD = MAPBOX_STYLE_URLS.standard;
+const STYLE_SATELLITE = MAPBOX_STYLE_URLS.satellite;
 const INITIAL_ZOOM = 17;
 
 export interface LocationConfirmProps {

@@ -113,25 +113,26 @@ export async function PATCH(
       }
     }
 
+    const MAX_TITLE_ARTIST_LEN = 200;
+    const MAX_HANDLE_LEN = 100;
     const fields: Parameters<typeof updateMural>[1] = {};
     if (typeof body.title === "string") {
-      const v = body.title.trim();
+      const v = body.title.trim().slice(0, MAX_TITLE_ARTIST_LEN);
       if (v) fields.title = v;
     }
     if (typeof body.artist === "string") {
-      const v = body.artist.trim();
+      const v = body.artist.trim().slice(0, MAX_TITLE_ARTIST_LEN);
       if (v) fields.artist = v;
     }
     if (body.artistInstagramHandle !== undefined) {
       fields.artist_instagram_handle =
         typeof body.artistInstagramHandle === "string" && body.artistInstagramHandle.trim()
-          ? body.artistInstagramHandle.trim().replace(/^@/, "")
+          ? body.artistInstagramHandle.trim().replace(/^@/, "").slice(0, MAX_HANDLE_LEN)
           : null;
     }
 
     if (Object.keys(fields).length === 0) {
-      const row = await selectMuralById(id);
-      return NextResponse.json(muralRowToApp(row!), { status: 200 });
+      return NextResponse.json(muralRowToApp(existing), { status: 200 });
     }
 
     const ipHash = hashIp(remoteIp);

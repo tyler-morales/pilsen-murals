@@ -11,6 +11,7 @@ import { useCaptureStore } from "@/store/captureStore";
 import { haversineDistanceMeters } from "@/lib/geo";
 import { normalizeImageForUpload } from "@/lib/upload/normalizeImageForUpload";
 import { bucketResultsByMuralId } from "@/lib/searchUtils";
+import { sanitizeErrorFromServer } from "@/lib/errorUtils";
 import { ImageEditor } from "@/components/ImageEditor";
 import { LocationConfirm } from "@/components/LocationConfirm";
 
@@ -93,25 +94,6 @@ const CAMERA_IDEAL_HEIGHT = 3072;
 
 /** Max request body for /api/search (Vercel serverless ~4.5MB); stay under to avoid 413. */
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
-
-const GENERIC_ERROR_MESSAGE =
-  "We couldn't complete this action. Please try again.";
-
-/** Prevents technical server messages from reaching the user. */
-function sanitizeErrorFromServer(msg: string | undefined): string {
-  if (!msg || typeof msg !== "string") return GENERIC_ERROR_MESSAGE;
-  const t = msg.toLowerCase();
-  if (
-    t.includes("econnrefused") ||
-    t.includes("timeout") ||
-    t.includes("relation") ||
-    t.includes("fetch failed") ||
-    t.includes("network") ||
-    msg.length > 120
-  )
-    return GENERIC_ERROR_MESSAGE;
-  return msg;
-}
 
 type ImageCaptureLike = {
   takePhoto: () => Promise<Blob>;
@@ -309,6 +291,8 @@ export function CheckMuralModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastSubmittedBlobRef = useRef<Blob | null>(null);
   const addToDbWithTokenRef = useRef<((token: string) => void) | null>(null);
+  const submitLearningUpsertRef = useRef<((muralId: string, token: string) => Promise<void>) | null>(null);
+  const pendingTurnstileActionRef = useRef<"submit" | { muralId: string } | null>(null);
   const pendingMuralIdRef = useRef<string | null>(null);
   const pendingSubmitCoordsRef = useRef<[number, number] | null>(null);
   const turnstileWidgetIdRef = useRef<string | null>(null);
@@ -383,7 +367,9 @@ export function CheckMuralModal({
       if (track) {
         track
           .applyConstraints({ advanced: [{ zoom: level }] } as unknown as MediaTrackConstraints)
-          .catch(() => { });
+          .catch((err) => {
+            console.debug("CheckMuralModal: applyConstraints zoom failed", err);
+          });
       }
     }
     setZoomLevel(level);
@@ -480,7 +466,9 @@ export function CheckMuralModal({
             if (supportsZoom) {
               track
                 .applyConstraints({ advanced: [{ zoom: clampedCurrent }] } as unknown as MediaTrackConstraints)
-                .catch(() => { });
+                .catch((err) => {
+                  console.debug("CheckMuralModal: applyConstraints zoom failed", err);
+                });
             }
             setZoomCapability({
               min: caps.zoom.min,
@@ -566,8 +554,8 @@ export function CheckMuralModal({
       try {
         const p = orientation.lock("portrait");
         if (p && typeof (p as Promise<unknown>)?.catch === "function") {
-          (p as Promise<void>).catch(() => {
-            // Not supported on this device (e.g. desktop); ignore.
+          (p as Promise<void>).catch((err) => {
+            console.debug("CheckMuralModal: orientation lock not supported or failed", err);
           });
         }
       } catch {
@@ -784,10 +772,11 @@ export function CheckMuralModal({
     startCamera();
   }, [startCamera, previewUrl]);
 
-  const submitLearningUpsert = useCallback(async (muralId: string) => {
+  const submitLearningUpsert = useCallback(async (muralId: string, token: string) => {
     const blob = lastSubmittedBlobRef.current;
     if (!blob) return;
     const fd = new FormData();
+    fd.append("turnstileToken", token);
     fd.append("image", blob, "capture.jpg");
     fd.append("muralId", muralId);
     try {
@@ -827,7 +816,13 @@ export function CheckMuralModal({
           };
           win.turnstile?.reset?.(TURNSTILE_CONTAINER_SELECTOR);
         } else {
-          const data = await res.json().catch(() => ({}));
+          let data: { error?: string } = {};
+          try {
+            const text = await res.text();
+            data = text ? (JSON.parse(text) as { error?: string }) : {};
+          } catch (e) {
+            console.debug("CheckMuralModal: submit response parse failed", e);
+          }
           setSearchError(
             sanitizeErrorFromServer(data?.error) ||
             "We couldn't add this mural. Please try again, or close and come back later."
@@ -849,6 +844,10 @@ export function CheckMuralModal({
   useEffect(() => {
     addToDbWithTokenRef.current = doAddToDbWithToken;
   }, [doAddToDbWithToken]);
+
+  useEffect(() => {
+    submitLearningUpsertRef.current = submitLearningUpsert;
+  }, [submitLearningUpsert]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -885,7 +884,20 @@ export function CheckMuralModal({
     };
     const renderOptions = {
       sitekey: turnstileSiteKey,
-      callback: (token: string) => addToDbWithTokenRef.current?.(token),
+      callback: (token: string) => {
+        const action = pendingTurnstileActionRef.current;
+        pendingTurnstileActionRef.current = null;
+        if (action === "submit") {
+          addToDbWithTokenRef.current?.(token);
+        } else if (action && "muralId" in action) {
+          submitLearningUpsertRef.current?.(action.muralId, token).then(() => {
+            setPhase("confirmed");
+            setConfirmedAction("match");
+            pendingMuralIdRef.current = action.muralId;
+            setLearningPending(false);
+          }).catch(() => setLearningPending(false));
+        }
+      },
       execution: "execute" as const,
       "error-callback": (errorCode?: number) => {
         handleTurnstileError(errorCode);
@@ -912,14 +924,7 @@ export function CheckMuralModal({
     }
   }, [isOpen, turnstileSiteKey, phase, handleTurnstileError]);
 
-  const executeTurnstileForSubmit = useCallback(() => {
-    if (!turnstileSiteKey) {
-      setSearchError(
-        "Something's not set up correctly on our end. Please try again later."
-      );
-      setPhase("error");
-      return;
-    }
+  const executeTurnstile = useCallback(() => {
     const w = (window as unknown as {
       turnstile?: {
         execute: (container: string, params: object) => void;
@@ -936,7 +941,31 @@ export function CheckMuralModal({
     } catch {
       handleTurnstileError();
     }
-  }, [turnstileSiteKey, handleTurnstileError]);
+  }, [handleTurnstileError]);
+
+  const executeTurnstileForSubmit = useCallback(() => {
+    if (!turnstileSiteKey) {
+      setSearchError(
+        "Something's not set up correctly on our end. Please try again later."
+      );
+      setPhase("error");
+      return;
+    }
+    pendingTurnstileActionRef.current = "submit";
+    executeTurnstile();
+  }, [turnstileSiteKey, executeTurnstile]);
+
+  const executeTurnstileForLearning = useCallback((muralId: string) => {
+    if (!turnstileSiteKey) {
+      setSearchError(
+        "Something's not set up correctly on our end. Please try again later."
+      );
+      setPhase("error");
+      return;
+    }
+    pendingTurnstileActionRef.current = { muralId };
+    executeTurnstile();
+  }, [turnstileSiteKey, executeTurnstile]);
 
   const handleAddToDb = useCallback(() => {
     if (!lastSubmittedBlobRef.current) return;
@@ -1393,18 +1422,11 @@ export function CheckMuralModal({
                                 />
                                 <button
                                   type="button"
-                                  onClick={async () => {
+                                  onClick={() => {
                                     if (selectedResult && selectedResult !== "none") {
                                       haptics.success();
                                       setLearningPending(true);
-                                      try {
-                                        await submitLearningUpsert(selectedResult.id);
-                                        pendingMuralIdRef.current = selectedResult.id;
-                                        setConfirmedAction("match");
-                                        setPhase("confirmed");
-                                      } finally {
-                                        setLearningPending(false);
-                                      }
+                                      executeTurnstileForLearning(selectedResult.id);
                                     }
                                   }}
                                   disabled={!selectedResult || selectedResult === "none" || learningPending}
@@ -1460,20 +1482,13 @@ export function CheckMuralModal({
                               </button>
                               <button
                                 type="button"
-                                onClick={async () => {
+                                onClick={() => {
                                   if (selectedResult === "none") {
                                     handleAddToDb();
                                   } else if (selectedResult) {
                                     haptics.success();
                                     setLearningPending(true);
-                                    try {
-                                      await submitLearningUpsert(selectedResult.id);
-                                      pendingMuralIdRef.current = selectedResult.id;
-                                      setConfirmedAction("match");
-                                      setPhase("confirmed");
-                                    } finally {
-                                      setLearningPending(false);
-                                    }
+                                    executeTurnstileForLearning(selectedResult.id);
                                   }
                                 }}
                                 disabled={selectedResult === null || (selectedResult === "none" && addToDbPending) || (selectedResult !== "none" && selectedResult !== null && learningPending)}

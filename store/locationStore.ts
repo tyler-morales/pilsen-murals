@@ -1,28 +1,16 @@
 "use client";
 
 import { create } from "zustand";
+import { getJson, setJson } from "@/lib/localStorage";
 
 const STORAGE_KEY = "pilsen-murals-location-prompt-dismissed";
 
 function getStoredDismissed(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    return localStorage.getItem(STORAGE_KEY) === "true";
-  } catch {
-    return false;
-  }
+  return getJson<boolean>(STORAGE_KEY, false);
 }
 
 function setStoredDismissed(value: boolean): void {
-  try {
-    if (value) {
-      localStorage.setItem(STORAGE_KEY, "true");
-    } else {
-      localStorage.removeItem(STORAGE_KEY);
-    }
-  } catch {
-    // ignore
-  }
+  setJson(STORAGE_KEY, value);
 }
 
 export type LocationPermission = "prompt" | "granted" | "denied";
@@ -55,6 +43,7 @@ export const useLocationStore = create<LocationState>((set, get) => ({
       return;
     }
 
+    get().clearWatch();
     set({ error: null });
 
     navigator.geolocation.getCurrentPosition(

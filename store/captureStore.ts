@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from "zustand";
+import { getJson, setJson } from "@/lib/localStorage";
 
 const CAPTURES_STORAGE_KEY = "pilsen-murals-captures";
 
@@ -13,31 +14,19 @@ export interface CaptureRecord {
 }
 
 function loadCaptures(): CaptureRecord[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(CAPTURES_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (x): x is CaptureRecord =>
-        typeof x === "object" &&
-        x !== null &&
-        typeof (x as CaptureRecord).muralId === "string" &&
-        typeof (x as CaptureRecord).capturedAt === "string"
-    );
-  } catch {
-    return [];
-  }
+  const parsed = getJson<unknown>(CAPTURES_STORAGE_KEY, []);
+  if (!Array.isArray(parsed)) return [];
+  return parsed.filter(
+    (x): x is CaptureRecord =>
+      typeof x === "object" &&
+      x !== null &&
+      typeof (x as CaptureRecord).muralId === "string" &&
+      typeof (x as CaptureRecord).capturedAt === "string"
+  );
 }
 
 function persistCaptures(captures: CaptureRecord[]): void {
-  try {
-    if (typeof window === "undefined") return;
-    localStorage.setItem(CAPTURES_STORAGE_KEY, JSON.stringify(captures));
-  } catch {
-    // ignore
-  }
+  setJson(CAPTURES_STORAGE_KEY, captures);
 }
 
 interface CaptureState {

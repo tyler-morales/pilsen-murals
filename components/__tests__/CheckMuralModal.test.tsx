@@ -244,8 +244,8 @@ describe("CheckMuralModal persistence (explicit upload only)", () => {
   });
 
   it("shows specific error when /api/search returns 413", async () => {
-    vi.mocked(fetch).mockImplementation((url: string | URL) => {
-      const path = typeof url === "string" ? url : url.toString();
+    vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, _init?: RequestInit) => {
+      const path = input instanceof Request ? input.url : typeof input === "string" ? input : input.toString();
       if (path.includes("/api/search")) {
         return Promise.resolve(
           new Response(JSON.stringify({ error: "Payload too large" }), {
@@ -298,8 +298,8 @@ describe("CheckMuralModal duplicate stack (same mural id)", () => {
     );
     vi.stubGlobal(
       "fetch",
-      vi.fn((url: string | URL) => {
-        const path = typeof url === "string" ? url : url.toString();
+      vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
+        const path = input instanceof Request ? input.url : typeof input === "string" ? input : input.toString();
         if (path.includes("/api/search")) {
           return Promise.resolve(
             new Response(JSON.stringify(duplicateMatchResponse), {
@@ -348,7 +348,7 @@ describe("CheckMuralModal duplicate stack (same mural id)", () => {
     const stackButton = screen.getByLabelText(/2 photos of this mural/);
     await user.click(stackButton);
 
-    expect(await screen.findByLabelText(/photo 1 of 2/, { timeout: 2000 })).toBeInTheDocument();
+    expect(await screen.findByLabelText(/photo 1 of 2/, {}, { timeout: 2000 })).toBeInTheDocument();
     expect(screen.getByLabelText(/photo 2 of 2/)).toBeInTheDocument();
   });
 
@@ -366,7 +366,7 @@ describe("CheckMuralModal duplicate stack (same mural id)", () => {
     const stackButton = screen.getByLabelText(/2 photos of this mural/);
     await user.click(stackButton);
 
-    const photo1 = await screen.findByLabelText(/photo 1 of 2/, { timeout: 2000 });
+    const photo1 = await screen.findByLabelText(/photo 1 of 2/, {}, { timeout: 2000 });
     await user.click(photo1);
 
     expect(screen.getByLabelText(/2 photos of this mural/)).toBeInTheDocument();
@@ -375,8 +375,8 @@ describe("CheckMuralModal duplicate stack (same mural id)", () => {
 
   describe("when API returns distinct murals", () => {
     beforeEach(() => {
-      vi.mocked(fetch).mockImplementation((url: string | URL) => {
-        const path = typeof url === "string" ? url : url.toString();
+      vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, _init?: RequestInit) => {
+        const path = input instanceof Request ? input.url : typeof input === "string" ? input : input.toString();
         if (path.includes("/api/search")) {
           const response: SearchResponse = {
             results: [
@@ -414,8 +414,8 @@ describe("CheckMuralModal duplicate stack (same mural id)", () => {
 
   describe("when API returns mixed single and stack", () => {
     beforeEach(() => {
-      vi.mocked(fetch).mockImplementation((url: string | URL) => {
-        const path = typeof url === "string" ? url : url.toString();
+      vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, _init?: RequestInit) => {
+        const path = input instanceof Request ? input.url : typeof input === "string" ? input : input.toString();
         if (path.includes("/api/search")) {
           const response: SearchResponse = {
             results: [
