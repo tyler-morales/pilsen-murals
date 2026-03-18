@@ -9,6 +9,7 @@ import { muralRowToApp } from "@/lib/db/schema";
 import { verifyTurnstile } from "@/lib/turnstile";
 import { getQdrantClient, COLLECTION_NAME } from "@/lib/qdrant/client";
 import { createHash } from "crypto";
+import fallbackMuralsJson from "@/data/murals.json";
 
 function hashIp(ip: string | undefined): string | null {
   if (!ip?.trim()) return null;
@@ -16,8 +17,7 @@ function hashIp(ip: string | undefined): string | null {
 }
 
 async function hydrateFallbackMural(id: string) {
-  const fallbackData = await import("@/data/murals.json");
-  const fallbackMurals = fallbackData.default as unknown as Array<{
+  const fallbackMurals = fallbackMuralsJson as unknown as Array<{
     id: string;
     title: string;
     artist: string;
@@ -31,8 +31,16 @@ async function hydrateFallbackMural(id: string) {
   }>;
   const fallbackMural = fallbackMurals.find((mural) => mural.id === id);
   if (!fallbackMural) return null;
-  const [lng, lat] = fallbackMural.coordinates ?? [];
-  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+  if (!Array.isArray(fallbackMural.coordinates)) return null;
+  const [lng, lat] = fallbackMural.coordinates;
+  const hasValidCoords =
+    Number.isFinite(lng) &&
+    Number.isFinite(lat) &&
+    lng >= -180 &&
+    lng <= 180 &&
+    lat >= -90 &&
+    lat <= 90;
+  if (!hasValidCoords) return null;
   return insertMural({
     id: fallbackMural.id,
     title: fallbackMural.title,
