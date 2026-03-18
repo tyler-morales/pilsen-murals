@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
+import useEmblaCarousel from "embla-carousel-react";
 import { motion, AnimatePresence, useDragControls } from "framer-motion";
 import { useMuralStore } from "@/store/muralStore";
 import { useMapStore } from "@/store/mapStore";
@@ -13,7 +14,8 @@ import { useHaptics } from "@/hooks/useHaptics";
 import type { Mural } from "@/types/mural";
 import { getDirectionsUrl } from "@/lib/directions";
 import { getArtistInstagramUrl } from "@/lib/instagram";
-import { Pencil, X } from "lucide-react";
+import { isLightColor, normalizeHexToSix, getContentOverlay } from "@/lib/colorUtils";
+import { ExternalLink, Pencil, X } from "lucide-react";
 
 const MURAL_EDIT_TURNSTILE_ID = "mural-edit-turnstile";
 const MURAL_EDIT_TURNSTILE_SELECTOR = `#${MURAL_EDIT_TURNSTILE_ID}`;
@@ -107,15 +109,14 @@ export function MuralModal() {
   const haptics = useHaptics();
   const panelRef = useRef<HTMLElement>(null);
   const enlargedRef = useRef<HTMLDivElement>(null);
-  const touchStartXRef = useRef<number | null>(null);
-  const swipeContainerRef = useRef<HTMLDivElement>(null);
   const minimapContainerRef = useRef<HTMLDivElement>(null);
-
-  const [swipeOffset, setSwipeOffset] = useState(0);
-  const [slideWidth, setSlideWidth] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
-  const [pendingTransition, setPendingTransition] = useState<"next" | "prev" | null>(null);
   const minimapRef = useRef<import("mapbox-gl").Map | null>(null);
+  const [emblaRef, emblaApi] = useEmblaCarousel({
+    loop: true,
+    startIndex: activeIndex,
+    duration: prefersReducedMotion ? 0 : 25,
+    align: "center",
+  });
 
   const [isEditMode, setIsEditMode] = useState(false);
   const [editTitle, setEditTitle] = useState("");
@@ -276,6 +277,8 @@ export function MuralModal() {
     };
   }, [isEditMode, turnstileSiteKey, activeMural?.id]);
   const panelVariants = isDesktop ? PANEL_RIGHT : DRAWER_UP;
+  const isLight = activeMural ? isLightColor(activeMural.dominantColor) : true;
+  const contentOverlay = activeMural ? getContentOverlay(activeMural.dominantColor) : undefined;
   const canGoPrev = muralsOrder.length > 0 && activeIndex > 0;
 
   const handleDrawerDragEnd = (_: unknown, info: { offset: { y: number }; velocity: { y: number } }) => {
@@ -302,115 +305,26 @@ export function MuralModal() {
     goNext();
   };
 
-  const handleEnlargedPrev = useCallback(() => {
-    if (muralsOrder.length === 0) return;
-    const newIndex =
-      activeIndex === 0 ? muralsOrder.length - 1 : activeIndex - 1;
-    goToIndex(newIndex);
-    requestFlyTo(muralsOrder[newIndex], { openModalAfterFly: false });
-  }, [muralsOrder, activeIndex, goToIndex, requestFlyTo]);
-  const handleEnlargedNext = useCallback(() => {
-    if (muralsOrder.length === 0) return;
-    const newIndex =
-      activeIndex === muralsOrder.length - 1 ? 0 : activeIndex + 1;
-    goToIndex(newIndex);
-    requestFlyTo(muralsOrder[newIndex], { openModalAfterFly: false });
-  }, [muralsOrder, activeIndex, goToIndex, requestFlyTo]);
-
-  const prevIndex =
-    muralsOrder.length > 0 ? (activeIndex === 0 ? muralsOrder.length - 1 : activeIndex - 1) : 0;
-  const nextIndex =
-    muralsOrder.length > 0 ? (activeIndex === muralsOrder.length - 1 ? 0 : activeIndex + 1) : 0;
-  const prevMuralEnlarged = muralsOrder[prevIndex] ?? null;
-  const nextMuralEnlarged = muralsOrder[nextIndex] ?? null;
-
-  useLayoutEffect(() => {
-    if (!isImageExpanded || muralsOrder.length <= 1) return;
-    const el = swipeContainerRef.current;
-    if (!el) return;
-    const update = () => setSlideWidth(el.clientWidth);
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [isImageExpanded, muralsOrder.length]);
+  useEffect(() => {
+    if (!emblaApi || muralsOrder.length === 0) return;
+    const onSelect = () => {
+      const idx = emblaApi.selectedScrollSnap();
+      if (idx !== activeIndex && muralsOrder[idx]) {
+        goToIndex(idx);
+        requestFlyTo(muralsOrder[idx], { openModalAfterFly: false });
+      }
+    };
+    emblaApi.on("select", onSelect);
+    return () => {
+      emblaApi.off("select", onSelect);
+    };
+  }, [emblaApi, muralsOrder, activeIndex, goToIndex, requestFlyTo]);
 
   useEffect(() => {
-    if (!isImageExpanded) {
-      setSwipeOffset(0);
-      setPendingTransition(null);
+    if (isImageExpanded && emblaApi && muralsOrder.length > 0) {
+      emblaApi.scrollTo(activeIndex, true);
     }
-  }, [isImageExpanded]);
-
-  const SWIPE_THRESHOLD_PX = 50;
-  const handleEnlargedTouchStart = useCallback((e: React.TouchEvent) => {
-    if (muralsOrder.length <= 1) return;
-    touchStartXRef.current = e.touches[0].clientX;
-    setIsDragging(true);
-  }, [muralsOrder.length]);
-  const handleEnlargedTouchMove = useCallback(
-    (e: React.TouchEvent) => {
-      if (muralsOrder.length <= 1 || touchStartXRef.current == null) return;
-      const x = e.touches[0].clientX;
-      const delta = x - touchStartXRef.current;
-      const clamp = slideWidth > 0 ? Math.max(-slideWidth, Math.min(slideWidth, delta)) : 0;
-      setSwipeOffset(clamp);
-    },
-    [muralsOrder.length, slideWidth]
-  );
-  const handleEnlargedTouchEnd = useCallback(
-    (e: React.TouchEvent) => {
-      if (muralsOrder.length <= 1 || touchStartXRef.current == null) return;
-      const endX = e.changedTouches[0].clientX;
-      const deltaX = endX - touchStartXRef.current;
-      touchStartXRef.current = null;
-      setIsDragging(false);
-      if (deltaX < -SWIPE_THRESHOLD_PX) {
-        haptics.tap();
-        setPendingTransition("next");
-        setSwipeOffset(slideWidth);
-      } else if (deltaX > SWIPE_THRESHOLD_PX) {
-        haptics.tap();
-        setPendingTransition("prev");
-        setSwipeOffset(-slideWidth);
-      } else {
-        setSwipeOffset(0);
-      }
-    },
-    [muralsOrder.length, slideWidth, haptics]
-  );
-
-  const handleEnlargedAnimationComplete = useCallback(() => {
-    if (pendingTransition === "next") {
-      handleEnlargedNext();
-      setSwipeOffset(0);
-      setPendingTransition(null);
-    } else if (pendingTransition === "prev") {
-      handleEnlargedPrev();
-      setSwipeOffset(0);
-      setPendingTransition(null);
-    }
-  }, [pendingTransition, handleEnlargedNext, handleEnlargedPrev]);
-
-  const handleEnlargedPrevWithAnimation = useCallback(() => {
-    haptics.tap();
-    if (muralsOrder.length <= 1 || slideWidth <= 0) {
-      handleEnlargedPrev();
-      return;
-    }
-    setPendingTransition("prev");
-    setSwipeOffset(-slideWidth);
-  }, [muralsOrder.length, slideWidth, handleEnlargedPrev, haptics]);
-
-  const handleEnlargedNextWithAnimation = useCallback(() => {
-    haptics.tap();
-    if (muralsOrder.length <= 1 || slideWidth <= 0) {
-      handleEnlargedNext();
-      return;
-    }
-    setPendingTransition("next");
-    setSwipeOffset(slideWidth);
-  }, [muralsOrder.length, slideWidth, handleEnlargedNext, haptics]);
+  }, [isImageExpanded, emblaApi, activeIndex, muralsOrder.length]);
 
   const handleMinimapClick = useCallback(() => {
     if (!activeMural) return;
@@ -418,6 +332,15 @@ export function MuralModal() {
     requestFlyTo(activeMural, { openModalAfterFly: false });
     setIsTransitioningToMap(true);
   }, [activeMural, requestFlyTo]);
+
+  const scrollPrev = useCallback(() => {
+    haptics.tap();
+    emblaApi?.scrollPrev();
+  }, [emblaApi, haptics]);
+  const scrollNext = useCallback(() => {
+    haptics.tap();
+    emblaApi?.scrollNext();
+  }, [emblaApi, haptics]);
 
   const transitionToMapDuration = prefersReducedMotion
     ? TRANSITION_TO_MAP_DURATION_REDUCED_MS / 1000
@@ -445,10 +368,10 @@ export function MuralModal() {
       if (isImageExpanded && muralsOrder.length > 1) {
         if (e.key === "ArrowLeft") {
           e.preventDefault();
-          handleEnlargedPrevWithAnimation();
+          scrollPrev();
         } else if (e.key === "ArrowRight") {
           e.preventDefault();
-          handleEnlargedNextWithAnimation();
+          scrollNext();
         }
         return;
       }
@@ -477,8 +400,8 @@ export function MuralModal() {
     muralsOrder.length,
     canGoPrev,
     canGoNext,
-    handleEnlargedPrevWithAnimation,
-    handleEnlargedNextWithAnimation,
+    scrollPrev,
+    scrollNext,
     handlePrev,
     handleNext,
   ]);
@@ -703,41 +626,34 @@ export function MuralModal() {
                     haptics.tapMedium();
                     setIsImageExpanded(false);
                   }}
-                  onTouchStart={handleEnlargedTouchStart}
-                  onTouchMove={handleEnlargedTouchMove}
-                  onTouchEnd={handleEnlargedTouchEnd}
                 >
-                  <div className="absolute inset-0">
-                    <Image
-                      src={activeMural.thumbnail ?? activeMural.imageUrl}
-                      alt=""
-                      fill
-                      sizes="90vw"
-                      className="object-contain blur-2xl scale-105"
-                      aria-hidden
-                    />
-                  </div>
                   {muralsOrder.length > 1 ? (
                     <div
-                      ref={swipeContainerRef}
-                      className="absolute inset-0 overflow-hidden flex items-center justify-center"
+                      ref={emblaRef}
+                      role="region"
+                      aria-roledescription="carousel"
+                      aria-label="Mural gallery"
+                      className="absolute inset-0 overflow-hidden"
                       onClick={(e) => e.stopPropagation()}
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === "ArrowLeft") {
+                          e.preventDefault();
+                          scrollPrev();
+                        } else if (e.key === "ArrowRight") {
+                          e.preventDefault();
+                          scrollNext();
+                        }
+                      }}
                     >
-                      <motion.div
-                        className="flex absolute inset-0 items-center"
-                        style={{ width: "300%" }}
-                        animate={{ x: `calc(-33.333% + ${swipeOffset}px)` }}
-                        transition={{
-                          duration: isDragging ? 0 : 0.25,
-                          ease: "easeOut",
-                        }}
-                        onAnimationComplete={handleEnlargedAnimationComplete}
-                      >
-                        {[prevMuralEnlarged, activeMural, nextMuralEnlarged].map((mural) => (
+                      <div className="embla__container flex h-full flex-row touch-pan-y">
+                        {muralsOrder.map((mural, idx) => (
                           <div
                             key={mural.id}
-                            className="relative flex-shrink-0"
-                            style={{ width: "33.333%", height: "100%" }}
+                            className="embla__slide relative min-w-0 flex-[0_0_100%] flex items-center justify-center"
+                            role="group"
+                            aria-roledescription="slide"
+                            aria-label={`Mural ${idx + 1} of ${muralsOrder.length}: ${mural.title}`}
                           >
                             <div className="absolute inset-0">
                               <Image
@@ -746,11 +662,13 @@ export function MuralModal() {
                                 fill
                                 sizes="90vw"
                                 className="object-contain pointer-events-none"
+                                onLoad={() => { }}
+                                onError={() => { }}
                               />
                             </div>
                           </div>
                         ))}
-                      </motion.div>
+                      </div>
                     </div>
                   ) : (
                     <>
@@ -768,6 +686,7 @@ export function MuralModal() {
                           sizes="90vw"
                           className={`object-contain cursor-default transition-opacity duration-300 ease-out ${isEnlargedImageLoaded ? "opacity-100" : "opacity-0"}`}
                           onLoad={() => setIsEnlargedImageLoaded(true)}
+                          onError={() => setIsEnlargedImageLoaded(true)}
                           onClick={(e) => e.stopPropagation()}
                         />
                       </div>
@@ -779,11 +698,10 @@ export function MuralModal() {
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleEnlargedPrevWithAnimation();
+                          scrollPrev();
                         }}
-                        className="absolute left-2 top-1/2 z-10 hidden min-h-[44px] min-w-[44px] -translate-y-1/2 items-center justify-center rounded-full bg-white/10 p-2 text-white backdrop-blur-sm transition-colors hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent md:left-4 md:flex"
+                        className="absolute left-2 top-1/2 z-10 flex min-h-[44px] min-w-[44px] -translate-y-1/2 items-center justify-center rounded-full bg-white/10 p-2 text-white backdrop-blur-sm transition-colors hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent md:left-4"
                         aria-label="Previous mural"
-                        aria-hidden={!isDesktop}
                       >
                         <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -793,11 +711,10 @@ export function MuralModal() {
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleEnlargedNextWithAnimation();
+                          scrollNext();
                         }}
-                        className="absolute right-2 top-1/2 z-10 hidden min-h-[44px] min-w-[44px] -translate-y-1/2 items-center justify-center rounded-full bg-white/10 p-2 text-white backdrop-blur-sm transition-colors hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent md:right-4 md:flex"
+                        className="absolute right-2 top-1/2 z-10 flex min-h-[44px] min-w-[44px] -translate-y-1/2 items-center justify-center rounded-full bg-white/10 p-2 text-white backdrop-blur-sm transition-colors hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent md:right-4"
                         aria-label="Next mural"
-                        aria-hidden={!isDesktop}
                       >
                         <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -805,6 +722,14 @@ export function MuralModal() {
                       </button>
                     </>
                   )}
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    aria-atomic="true"
+                    className="sr-only"
+                  >
+                    {activeMural.title} — mural {activeIndex + 1} of {muralsOrder.length}
+                  </div>
                   <button
                     type="button"
                     onClick={() => {
@@ -846,7 +771,8 @@ export function MuralModal() {
             aria-modal="true"
             aria-labelledby="mural-modal-title"
             aria-describedby="mural-modal-desc"
-            className="safe-left safe-right fixed z-50 flex w-full max-w-lg flex-col bg-white shadow-2xl bottom-0 left-0 right-0 max-h-[90vh] rounded-t-3xl border-t border-zinc-100 md:bottom-auto md:left-auto md:right-0 md:top-0 md:h-full md:max-h-none md:rounded-none md:border-t-0 md:border-l md:border-zinc-200 safe-top"
+            className="safe-left safe-right fixed z-50 flex w-full max-w-lg flex-col shadow-2xl bottom-0 left-0 right-0 max-h-[90vh] rounded-t-3xl border-t md:bottom-auto md:left-auto md:right-0 md:top-0 md:h-full md:max-h-none md:rounded-none md:border-t-0 md:border-l safe-top"
+            style={{ backgroundColor: activeMural.dominantColor, borderColor: isLight ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.15)" }}
             variants={panelVariants}
             initial="hidden"
             animate="visible"
@@ -868,12 +794,15 @@ export function MuralModal() {
               aria-hidden
               onPointerDown={!isDesktop ? (e) => dragControls.start(e) : undefined}
             >
-              <span className="h-[5px] w-10 shrink-0 rounded-full bg-zinc-300" aria-hidden />
+              <span className={`h-[5px] w-10 shrink-0 rounded-full ${isLight ? "bg-black/25" : "bg-white/40"}`} aria-hidden />
             </div>
             <div className="flex flex-1 flex-col overflow-y-auto overscroll-contain">
               <div
-                className="relative w-full shrink-0 overflow-hidden bg-zinc-100"
-                style={{ aspectRatio: getModalImageAspectRatio(activeMural) }}
+                className="relative w-full shrink-0 overflow-hidden"
+                style={{
+                  aspectRatio: getModalImageAspectRatio(activeMural),
+                  backgroundColor: activeMural.dominantColor,
+                }}
               >
                 {!isImageLoaded && (
                   <div
@@ -881,14 +810,6 @@ export function MuralModal() {
                     aria-hidden
                   />
                 )}
-                <Image
-                  src={activeMural.thumbnail ?? activeMural.imageUrl}
-                  alt=""
-                  fill
-                  sizes="(max-width: 512px) 100vw, 512px"
-                  className="object-cover blur-xl scale-105"
-                  aria-hidden
-                />
                 <button
                   type="button"
                   onClick={() => {
@@ -909,11 +830,17 @@ export function MuralModal() {
                   />
                 </button>
                 <div
-                  className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-white to-transparent pointer-events-none"
+                  className="absolute bottom-0 left-0 right-0 h-40 pointer-events-none"
+                  style={{
+                    background: (() => {
+                      const hex = normalizeHexToSix(activeMural.dominantColor);
+                      return `linear-gradient(to top, #${hex}, #${hex}cc 40%, #${hex}66 70%, transparent)`;
+                    })(),
+                  }}
                   aria-hidden
                 />
               </div>
-              <div className="flex flex-1 flex-col px-6 pb-8 pt-6">
+              <div className="flex flex-1 flex-col px-6 pb-8 pt-5" style={{ backgroundColor: contentOverlay }}>
                 {isEditMode ? (
                   <>
                     <div className="flex items-start justify-between gap-2">
@@ -925,7 +852,7 @@ export function MuralModal() {
                           value={editTitle}
                           onChange={(e) => setEditTitle(e.target.value)}
                           placeholder="Mural name"
-                          className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-serif text-xl text-zinc-900 placeholder:text-zinc-400 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                          className={`w-full rounded-lg border px-3 py-2 font-serif text-xl focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 ${isLight ? "border-zinc-300 bg-white text-zinc-900 placeholder:text-zinc-400" : "border-white/30 bg-white/10 text-white placeholder:text-white/50"}`}
                           aria-label="Mural name"
                           autoFocus
                         />
@@ -936,11 +863,11 @@ export function MuralModal() {
                           value={editArtist}
                           onChange={(e) => setEditArtist(e.target.value)}
                           placeholder="Artist name"
-                          className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-mobile-body text-zinc-900 placeholder:text-zinc-400 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                          className={`w-full rounded-lg border px-3 py-2 text-mobile-body focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 ${isLight ? "border-zinc-300 bg-white text-zinc-900 placeholder:text-zinc-400" : "border-white/30 bg-white/10 text-white placeholder:text-white/50"}`}
                           aria-label="Artist"
                         />
                         <div className="space-y-1">
-                          <label htmlFor="mural-edit-instagram" className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                          <label htmlFor="mural-edit-instagram" className={`block text-xs font-medium uppercase tracking-wide ${isLight ? "text-zinc-800" : "text-white/85"}`}>
                             Instagram username (optional)
                           </label>
                           <input
@@ -949,10 +876,10 @@ export function MuralModal() {
                             value={editInstagramHandle}
                             onChange={(e) => setEditInstagramHandle(e.target.value)}
                             placeholder="username (no @ needed)"
-                            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-mobile-body text-zinc-900 placeholder:text-zinc-400 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                            className={`w-full rounded-lg border px-3 py-2 text-mobile-body focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 ${isLight ? "border-zinc-300 bg-white text-zinc-900 placeholder:text-zinc-400" : "border-white/30 bg-white/10 text-white placeholder:text-white/50"}`}
                             aria-label="Artist Instagram username"
                           />
-                          <p className="text-xs text-zinc-500">
+                          <p className={`text-xs ${isLight ? "text-zinc-800" : "text-white/85"}`}>
                             Instagram only for now. If you paste @username, we&apos;ll clean it up.
                           </p>
                         </div>
@@ -960,7 +887,7 @@ export function MuralModal() {
                       <button
                         type="button"
                         onClick={cancelEditMode}
-                        className="shrink-0 rounded-lg p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
+                        className={`shrink-0 rounded-lg p-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 ${isLight ? "text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900" : "text-white/85 hover:bg-white/15 hover:text-white"}`}
                         aria-label="Cancel edit"
                       >
                         <X className="h-5 w-5" aria-hidden />
@@ -976,7 +903,7 @@ export function MuralModal() {
                       <button
                         type="button"
                         onClick={cancelEditMode}
-                        className="flex-1 min-h-[44px] rounded-lg border border-zinc-200 bg-white py-3 text-base font-medium text-zinc-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
+                        className={`flex-1 min-h-[44px] rounded-lg border py-3 text-base font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 ${isLight ? "border-zinc-200 bg-white text-zinc-700" : "border-white/25 bg-white/15 text-white hover:bg-white/25"}`}
                       >
                         Cancel
                       </button>
@@ -995,7 +922,7 @@ export function MuralModal() {
                     <div className="flex items-start justify-between gap-2">
                       <h2
                         id="mural-modal-title"
-                        className="font-serif text-3xl font-light leading-tight tracking-tight text-zinc-900"
+                        className={`font-serif text-2xl font-light leading-tight tracking-tight md:text-3xl ${isLight ? "text-zinc-900" : "text-white"}`}
                       >
                         {activeMural.title}
                       </h2>
@@ -1003,57 +930,65 @@ export function MuralModal() {
                         <button
                           type="button"
                           onClick={startEditMode}
-                          className="shrink-0 rounded-lg p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
+                          className={`shrink-0 rounded-lg p-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 ${isLight ? "text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900" : "text-white/85 hover:bg-white/15 hover:text-white"}`}
                           aria-label="Edit mural details"
                         >
                           <Pencil className="h-5 w-5" aria-hidden />
                         </button>
                       )}
                     </div>
-                    <p className="mt-1 text-mobile-body text-zinc-600">
-                      by{" "}
-                      {activeMural.artistInstagramHandle &&
-                        (!activeMural.artist?.trim() || activeMural.artist === "Unknown Artist") ? (
-                        <a
-                          href={getArtistInstagramUrl(activeMural.artistInstagramHandle)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="font-medium text-amber-700 underline decoration-amber-700/50 underline-offset-2 transition-colors hover:text-amber-800 hover:decoration-amber-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
-                          aria-label="View artist on Instagram"
-                        >
-                          @{activeMural.artistInstagramHandle.replace(/^@/, "")}
-                        </a>
-                      ) : (
-                        <>
-                          {activeMural.artist}
+                    <p className={`mt-1 text-mobile-body ${isLight ? "text-zinc-800" : "text-white/90"}`}>
+                      by {activeMural.artist || "Unknown Artist"}
+                    </p>
+                    {(formatPhotoDate(activeMural.imageMetadata?.["Date taken"]) ||
+                      activeMural.imageMetadata?.["Camera model"] ||
+                      activeMural.artistInstagramHandle) && (
+                        <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-4">
+                          {formatPhotoDate(activeMural.imageMetadata?.["Date taken"]) && (
+                            <div>
+                              <p className={`text-mobile-caption font-medium uppercase tracking-[0.08em] ${isLight ? "text-zinc-600" : "text-white/70"}`}>
+                                Date captured
+                              </p>
+                              <p className={`mt-0.5 text-mobile-body ${isLight ? "text-zinc-900" : "text-white"}`} aria-label="Date photo was captured">
+                                {formatPhotoDate(activeMural.imageMetadata?.["Date taken"])}
+                              </p>
+                            </div>
+                          )}
+                          {activeMural.imageMetadata?.["Camera model"] && (
+                            <div>
+                              <p className={`text-mobile-caption font-medium uppercase tracking-[0.08em] ${isLight ? "text-zinc-600" : "text-white/70"}`}>
+                                Camera
+                              </p>
+                              <p className={`mt-0.5 text-mobile-body ${isLight ? "text-zinc-900" : "text-white"}`}>
+                                {activeMural.imageMetadata["Camera model"]}
+                              </p>
+                            </div>
+                          )}
                           {activeMural.artistInstagramHandle && (
-                            <>
-                              {" "}
+                            <div className={formatPhotoDate(activeMural.imageMetadata?.["Date taken"]) || activeMural.imageMetadata?.["Camera model"] ? "col-span-2" : ""}>
+                              <p className={`text-mobile-caption font-medium uppercase tracking-[0.08em] ${isLight ? "text-zinc-600" : "text-white/70"}`}>
+                                Instagram
+                              </p>
                               <a
                                 href={getArtistInstagramUrl(activeMural.artistInstagramHandle)}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="font-medium text-amber-700 underline decoration-amber-700/50 underline-offset-2 transition-colors hover:text-amber-800 hover:decoration-amber-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
-                                aria-label={`View ${activeMural.artist} on Instagram`}
+                                className={`mt-0.5 inline-flex min-h-[44px] min-w-[44px] items-center gap-2 text-mobile-body font-medium underline underline-offset-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded ${isLight ? "text-amber-900 decoration-amber-900/50 hover:text-amber-950 hover:decoration-amber-950" : "text-amber-300 decoration-amber-300/60 hover:text-amber-200 hover:decoration-amber-200"}`}
+                                aria-label="View artist on Instagram"
                               >
                                 @{activeMural.artistInstagramHandle.replace(/^@/, "")}
+                                <ExternalLink className="h-4 w-4 shrink-0" aria-hidden />
                               </a>
-                            </>
+                            </div>
                           )}
-                        </>
+                        </div>
                       )}
-                    </p>
-                    {formatPhotoDate(activeMural.imageMetadata?.["Date taken"]) && (
-                      <p className="mt-2 text-mobile-subhead font-medium text-zinc-700" aria-label="Date photo was captured">
-                        Photo captured: {formatPhotoDate(activeMural.imageMetadata?.["Date taken"])}
-                      </p>
-                    )}
-                    <div className="mt-3 flex flex-wrap items-center gap-3">
+                    <div className="mt-6 flex flex-wrap items-center gap-4">
                       <a
                         href={getDirectionsUrl(activeMural)}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex w-fit items-center gap-2 text-mobile-subhead font-medium text-amber-700 underline decoration-amber-700/50 underline-offset-2 transition-colors hover:text-amber-800 hover:decoration-amber-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
+                        className={`inline-flex w-fit items-center gap-2 text-mobile-subhead font-medium underline underline-offset-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded ${isLight ? "text-amber-900 decoration-amber-900/50 hover:text-amber-950 hover:decoration-amber-950" : "text-amber-300 decoration-amber-300/60 hover:text-amber-200 hover:decoration-amber-200"}`}
                         aria-label="Get directions to this mural in Google Maps"
                       >
                         Get directions
@@ -1067,7 +1002,7 @@ export function MuralModal() {
                           closeModal();
                           requestFlyTo(activeMural, { openModalAfterFly: false });
                         }}
-                        className="inline-flex items-center gap-2 text-mobile-subhead font-medium text-zinc-700 underline decoration-zinc-400 underline-offset-2 transition-colors hover:text-zinc-900 hover:decoration-zinc-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
+                        className={`inline-flex items-center gap-2 text-mobile-subhead font-medium underline underline-offset-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded ${isLight ? "text-zinc-900 decoration-zinc-500 hover:text-zinc-950 hover:decoration-zinc-700" : "text-white/90 decoration-white/60 hover:text-white hover:decoration-white/80"}`}
                         aria-label="View this mural on the map"
                       >
                         View on map
@@ -1079,7 +1014,7 @@ export function MuralModal() {
                       <button
                         type="button"
                         onClick={handleShare}
-                        className="inline-flex min-h-[44px] min-w-[44px] items-center gap-2 text-mobile-subhead font-medium text-zinc-700 underline decoration-zinc-400 underline-offset-2 transition-colors hover:text-zinc-900 hover:decoration-zinc-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
+                        className={`inline-flex min-h-[44px] min-w-[44px] items-center gap-2 text-mobile-subhead font-medium underline underline-offset-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded ${isLight ? "text-zinc-900 decoration-zinc-500 hover:text-zinc-950 hover:decoration-zinc-700" : "text-white/90 decoration-white/60 hover:text-white hover:decoration-white/80"}`}
                         aria-label="Share this mural"
                       >
                         {shareFeedback === "copied"
@@ -1096,27 +1031,27 @@ export function MuralModal() {
                     </div>
                     <details
                       id="mural-modal-desc"
-                      className="mt-6 border-t border-zinc-200 pt-6 group/details"
+                      className={`mt-8 border-t pt-5 group/details ${isLight ? "border-zinc-200" : "border-white/20"}`}
                       aria-labelledby="image-metadata-heading"
                     >
                       <summary
                         id="image-metadata-heading"
-                        className="cursor-pointer list-none text-sm font-medium uppercase tracking-wider text-zinc-500 hover:text-zinc-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
+                        className={`cursor-pointer list-none text-sm font-medium uppercase tracking-wider focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded ${isLight ? "text-zinc-700 hover:text-zinc-900" : "text-white/85 hover:text-white"}`}
                       >
                         Image metadata
                       </summary>
                       <dl className="mt-3 grid gap-2 sm:grid-cols-2">
                         <div>
-                          <dt className="text-sm text-zinc-500">Coordinates</dt>
-                          <dd className="mt-0.5 font-mono text-sm text-zinc-700" aria-label="Mural location coordinates">
+                          <dt className={`text-sm ${isLight ? "text-zinc-700" : "text-white/85"}`}>Coordinates</dt>
+                          <dd className={`mt-0.5 font-mono text-sm ${isLight ? "text-zinc-800" : "text-white/90"}`} aria-label="Mural location coordinates">
                             {activeMural.coordinates[1].toFixed(5)}°, {activeMural.coordinates[0].toFixed(5)}°
                           </dd>
                         </div>
                         {activeMural.imageMetadata &&
                           Object.entries(activeMural.imageMetadata).map(([label, value]) => (
                             <div key={label}>
-                              <dt className="text-sm text-zinc-500">{label}</dt>
-                              <dd className="mt-0.5 font-mono text-sm text-zinc-700">{value}</dd>
+                              <dt className={`text-sm ${isLight ? "text-zinc-700" : "text-white/85"}`}>{label}</dt>
+                              <dd className={`mt-0.5 font-mono text-sm ${isLight ? "text-zinc-800" : "text-white/90"}`}>{value}</dd>
                             </div>
                           ))}
                       </dl>
@@ -1125,13 +1060,16 @@ export function MuralModal() {
                 )}
               </div>
             </div>
-            <div className="safe-bottom-footer border-t border-zinc-200 bg-zinc-50 p-4">
+            <div
+              className="safe-bottom-footer border-t p-4"
+              style={{ backgroundColor: isLight ? "rgba(255,255,255,0.45)" : "rgba(0,0,0,0.55)", borderColor: isLight ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.12)" }}
+            >
               <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={handlePrev}
                   disabled={!canGoPrev}
-                  className="flex-1 min-h-[44px] rounded-lg border border-zinc-200 bg-white py-3 text-base font-medium text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:pointer-events-none disabled:opacity-50"
+                  className={`flex-1 min-h-[44px] rounded-lg border py-3 text-base font-medium shadow-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 ${isLight ? "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50 focus-visible:ring-offset-white" : "border-white/25 bg-white/15 text-white hover:bg-white/25 focus-visible:ring-offset-black/20"}`}
                   aria-label="Previous mural"
                 >
                   Previous
@@ -1140,7 +1078,7 @@ export function MuralModal() {
                   type="button"
                   onClick={handleNext}
                   disabled={!canGoNext}
-                  className="flex-1 min-h-[44px] rounded-lg border border-zinc-200 bg-white py-3 text-base font-medium text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:pointer-events-none disabled:opacity-50"
+                  className={`flex-1 min-h-[44px] rounded-lg border py-3 text-base font-medium shadow-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 ${isLight ? "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50 focus-visible:ring-offset-white" : "border-white/25 bg-white/15 text-white hover:bg-white/25 focus-visible:ring-offset-black/20"}`}
                   aria-label="Next mural"
                 >
                   Next
@@ -1148,7 +1086,7 @@ export function MuralModal() {
                 <button
                   type="button"
                   onClick={closeModal}
-                  className="flex-1 min-h-[44px] rounded-lg border border-zinc-200 bg-white py-3 text-base font-medium text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
+                  className={`flex-1 min-h-[44px] rounded-lg border py-3 text-base font-medium shadow-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 ${isLight ? "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50 focus-visible:ring-offset-white" : "border-white/25 bg-white/15 text-white hover:bg-white/25 focus-visible:ring-offset-black/20"}`}
                 >
                   Close
                 </button>
