@@ -908,16 +908,23 @@ export function MuralModal() {
                           className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-mobile-body text-zinc-900 placeholder:text-zinc-400 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
                           aria-label="Artist"
                         />
-                        <label htmlFor="mural-edit-instagram" className="sr-only">Instagram handle</label>
-                        <input
-                          id="mural-edit-instagram"
-                          type="text"
-                          value={editInstagramHandle}
-                          onChange={(e) => setEditInstagramHandle(e.target.value)}
-                          placeholder="@username (optional)"
-                          className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-mobile-body text-zinc-900 placeholder:text-zinc-400 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
-                          aria-label="Artist Instagram handle"
-                        />
+                        <div className="space-y-1">
+                          <label htmlFor="mural-edit-instagram" className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                            Instagram username (optional)
+                          </label>
+                          <input
+                            id="mural-edit-instagram"
+                            type="text"
+                            value={editInstagramHandle}
+                            onChange={(e) => setEditInstagramHandle(e.target.value)}
+                            placeholder="username (no @ needed)"
+                            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-mobile-body text-zinc-900 placeholder:text-zinc-400 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                            aria-label="Artist Instagram username"
+                          />
+                          <p className="text-xs text-zinc-500">
+                            Instagram only for now. If you paste @username, we&apos;ll clean it up.
+                          </p>
+                        </div>
                       </div>
                       <button
                         type="button"

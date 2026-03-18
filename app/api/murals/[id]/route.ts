@@ -4,7 +4,7 @@
  * Writes audit rows to mural_edits; syncs title/artist to Qdrant payload for search.
  */
 import { NextResponse } from "next/server";
-import { updateMural, selectMuralById } from "@/lib/db/client";
+import { insertMural, updateMural, selectMuralById } from "@/lib/db/client";
 import { muralRowToApp } from "@/lib/db/schema";
 import { verifyTurnstile } from "@/lib/turnstile";
 import { getQdrantClient, COLLECTION_NAME } from "@/lib/qdrant/client";
@@ -13,6 +13,39 @@ import { createHash } from "crypto";
 function hashIp(ip: string | undefined): string | null {
   if (!ip?.trim()) return null;
   return createHash("sha256").update(ip.trim()).digest("hex").slice(0, 32);
+}
+
+async function hydrateFallbackMural(id: string) {
+  const fallbackData = await import("@/data/murals.json");
+  const fallbackMurals = fallbackData.default as unknown as Array<{
+    id: string;
+    title: string;
+    artist: string;
+    artistInstagramHandle?: string;
+    coordinates: number[];
+    bearing?: number;
+    dominantColor: string;
+    imageUrl: string;
+    thumbnail?: string;
+    imageMetadata?: Record<string, string>;
+  }>;
+  const fallbackMural = fallbackMurals.find((mural) => mural.id === id);
+  if (!fallbackMural) return null;
+  const [lng, lat] = fallbackMural.coordinates ?? [];
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+  return insertMural({
+    id: fallbackMural.id,
+    title: fallbackMural.title,
+    artist: fallbackMural.artist,
+    artist_instagram_handle: fallbackMural.artistInstagramHandle ?? null,
+    coordinates: [lng, lat],
+    bearing: fallbackMural.bearing ?? null,
+    dominant_color: fallbackMural.dominantColor,
+    image_url: fallbackMural.imageUrl,
+    thumbnail_url: fallbackMural.thumbnail ?? null,
+    image_metadata: fallbackMural.imageMetadata ?? null,
+    source: "sync",
+  });
 }
 
 export async function PATCH(
@@ -64,9 +97,12 @@ export async function PATCH(
       );
     }
 
-    const existing = await selectMuralById(id);
+    let existing = await selectMuralById(id);
     if (!existing) {
-      return NextResponse.json({ error: "Mural not found." }, { status: 404 });
+      existing = await hydrateFallbackMural(id);
+      if (!existing) {
+        return NextResponse.json({ error: "Mural not found." }, { status: 404 });
+      }
     }
 
     const fields: Parameters<typeof updateMural>[1] = {};
