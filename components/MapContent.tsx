@@ -99,6 +99,19 @@ export function MapContent({ murals, collections }: MapContentProps) {
     requestFlyTo(mural);
   }, [searchParams, murals, requestFlyTo]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (isModalOpen && activeMural) {
+      params.set("mural", activeMural.id);
+    } else {
+      params.delete("mural");
+    }
+    const search = params.toString();
+    const url = search ? `${window.location.pathname}?${search}` : window.location.pathname;
+    window.history.replaceState(null, "", url);
+  }, [isModalOpen, activeMural?.id]);
+
   return (
     <>
       <LocationPrompt />

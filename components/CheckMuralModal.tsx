@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence, useDragControls } from "framer-motion";
-import { AlertCircle, CircleCheck, ImagePlus, RefreshCw, X } from "lucide-react";
+import { AlertCircle, CircleCheck, ImagePlus, Loader2, RefreshCw, X } from "lucide-react";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { useHaptics } from "@/hooks/useHaptics";
@@ -330,6 +330,7 @@ export function CheckMuralModal({
   const [searchResult, setSearchResult] = useState<SearchResponse | null>(null);
   const [selectedResult, setSelectedResult] = useState<SelectedResult>(null);
   const [addToDbPending, setAddToDbPending] = useState(false);
+  const [learningPending, setLearningPending] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [checkingPreviewUrl, setCheckingPreviewUrl] = useState<string | null>(null);
   const [funFactIndex, setFunFactIndex] = useState(0);
@@ -1348,11 +1349,20 @@ export function CheckMuralModal({
                                 onClick={handleAddToDb}
                                 disabled={addToDbPending || !turnstileSiteKey}
                                 className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl border-2 border-green-600 bg-green-600 px-4 py-2.5 text-base font-semibold text-white transition-colors hover:bg-green-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                                aria-label="Confirm photo and choose location on map"
+                                aria-label={addToDbPending ? "Preparing…" : "Confirm photo and choose location on map"}
                                 title={!turnstileSiteKey ? "Captcha not configured" : undefined}
                               >
-                                <CircleCheck className="h-4 w-4 shrink-0" aria-hidden />
-                                Confirm photo
+                                {addToDbPending ? (
+                                  <>
+                                    <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                                    Preparing…
+                                  </>
+                                ) : (
+                                  <>
+                                    <CircleCheck className="h-4 w-4 shrink-0" aria-hidden />
+                                    Confirm photo
+                                  </>
+                                )}
                               </button>
                             </div>
                             {overrideBuckets.length > 0 && (
@@ -1383,20 +1393,32 @@ export function CheckMuralModal({
                                 />
                                 <button
                                   type="button"
-                                  onClick={() => {
+                                  onClick={async () => {
                                     if (selectedResult && selectedResult !== "none") {
                                       haptics.success();
-                                      submitLearningUpsert(selectedResult.id);
-                                      pendingMuralIdRef.current = selectedResult.id;
-                                      setConfirmedAction("match");
-                                      setPhase("confirmed");
+                                      setLearningPending(true);
+                                      try {
+                                        await submitLearningUpsert(selectedResult.id);
+                                        pendingMuralIdRef.current = selectedResult.id;
+                                        setConfirmedAction("match");
+                                        setPhase("confirmed");
+                                      } finally {
+                                        setLearningPending(false);
+                                      }
                                     }
                                   }}
-                                  disabled={!selectedResult || selectedResult === "none"}
-                                  className="min-h-[44px] w-full rounded-xl border-2 border-amber-600 bg-amber-600 px-4 py-2.5 text-base font-semibold text-white transition-colors hover:bg-amber-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                                  aria-label="Or, confirm selected mural is in the database"
+                                  disabled={!selectedResult || selectedResult === "none" || learningPending}
+                                  className="min-h-[44px] w-full inline-flex items-center justify-center gap-2 rounded-xl border-2 border-amber-600 bg-amber-600 px-4 py-2.5 text-base font-semibold text-white transition-colors hover:bg-amber-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  aria-label={learningPending ? "Confirming…" : "Or, confirm selected mural is in the database"}
                                 >
-                                  Or, confirm it&apos;s in database
+                                  {learningPending ? (
+                                    <>
+                                      <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                                      Confirming…
+                                    </>
+                                  ) : (
+                                    "Or, confirm it&apos;s in database"
+                                  )}
                                 </button>
                               </>
                             )}
@@ -1438,25 +1460,38 @@ export function CheckMuralModal({
                               </button>
                               <button
                                 type="button"
-                                onClick={() => {
+                                onClick={async () => {
                                   if (selectedResult === "none") {
                                     handleAddToDb();
                                   } else if (selectedResult) {
                                     haptics.success();
-                                    submitLearningUpsert(selectedResult.id);
-                                    pendingMuralIdRef.current = selectedResult.id;
-                                    setConfirmedAction("match");
-                                    setPhase("confirmed");
+                                    setLearningPending(true);
+                                    try {
+                                      await submitLearningUpsert(selectedResult.id);
+                                      pendingMuralIdRef.current = selectedResult.id;
+                                      setConfirmedAction("match");
+                                      setPhase("confirmed");
+                                    } finally {
+                                      setLearningPending(false);
+                                    }
                                   }
                                 }}
-                                disabled={selectedResult === null || (selectedResult === "none" && addToDbPending)}
-                                className="flex flex-1 items-center justify-center rounded-xl border-2 border-green-600 bg-green-600 px-4 py-2.5 text-base font-semibold text-white shadow-sm transition-colors hover:bg-green-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                disabled={selectedResult === null || (selectedResult === "none" && addToDbPending) || (selectedResult !== "none" && selectedResult !== null && learningPending)}
+                                className="flex flex-1 items-center justify-center gap-2 rounded-xl border-2 border-green-600 bg-green-600 px-4 py-2.5 text-base font-semibold text-white shadow-sm transition-colors hover:bg-green-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                               >
-                                {selectedResult === "none"
-                                  ? addToDbPending
-                                    ? "Submitting…"
-                                    : "Confirm selection"
-                                  : "Confirm selection"}
+                                {selectedResult === "none" && addToDbPending ? (
+                                  <>
+                                    <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                                    Preparing…
+                                  </>
+                                ) : selectedResult !== "none" && selectedResult !== null && learningPending ? (
+                                  <>
+                                    <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                                    Confirming…
+                                  </>
+                                ) : (
+                                  "Confirm selection"
+                                )}
                               </button>
                             </div>
                           </>

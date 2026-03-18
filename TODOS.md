@@ -69,6 +69,7 @@
 - **CheckMuralModal result preview**: User's captured/uploaded image shown center-aligned in result phase so they see what they're adding before "Add to database"; object URL from blob, revoked on close or "Check another". **Retake photo** button under preview returns to capture phase (same as "Check another").
 - **CheckMuralModal no-match actions**: Retake photo and "Confirm photo" on same row with equal widths (`flex-1`); "Confirm photo" uses `CircleCheck` icon and navigates to location view; DB add happens only when user clicks "Confirm location" on the location view.
 - **CheckMuralModal result order + divider**: In matched results, helper copy now appears above the user's photo preview, and a subtle divider (`bg-zinc-200`) separates the preview from candidate thumbnails for clearer scan order.
+- **Upload flow button loading states**: All action buttons in the check-a-mural flow show a spinning Loader2 icon and descriptive text (Processing…, Preparing…, Confirming…, Submitting…) so users see clear feedback. ImageEditor Done, CheckMuralModal Confirm photo / Or confirm it's in database / Confirm selection, and LocationConfirm Confirm location; `learningPending` state for learning upsert buttons; `prefers-reduced-motion` disables `animate-spin` in globals.css.
 - **CheckMuralModal drawer drag**: Sheet on mobile now uses Framer Motion `useDragControls` + `drag="y"`; grabber has 44px min-height (invisible hit area) and `onPointerDown` to start drag; drag down past threshold or velocity closes modal (aligned with MuralModal).
 - **Bug fixes (mobile camera + drawer)**: (1) Drawer touch isolation: `dragListener: false` on CheckMuralModal and MuralModal so drag starts only from the handle bar; map pan in LocationConfirm no longer moves the drawer. (2) Landscape camera: Screen Orientation API lock to portrait when full-screen capture is active (unlock on close); CSS `@media (orientation: landscape)` fallback in globals.css for camera overlay (shutter right/centered, close/picker/zoom repositioned) when lock is unavailable (e.g. iOS Safari). (3) **Drawer drag fluidity**: Added `touch-none` on the drag handle so the browser does not compete with Framer Motion (eliminates initial lag); `overscroll-contain` on scrollable content to avoid pull-to-refresh/overscroll; tuned `dragElastic` (top 0.05, bottom 0.4) and `dragTransition` (bounceStiffness 300, bounceDamping 30) for native-feel snap-back; handle pill `h-[5px] w-10` for clearer affordance. MuralModal and CheckMuralModal.
 - **CheckMuralModal camera zoom**: Capture phase uses pinch-to-zoom only. Hardware zoom via MediaTrackConstraints when supported; fallback digital zoom (1×–4×) at capture and in preview (CSS transform). Touch handlers on preview container with passive: false for touchmove to prevent page zoom; zoom indicator (e.g. 1.0×) in corner. Zoom state reset on modal close and when restarting camera.
@@ -259,7 +260,11 @@
 
 - **Murals data**: For 100+ murals or smaller initial payload, fetch murals from client (e.g. `fetch("/data/murals.json")`) after hydration; show map shell + loading state until data arrives.
 - Replace placeholder images with real mural assets or CMS
-- Optional: persist selected mural in URL (e.g. `?mural=mural-1`) for sharing
+
+## Shareable mural URLs (done)
+
+- **URL sync**: Opening, closing, or navigating murals updates the browser URL with `?mural=<id>` via `history.replaceState` so links are shareable; initial load still reads `?mural=` to deep-link.
+- **Share button in mural drawer**: "Share" in the modal action row uses Web Share API when available (native share sheet on mobile), else copies `/?mural=<id>` to clipboard with "Link copied" / "Couldn't copy" feedback; haptics and a11y (aria-label, focus ring, 44px target).
 
 ## Launch readiness (before real users / before "add mural")
 
@@ -275,7 +280,7 @@ Only after the above feels solid, add **user ability to add murals** — use Opt
 
 ## More features (beyond submission)
 
-- **Sharing & deep links**: URL with mural id (e.g. `/?mural=mural-1`) so opening the link scrolls/flys to that mural and opens modal; Open Graph / Twitter card so shared links show mural image + title.
+- **Sharing & deep links** (URL + share button done): Opening a shared link flies to that mural and opens modal; URL updates when opening/closing/navigating; Share button in drawer. Remaining: Open Graph / Twitter card so shared links show mural image + title.
 - **Search / filter**: Search by title or artist; filter by artist (dropdown or chip list). Keeps map + list in sync (highlight or restrict to matches).
 - **Favorites / “My list”**: LocalStorage (or optional account later) to save favorite murals; “Saved” view or filter; optional “plan a visit” list.
 - **Offline / PWA**: Service worker + cache so map and key assets work offline; “Add to home screen” for app-like use while walking Pilsen.

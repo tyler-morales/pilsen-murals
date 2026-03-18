@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useState, useCallback } from "react";
+import { Loader2 } from "lucide-react";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
 const STYLE_STANDARD = "mapbox://styles/mapbox/standard";
@@ -145,10 +146,17 @@ export function LocationConfirm({
           type="button"
           onClick={handleConfirm}
           disabled={!mapReady || isSubmitting}
-          className="min-h-[44px] flex-1 rounded-xl border-2 border-green-600 bg-green-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-green-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-          aria-label="Confirm this location and submit mural"
+          className="min-h-[44px] flex-1 inline-flex items-center justify-center gap-2 rounded-xl border-2 border-green-600 bg-green-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-green-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          aria-label={isSubmitting ? "Submitting mural…" : "Confirm this location and submit mural"}
         >
-          {isSubmitting ? "Submitting…" : "Confirm location"}
+          {isSubmitting ? (
+            <>
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+              Submitting…
+            </>
+          ) : (
+            "Confirm location"
+          )}
         </button>
       </div>
     </div>

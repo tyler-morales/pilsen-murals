@@ -125,6 +125,7 @@ export function MuralModal() {
   const [editError, setEditError] = useState<string | null>(null);
   const turnstileWidgetIdRef = useRef<string | null>(null);
   const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
+  const [shareFeedback, setShareFeedback] = useState<"copied" | "failed" | null>(null);
 
   useFocusTrap(panelRef, isModalOpen && !!activeMural && !isImageExpanded && !isEditMode);
   useFocusTrap(enlargedRef, isImageExpanded);
@@ -147,6 +148,36 @@ export function MuralModal() {
       turnstileWidgetIdRef.current = null;
     }
   }, []);
+
+  const handleShare = useCallback(async () => {
+    if (!activeMural) return;
+    const url = `${typeof window !== "undefined" ? window.location.origin : ""}/?mural=${activeMural.id}`;
+    const title = activeMural.title;
+    const text = `${activeMural.title}${activeMural.artist ? ` by ${activeMural.artist}` : ""}`;
+    const scheduleClear = () => {
+      setTimeout(() => setShareFeedback(null), 2000);
+    };
+    if (typeof navigator !== "undefined" && navigator.share) {
+      try {
+        await navigator.share({ title, text, url });
+        haptics.success();
+        setShareFeedback("copied");
+        scheduleClear();
+        return;
+      } catch {
+        // fall through to copy
+      }
+    }
+    try {
+      await navigator.clipboard?.writeText(url);
+      haptics.success();
+      setShareFeedback("copied");
+      scheduleClear();
+    } catch {
+      setShareFeedback("failed");
+      scheduleClear();
+    }
+  }, [activeMural, haptics]);
 
   const saveEdit = useCallback(() => {
     if (!activeMural || !turnstileSiteKey) {
@@ -1044,6 +1075,23 @@ export function MuralModal() {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                         </svg>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleShare}
+                        className="inline-flex min-h-[44px] min-w-[44px] items-center gap-2 text-mobile-subhead font-medium text-zinc-700 underline decoration-zinc-400 underline-offset-2 transition-colors hover:text-zinc-900 hover:decoration-zinc-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 rounded"
+                        aria-label="Share this mural"
+                      >
+                        {shareFeedback === "copied"
+                          ? "Link copied"
+                          : shareFeedback === "failed"
+                            ? "Couldn't copy"
+                            : "Share"}
+                        {!shareFeedback && (
+                          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                          </svg>
+                        )}
                       </button>
                     </div>
                     <details
