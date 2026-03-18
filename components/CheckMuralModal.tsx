@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence, useDragControls } from "framer-motion";
-import { AlertCircle, CircleCheck, ImagePlus, RefreshCw, X } from "lucide-react";
+import { AlertCircle, CircleCheck, ImagePlus, Loader2, RefreshCw, X } from "lucide-react";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { useHaptics } from "@/hooks/useHaptics";
@@ -11,6 +11,7 @@ import { useCaptureStore } from "@/store/captureStore";
 import { haversineDistanceMeters } from "@/lib/geo";
 import { normalizeImageForUpload } from "@/lib/upload/normalizeImageForUpload";
 import { bucketResultsByMuralId } from "@/lib/searchUtils";
+import { sanitizeErrorFromServer } from "@/lib/errorUtils";
 import { ImageEditor } from "@/components/ImageEditor";
 import { LocationConfirm } from "@/components/LocationConfirm";
 
@@ -93,25 +94,6 @@ const CAMERA_IDEAL_HEIGHT = 3072;
 
 /** Max request body for /api/search (Vercel serverless ~4.5MB); stay under to avoid 413. */
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
-
-const GENERIC_ERROR_MESSAGE =
-  "We couldn't complete this action. Please try again.";
-
-/** Prevents technical server messages from reaching the user. */
-function sanitizeErrorFromServer(msg: string | undefined): string {
-  if (!msg || typeof msg !== "string") return GENERIC_ERROR_MESSAGE;
-  const t = msg.toLowerCase();
-  if (
-    t.includes("econnrefused") ||
-    t.includes("timeout") ||
-    t.includes("relation") ||
-    t.includes("fetch failed") ||
-    t.includes("network") ||
-    msg.length > 120
-  )
-    return GENERIC_ERROR_MESSAGE;
-  return msg;
-}
 
 type ImageCaptureLike = {
   takePhoto: () => Promise<Blob>;
@@ -309,6 +291,8 @@ export function CheckMuralModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastSubmittedBlobRef = useRef<Blob | null>(null);
   const addToDbWithTokenRef = useRef<((token: string) => void) | null>(null);
+  const submitLearningUpsertRef = useRef<((muralId: string, token: string) => Promise<void>) | null>(null);
+  const pendingTurnstileActionRef = useRef<"submit" | { muralId: string } | null>(null);
   const pendingMuralIdRef = useRef<string | null>(null);
   const pendingSubmitCoordsRef = useRef<[number, number] | null>(null);
   const turnstileWidgetIdRef = useRef<string | null>(null);
@@ -330,6 +314,7 @@ export function CheckMuralModal({
   const [searchResult, setSearchResult] = useState<SearchResponse | null>(null);
   const [selectedResult, setSelectedResult] = useState<SelectedResult>(null);
   const [addToDbPending, setAddToDbPending] = useState(false);
+  const [learningPending, setLearningPending] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [checkingPreviewUrl, setCheckingPreviewUrl] = useState<string | null>(null);
   const [funFactIndex, setFunFactIndex] = useState(0);
@@ -382,7 +367,9 @@ export function CheckMuralModal({
       if (track) {
         track
           .applyConstraints({ advanced: [{ zoom: level }] } as unknown as MediaTrackConstraints)
-          .catch(() => { });
+          .catch((err) => {
+            console.debug("CheckMuralModal: applyConstraints zoom failed", err);
+          });
       }
     }
     setZoomLevel(level);
@@ -479,7 +466,9 @@ export function CheckMuralModal({
             if (supportsZoom) {
               track
                 .applyConstraints({ advanced: [{ zoom: clampedCurrent }] } as unknown as MediaTrackConstraints)
-                .catch(() => { });
+                .catch((err) => {
+                  console.debug("CheckMuralModal: applyConstraints zoom failed", err);
+                });
             }
             setZoomCapability({
               min: caps.zoom.min,
@@ -565,8 +554,8 @@ export function CheckMuralModal({
       try {
         const p = orientation.lock("portrait");
         if (p && typeof (p as Promise<unknown>)?.catch === "function") {
-          (p as Promise<void>).catch(() => {
-            // Not supported on this device (e.g. desktop); ignore.
+          (p as Promise<void>).catch((err) => {
+            console.debug("CheckMuralModal: orientation lock not supported or failed", err);
           });
         }
       } catch {
@@ -783,10 +772,11 @@ export function CheckMuralModal({
     startCamera();
   }, [startCamera, previewUrl]);
 
-  const submitLearningUpsert = useCallback(async (muralId: string) => {
+  const submitLearningUpsert = useCallback(async (muralId: string, token: string) => {
     const blob = lastSubmittedBlobRef.current;
     if (!blob) return;
     const fd = new FormData();
+    fd.append("turnstileToken", token);
     fd.append("image", blob, "capture.jpg");
     fd.append("muralId", muralId);
     try {
@@ -826,7 +816,13 @@ export function CheckMuralModal({
           };
           win.turnstile?.reset?.(TURNSTILE_CONTAINER_SELECTOR);
         } else {
-          const data = await res.json().catch(() => ({}));
+          let data: { error?: string } = {};
+          try {
+            const text = await res.text();
+            data = text ? (JSON.parse(text) as { error?: string }) : {};
+          } catch (e) {
+            console.debug("CheckMuralModal: submit response parse failed", e);
+          }
           setSearchError(
             sanitizeErrorFromServer(data?.error) ||
             "We couldn't add this mural. Please try again, or close and come back later."
@@ -848,6 +844,10 @@ export function CheckMuralModal({
   useEffect(() => {
     addToDbWithTokenRef.current = doAddToDbWithToken;
   }, [doAddToDbWithToken]);
+
+  useEffect(() => {
+    submitLearningUpsertRef.current = submitLearningUpsert;
+  }, [submitLearningUpsert]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -884,7 +884,20 @@ export function CheckMuralModal({
     };
     const renderOptions = {
       sitekey: turnstileSiteKey,
-      callback: (token: string) => addToDbWithTokenRef.current?.(token),
+      callback: (token: string) => {
+        const action = pendingTurnstileActionRef.current;
+        pendingTurnstileActionRef.current = null;
+        if (action === "submit") {
+          addToDbWithTokenRef.current?.(token);
+        } else if (action && "muralId" in action) {
+          submitLearningUpsertRef.current?.(action.muralId, token).then(() => {
+            setPhase("confirmed");
+            setConfirmedAction("match");
+            pendingMuralIdRef.current = action.muralId;
+            setLearningPending(false);
+          }).catch(() => setLearningPending(false));
+        }
+      },
       execution: "execute" as const,
       "error-callback": (errorCode?: number) => {
         handleTurnstileError(errorCode);
@@ -911,14 +924,7 @@ export function CheckMuralModal({
     }
   }, [isOpen, turnstileSiteKey, phase, handleTurnstileError]);
 
-  const executeTurnstileForSubmit = useCallback(() => {
-    if (!turnstileSiteKey) {
-      setSearchError(
-        "Something's not set up correctly on our end. Please try again later."
-      );
-      setPhase("error");
-      return;
-    }
+  const executeTurnstile = useCallback(() => {
     const w = (window as unknown as {
       turnstile?: {
         execute: (container: string, params: object) => void;
@@ -935,7 +941,31 @@ export function CheckMuralModal({
     } catch {
       handleTurnstileError();
     }
-  }, [turnstileSiteKey, handleTurnstileError]);
+  }, [handleTurnstileError]);
+
+  const executeTurnstileForSubmit = useCallback(() => {
+    if (!turnstileSiteKey) {
+      setSearchError(
+        "Something's not set up correctly on our end. Please try again later."
+      );
+      setPhase("error");
+      return;
+    }
+    pendingTurnstileActionRef.current = "submit";
+    executeTurnstile();
+  }, [turnstileSiteKey, executeTurnstile]);
+
+  const executeTurnstileForLearning = useCallback((muralId: string) => {
+    if (!turnstileSiteKey) {
+      setSearchError(
+        "Something's not set up correctly on our end. Please try again later."
+      );
+      setPhase("error");
+      return;
+    }
+    pendingTurnstileActionRef.current = { muralId };
+    executeTurnstile();
+  }, [turnstileSiteKey, executeTurnstile]);
 
   const handleAddToDb = useCallback(() => {
     if (!lastSubmittedBlobRef.current) return;
@@ -1348,11 +1378,20 @@ export function CheckMuralModal({
                                 onClick={handleAddToDb}
                                 disabled={addToDbPending || !turnstileSiteKey}
                                 className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl border-2 border-green-600 bg-green-600 px-4 py-2.5 text-base font-semibold text-white transition-colors hover:bg-green-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                                aria-label="Confirm photo and choose location on map"
+                                aria-label={addToDbPending ? "Preparing…" : "Confirm photo and choose location on map"}
                                 title={!turnstileSiteKey ? "Captcha not configured" : undefined}
                               >
-                                <CircleCheck className="h-4 w-4 shrink-0" aria-hidden />
-                                Confirm photo
+                                {addToDbPending ? (
+                                  <>
+                                    <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                                    Preparing…
+                                  </>
+                                ) : (
+                                  <>
+                                    <CircleCheck className="h-4 w-4 shrink-0" aria-hidden />
+                                    Confirm photo
+                                  </>
+                                )}
                               </button>
                             </div>
                             {overrideBuckets.length > 0 && (
@@ -1386,17 +1425,22 @@ export function CheckMuralModal({
                                   onClick={() => {
                                     if (selectedResult && selectedResult !== "none") {
                                       haptics.success();
-                                      submitLearningUpsert(selectedResult.id);
-                                      pendingMuralIdRef.current = selectedResult.id;
-                                      setConfirmedAction("match");
-                                      setPhase("confirmed");
+                                      setLearningPending(true);
+                                      executeTurnstileForLearning(selectedResult.id);
                                     }
                                   }}
-                                  disabled={!selectedResult || selectedResult === "none"}
-                                  className="min-h-[44px] w-full rounded-xl border-2 border-amber-600 bg-amber-600 px-4 py-2.5 text-base font-semibold text-white transition-colors hover:bg-amber-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                                  aria-label="Or, confirm selected mural is in the database"
+                                  disabled={!selectedResult || selectedResult === "none" || learningPending}
+                                  className="min-h-[44px] w-full inline-flex items-center justify-center gap-2 rounded-xl border-2 border-amber-600 bg-amber-600 px-4 py-2.5 text-base font-semibold text-white transition-colors hover:bg-amber-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  aria-label={learningPending ? "Confirming…" : "Or, confirm selected mural is in the database"}
                                 >
-                                  Or, confirm it&apos;s in database
+                                  {learningPending ? (
+                                    <>
+                                      <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                                      Confirming…
+                                    </>
+                                  ) : (
+                                    "Or, confirm it&apos;s in database"
+                                  )}
                                 </button>
                               </>
                             )}
@@ -1443,20 +1487,26 @@ export function CheckMuralModal({
                                     handleAddToDb();
                                   } else if (selectedResult) {
                                     haptics.success();
-                                    submitLearningUpsert(selectedResult.id);
-                                    pendingMuralIdRef.current = selectedResult.id;
-                                    setConfirmedAction("match");
-                                    setPhase("confirmed");
+                                    setLearningPending(true);
+                                    executeTurnstileForLearning(selectedResult.id);
                                   }
                                 }}
-                                disabled={selectedResult === null || (selectedResult === "none" && addToDbPending)}
-                                className="flex flex-1 items-center justify-center rounded-xl border-2 border-green-600 bg-green-600 px-4 py-2.5 text-base font-semibold text-white shadow-sm transition-colors hover:bg-green-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                disabled={selectedResult === null || (selectedResult === "none" && addToDbPending) || (selectedResult !== "none" && selectedResult !== null && learningPending)}
+                                className="flex flex-1 items-center justify-center gap-2 rounded-xl border-2 border-green-600 bg-green-600 px-4 py-2.5 text-base font-semibold text-white shadow-sm transition-colors hover:bg-green-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                               >
-                                {selectedResult === "none"
-                                  ? addToDbPending
-                                    ? "Submitting…"
-                                    : "Confirm selection"
-                                  : "Confirm selection"}
+                                {selectedResult === "none" && addToDbPending ? (
+                                  <>
+                                    <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                                    Preparing…
+                                  </>
+                                ) : selectedResult !== "none" && selectedResult !== null && learningPending ? (
+                                  <>
+                                    <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                                    Confirming…
+                                  </>
+                                ) : (
+                                  "Confirm selection"
+                                )}
                               </button>
                             </div>
                           </>

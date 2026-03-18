@@ -7,28 +7,17 @@ import {
   GEOFENCE_RADIUS_M,
   type MuralWithDistance,
 } from "@/lib/geo";
+import { getJson, setJson } from "@/lib/localStorage";
 
 const SEEN_STORAGE_KEY = "pilsen-murals-seen-murals";
 
 function getSeenIds(): Set<string> {
-  if (typeof window === "undefined") return new Set();
-  try {
-    const raw = localStorage.getItem(SEEN_STORAGE_KEY);
-    if (!raw) return new Set();
-    const parsed = JSON.parse(raw) as unknown;
-    return new Set(Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : []);
-  } catch {
-    return new Set();
-  }
+  const arr = getJson<string[]>(SEEN_STORAGE_KEY, []);
+  return new Set(Array.isArray(arr) ? arr.filter((x): x is string => typeof x === "string") : []);
 }
 
 function persistSeenIds(ids: Set<string>): void {
-  try {
-    if (typeof window === "undefined") return;
-    localStorage.setItem(SEEN_STORAGE_KEY, JSON.stringify([...ids]));
-  } catch {
-    // ignore
-  }
+  setJson(SEEN_STORAGE_KEY, [...ids]);
 }
 
 export type SwipeDirection = "left" | "right" | null;

@@ -15,6 +15,7 @@ import { verifyTurnstile } from "@/lib/turnstile";
 
 const FALLBACK_TITLE = "Community Mural";
 const FALLBACK_ARTIST = "Unknown Artist";
+const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
 
 function parseCoord(value: unknown): number | null {
   if (value == null) return null;
@@ -67,6 +68,12 @@ export async function POST(request: Request) {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
+    if (buffer.length > MAX_FILE_SIZE_BYTES) {
+      return NextResponse.json(
+        { error: "Image is too large. Maximum size is 5 MB." },
+        { status: 413 }
+      );
+    }
     const processed = await processUploadedImage(buffer);
 
     const [displayResult, thumbResult] = await Promise.all([

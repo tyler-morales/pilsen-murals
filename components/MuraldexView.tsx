@@ -63,6 +63,7 @@ export function MuraldexView({
   const hasCaptured = useCaptureStore((s) => s.hasCaptured);
   const getCaptureFor = useCaptureStore((s) => s.getCaptureFor);
   const userCoords = useLocationStore((s) => s.userCoords);
+  const requestLocation = useLocationStore((s) => s.requestLocation);
 
   useFocusTrap(dialogRef, isOpen);
 
@@ -243,15 +244,30 @@ export function MuraldexView({
                 })}
               </div>
               {filteredMurals.length === 0 && (
-                <p className="py-8 text-center text-mobile-subhead text-zinc-500">
-                  {filter === "nearby" && !userCoords
-                    ? "Enable location to see nearby murals."
-                    : filter === "nearby"
-                      ? "No murals in range."
-                      : filter === "captured"
-                        ? "No murals captured yet. Use the camera to identify one!"
-                        : "No murals to show."}
-                </p>
+                <div className="flex flex-col items-center gap-4 py-8">
+                  <p className="text-center text-mobile-subhead text-zinc-500">
+                    {filter === "nearby" && !userCoords
+                      ? "Enable location to see nearby murals."
+                      : filter === "nearby"
+                        ? "No murals in range."
+                        : filter === "captured"
+                          ? "No murals captured yet. Use the camera to identify one!"
+                          : "No murals to show."}
+                  </p>
+                  {filter === "nearby" && !userCoords && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        haptics.tap();
+                        requestLocation();
+                      }}
+                      className="rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-amber-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2"
+                      aria-label="Enable location to see nearby murals"
+                    >
+                      Enable Location
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           </motion.div>

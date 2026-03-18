@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactCrop, { type Crop } from "react-image-crop";
-import { RotateCcw, RotateCw } from "lucide-react";
+import { Loader2, RotateCcw, RotateCw } from "lucide-react";
 import { getCroppedImg, rotateImage } from "@/lib/upload/cropImage";
 import type { PixelCrop } from "@/lib/upload/cropImage";
 import "react-image-crop/dist/ReactCrop.css";
@@ -176,10 +176,17 @@ export function ImageEditor({ imageUrl, onComplete, onBack }: ImageEditorProps) 
             type="button"
             onClick={handleDone}
             disabled={crop == null || donePending}
-            className="min-h-[44px] rounded-xl border-2 border-[var(--color-accent)] bg-[var(--color-accent)] px-4 py-2.5 text-sm font-semibold text-[var(--color-accent-foreground)] transition-colors hover:bg-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            aria-label="Done — use this image"
+            className="min-h-[44px] inline-flex items-center justify-center gap-2 rounded-xl border-2 border-[var(--color-accent)] bg-[var(--color-accent)] px-4 py-2.5 text-sm font-semibold text-[var(--color-accent-foreground)] transition-colors hover:bg-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            aria-label={donePending ? "Processing image" : "Done — use this image"}
           >
-            {donePending ? "Processing…" : "Done"}
+            {donePending ? (
+              <>
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                Processing…
+              </>
+            ) : (
+              "Done"
+            )}
           </button>
         </div>
       </div>

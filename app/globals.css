@@ -208,6 +208,10 @@ body {
     animation: none;
     opacity: 0.5;
   }
+
+  .animate-spin {
+    animation: none;
+  }
 }
 
 /* Mapbox overrides for dark matte buildings */

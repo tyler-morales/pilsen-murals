@@ -4,15 +4,56 @@
  * Writes audit rows to mural_edits; syncs title/artist to Qdrant payload for search.
  */
 import { NextResponse } from "next/server";
-import { updateMural, selectMuralById } from "@/lib/db/client";
+import { insertMural, updateMural, selectMuralById } from "@/lib/db/client";
 import { muralRowToApp } from "@/lib/db/schema";
 import { verifyTurnstile } from "@/lib/turnstile";
 import { getQdrantClient, COLLECTION_NAME } from "@/lib/qdrant/client";
 import { createHash } from "crypto";
+import fallbackMuralsJson from "@/data/murals.json";
 
 function hashIp(ip: string | undefined): string | null {
   if (!ip?.trim()) return null;
   return createHash("sha256").update(ip.trim()).digest("hex").slice(0, 32);
+}
+
+async function hydrateFallbackMural(id: string) {
+  const fallbackMurals = fallbackMuralsJson as unknown as Array<{
+    id: string;
+    title: string;
+    artist: string;
+    artistInstagramHandle?: string;
+    coordinates: number[];
+    bearing?: number;
+    dominantColor: string;
+    imageUrl: string;
+    thumbnail?: string;
+    imageMetadata?: Record<string, string>;
+  }>;
+  const fallbackMural = fallbackMurals.find((mural) => mural.id === id);
+  if (!fallbackMural) return null;
+  if (!Array.isArray(fallbackMural.coordinates)) return null;
+  const [lng, lat] = fallbackMural.coordinates;
+  const hasValidCoords =
+    Number.isFinite(lng) &&
+    Number.isFinite(lat) &&
+    lng >= -180 &&
+    lng <= 180 &&
+    lat >= -90 &&
+    lat <= 90;
+  if (!hasValidCoords) return null;
+  return insertMural({
+    id: fallbackMural.id,
+    title: fallbackMural.title,
+    artist: fallbackMural.artist,
+    artist_instagram_handle: fallbackMural.artistInstagramHandle ?? null,
+    coordinates: [lng, lat],
+    bearing: fallbackMural.bearing ?? null,
+    dominant_color: fallbackMural.dominantColor,
+    image_url: fallbackMural.imageUrl,
+    thumbnail_url: fallbackMural.thumbnail ?? null,
+    image_metadata: fallbackMural.imageMetadata ?? null,
+    source: "sync",
+  });
 }
 
 export async function PATCH(
@@ -64,30 +105,34 @@ export async function PATCH(
       );
     }
 
-    const existing = await selectMuralById(id);
+    let existing = await selectMuralById(id);
     if (!existing) {
-      return NextResponse.json({ error: "Mural not found." }, { status: 404 });
+      existing = await hydrateFallbackMural(id);
+      if (!existing) {
+        return NextResponse.json({ error: "Mural not found." }, { status: 404 });
+      }
     }
 
+    const MAX_TITLE_ARTIST_LEN = 200;
+    const MAX_HANDLE_LEN = 100;
     const fields: Parameters<typeof updateMural>[1] = {};
     if (typeof body.title === "string") {
-      const v = body.title.trim();
+      const v = body.title.trim().slice(0, MAX_TITLE_ARTIST_LEN);
       if (v) fields.title = v;
     }
     if (typeof body.artist === "string") {
-      const v = body.artist.trim();
+      const v = body.artist.trim().slice(0, MAX_TITLE_ARTIST_LEN);
       if (v) fields.artist = v;
     }
     if (body.artistInstagramHandle !== undefined) {
       fields.artist_instagram_handle =
         typeof body.artistInstagramHandle === "string" && body.artistInstagramHandle.trim()
-          ? body.artistInstagramHandle.trim().replace(/^@/, "")
+          ? body.artistInstagramHandle.trim().replace(/^@/, "").slice(0, MAX_HANDLE_LEN)
           : null;
     }
 
     if (Object.keys(fields).length === 0) {
-      const row = await selectMuralById(id);
-      return NextResponse.json(muralRowToApp(row!), { status: 200 });
+      return NextResponse.json(muralRowToApp(existing), { status: 200 });
     }
 
     const ipHash = hashIp(remoteIp);

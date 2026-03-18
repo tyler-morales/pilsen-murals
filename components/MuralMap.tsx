@@ -24,13 +24,11 @@ import pilsenBoundary from "@/data/pilsen-boundary.json";
 import type { Mural } from "@/types/mural";
 import type { MapLightPreset } from "@/store/themeStore";
 import type { MapStyleKind } from "@/store/mapStore";
+import { MAPBOX_STYLE_URLS } from "@/lib/mapbox";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
 
-const STYLE_URLS: Record<MapStyleKind, string> = {
-  standard: "mapbox://styles/mapbox/standard",
-  satellite: "mapbox://styles/mapbox/satellite-streets-v12",
-};
+const STYLE_URLS: Record<MapStyleKind, string> = MAPBOX_STYLE_URLS;
 
 const FLY_OPTIONS = {
   zoom: 17,
@@ -907,7 +905,8 @@ export function MuralMap({
                 <ClusterMarker
                   count={props.point_count}
                   onClick={() => {
-                    const expZoom = idx.getClusterExpansionZoom(props.cluster_id!);
+                    if (props.cluster_id == null) return;
+                    const expZoom = idx.getClusterExpansionZoom(props.cluster_id);
                     map.flyTo({
                       center: [lng, lat],
                       zoom: Math.min(expZoom, 17),

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getQdrantClient, COLLECTION_NAME } from "@/lib/qdrant/client";
 import { getImageEmbedding } from "@/lib/ai/embedding";
 import { haversineDistanceMeters } from "@/lib/geo";
+import { isAllowedImageUrl } from "@/lib/urlValidation";
 
 /** Return top N points (ungrouped) so client can show stack cards for same-mural duplicates. */
 const SEARCH_LIMIT = 20;
@@ -85,6 +86,12 @@ export async function POST(request: Request) {
       if (typeof imageUrl !== "string" || !imageUrl) {
         return NextResponse.json(
           { error: "JSON body must include imageUrl." },
+          { status: 400 }
+        );
+      }
+      if (!isAllowedImageUrl(imageUrl)) {
+        return NextResponse.json(
+          { error: "imageUrl must be a valid https URL and cannot target private or localhost addresses." },
           { status: 400 }
         );
       }

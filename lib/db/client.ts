@@ -109,6 +109,9 @@ export type MuralUpdateFields = Partial<{
   artist_instagram_handle: string | null;
   description: string | null;
   year_painted: number | null;
+  image_url: string;
+  thumbnail_url: string | null;
+  dominant_color: string;
 }>;
 
 /**
@@ -132,6 +135,9 @@ export async function updateMural(
     artist_instagram_handle: "artist_instagram_handle",
     description: "description",
     year_painted: "year_painted",
+    image_url: "image_url",
+    thumbnail_url: "thumbnail_url",
+    dominant_color: "dominant_color",
   };
 
   const updates: Partial<MuralRow> = {};

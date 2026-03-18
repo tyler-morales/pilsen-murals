@@ -3,6 +3,7 @@ import { getQdrantClient, COLLECTION_NAME } from "@/lib/qdrant/client";
 import { getImageEmbedding } from "@/lib/ai/embedding";
 import { selectAllMurals } from "@/lib/db/client";
 import { muralRowToApp } from "@/lib/db/schema";
+import { verifyTurnstile } from "@/lib/turnstile";
 
 /**
  * GET /api/murals
@@ -43,6 +44,27 @@ export async function POST(request: Request) {
 
     if (contentType.includes("multipart/form-data")) {
       const formData = await request.formData();
+      const turnstileToken = formData.get("turnstileToken");
+      const token =
+        typeof turnstileToken === "string" && turnstileToken.trim()
+          ? turnstileToken.trim()
+          : null;
+      if (!token) {
+        return NextResponse.json(
+          { error: "Missing or invalid turnstileToken." },
+          { status: 400 }
+        );
+      }
+      const forwarded = request.headers.get("x-forwarded-for");
+      const remoteIp = forwarded?.split(",")[0]?.trim();
+      const verify = await verifyTurnstile(token, remoteIp);
+      if (!verify.success) {
+        return NextResponse.json(
+          { error: "Captcha verification failed.", errorCodes: verify.errorCodes },
+          { status: 400 }
+        );
+      }
+
       const file = formData.get("image") ?? formData.get("file");
       const muralIdRaw = formData.get("muralId");
       const muralId =
@@ -80,6 +102,7 @@ export async function POST(request: Request) {
       }
     } else {
       const body = (await request.json()) as {
+        turnstileToken?: string;
         id?: string;
         title?: string;
         artist?: string;
@@ -88,6 +111,26 @@ export async function POST(request: Request) {
         embedding?: number[];
         [key: string]: unknown;
       };
+      const token =
+        typeof body.turnstileToken === "string" && body.turnstileToken.trim()
+          ? body.turnstileToken.trim()
+          : null;
+      if (!token) {
+        return NextResponse.json(
+          { error: "Missing or invalid turnstileToken." },
+          { status: 400 }
+        );
+      }
+      const forwarded = request.headers.get("x-forwarded-for");
+      const remoteIp = forwarded?.split(",")[0]?.trim();
+      const verify = await verifyTurnstile(token, remoteIp);
+      if (!verify.success) {
+        return NextResponse.json(
+          { error: "Captcha verification failed.", errorCodes: verify.errorCodes },
+          { status: 400 }
+        );
+      }
+
       const {
         id: providedId,
         title,
