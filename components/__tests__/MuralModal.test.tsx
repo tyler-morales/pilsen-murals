@@ -36,6 +36,7 @@ vi.mock("@/hooks/useFocusTrap", () => ({
 
 vi.mock("@/hooks/useHaptics", () => ({
   useHaptics: vi.fn(() => ({
+    tap: vi.fn(),
     tapMedium: vi.fn(),
     nudge: vi.fn(),
     toggle: vi.fn(),
@@ -64,12 +65,46 @@ vi.mock("@/store/muralStore", () => ({
   useMuralStore: vi.fn(),
 }));
 
+vi.mock("@/store/authStore", () => ({
+  useAuthStore: vi.fn(),
+}));
+
+vi.mock("@/store/captureStore", () => ({
+  useCaptureStore: vi.fn(),
+}));
+
 import { useMuralStore } from "@/store/muralStore";
+import { useAuthStore } from "@/store/authStore";
+import { useCaptureStore } from "@/store/captureStore";
 import { MuralModal } from "../MuralModal";
+
+function mockAuthStore(user: { id: string } | null) {
+  vi.mocked(useAuthStore).mockImplementation((selector: (s: { user: { id: string } | null }) => unknown) =>
+    selector({ user }) as ReturnType<typeof useAuthStore>
+  );
+}
+
+function createCaptureStoreMock(overrides: { addCapture?: () => void; hasCaptured?: (id: string) => boolean } = {}) {
+  const addCapture = overrides.addCapture ?? vi.fn();
+  const hasCaptured = overrides.hasCaptured ?? vi.fn(() => false);
+  return (selector: (s: unknown) => unknown) =>
+    selector({
+      captures: [],
+      supabaseClient: null,
+      addCapture,
+      hasCaptured,
+      getCaptureFor: vi.fn(),
+      setSupabaseClient: vi.fn(),
+      syncLocalCapturesToServer: vi.fn(),
+      loadServerCaptures: vi.fn(),
+    });
+}
 
 describe("MuralModal edit copy", () => {
   beforeEach(() => {
     process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY = "test-site-key";
+    mockAuthStore(null);
+    vi.mocked(useCaptureStore).mockImplementation(createCaptureStoreMock());
     vi.mocked(useMuralStore).mockReturnValue({
       activeMural: fixtureMural as Mural,
       isModalOpen: true,
@@ -101,5 +136,74 @@ describe("MuralModal edit copy", () => {
     expect(
       screen.getByText("Instagram only for now. If you paste @username, we'll clean it up.")
     ).toBeInTheDocument();
+  });
+});
+
+describe("MuralModal star (save to account)", () => {
+  beforeEach(() => {
+    process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY = "test-site-key";
+    vi.mocked(useCaptureStore).mockImplementation(createCaptureStoreMock());
+    vi.mocked(useMuralStore).mockReturnValue({
+      activeMural: fixtureMural as Mural,
+      isModalOpen: true,
+      closeModal: vi.fn(),
+      muralsOrder: [fixtureMural as Mural],
+      activeIndex: 0,
+      goPrev: vi.fn(),
+      goNext: vi.fn(),
+      goToIndex: vi.fn(),
+      requestFlyTo: vi.fn(),
+      updateActiveMural: vi.fn(),
+      pendingFlyTo: null,
+      openModal: vi.fn(),
+      clearPendingFlyTo: vi.fn(),
+    });
+    vi.mocked(useCaptureStore).mockReturnValue({
+      captures: [],
+      supabaseClient: null,
+      addCapture: vi.fn(),
+      hasCaptured: vi.fn(() => false),
+      getCaptureFor: vi.fn(),
+      setSupabaseClient: vi.fn(),
+      syncLocalCapturesToServer: vi.fn(),
+      loadServerCaptures: vi.fn(),
+    } as unknown as ReturnType<typeof useCaptureStore>);
+  });
+
+  it("calls onRequestAuth with save message when star clicked and user not logged in", async () => {
+    const user = userEvent.setup();
+    mockAuthStore(null);
+    const addCapture = vi.fn();
+    vi.mocked(useCaptureStore).mockImplementation(createCaptureStoreMock({ addCapture }));
+    const onRequestAuth = vi.fn();
+
+    render(<MuralModal onRequestAuth={onRequestAuth} />);
+
+    const starBtn = screen.getByRole("button", { name: "Save mural to your account" });
+    await user.click(starBtn);
+
+    expect(onRequestAuth).toHaveBeenCalledTimes(1);
+    expect(onRequestAuth).toHaveBeenCalledWith("Sign in", "Create an account to save this mural to your account.");
+    expect(addCapture).not.toHaveBeenCalled();
+  });
+
+  it("calls addCapture when star clicked and user is logged in", async () => {
+    const user = userEvent.setup();
+    mockAuthStore({ id: "user-1" });
+    const addCapture = vi.fn();
+    vi.mocked(useCaptureStore).mockImplementation(createCaptureStoreMock({ addCapture }));
+
+    render(<MuralModal />);
+
+    const starBtn = screen.getByRole("button", { name: "Save mural to your account" });
+    await user.click(starBtn);
+
+    expect(addCapture).toHaveBeenCalledTimes(1);
+    expect(addCapture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        muralId: fixtureMural.id,
+        capturedAt: expect.any(String),
+      })
+    );
   });
 });

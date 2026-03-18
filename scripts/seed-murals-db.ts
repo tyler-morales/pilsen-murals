@@ -3,7 +3,7 @@
  * Uses upsert on id so re-runs are idempotent; existing rows get updated, new rows inserted.
  *
  * Run from project root: npm run seed-murals-db
- * Requires .env.local with SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.
+ * Requires .env.local with NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.
  */
 import dotenv from "dotenv";
 import fs from "fs";

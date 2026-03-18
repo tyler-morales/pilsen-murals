@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Camera, Footprints, LayoutGrid, Map } from "lucide-react";
+import { Camera, Footprints, LayoutGrid, Map, User } from "lucide-react";
 import { useMuralStore } from "@/store/muralStore";
+import { useAuthStore } from "@/store/authStore";
 import { useHaptics } from "@/hooks/useHaptics";
 import type { Mural } from "@/types/mural";
 import type { Collection } from "@/types/collection";
 
-type TabId = "map" | "muraldex" | "tours";
+type TabId = "map" | "muraldex" | "tours" | "auth";
 
 interface MapHeaderProps {
   murals: Mural[];
@@ -22,6 +23,10 @@ interface MapHeaderProps {
   isTourListOpen?: boolean;
   /** Opens the "Check a mural" modal (camera/upload + search). */
   onCheckMuralClick?: () => void;
+  /** Opens the sign-in / account drawer. */
+  onSignInClick?: () => void;
+  /** When true, the Sign in / Account tab shows as active. */
+  isAuthDrawerOpen?: boolean;
 }
 
 export function MapHeader({
@@ -34,17 +39,32 @@ export function MapHeader({
   onLeaveTour,
   isTourListOpen = false,
   onCheckMuralClick,
+  onSignInClick,
+  isAuthDrawerOpen = false,
 }: MapHeaderProps) {
   const requestFlyTo = useMuralStore((s) => s.requestFlyTo);
   const activeMural = useMuralStore((s) => s.activeMural);
+  const user = useAuthStore((s) => s.user);
   const haptics = useHaptics();
 
-  const activeTab: TabId =
-    isMuraldexOpen ? "muraldex" : activeTour || isTourListOpen ? "tours" : "map";
+  const activeTab: TabId = isAuthDrawerOpen
+    ? "auth"
+    : isMuraldexOpen
+      ? "muraldex"
+      : activeTour || isTourListOpen
+        ? "tours"
+        : "map";
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [pill, setPill] = useState({ left: 0, width: 0 });
   const measurePill = useCallback(() => {
-    const idx = activeTab === "map" ? 0 : activeTab === "muraldex" ? 1 : 2;
+    const idx =
+      activeTab === "map"
+        ? 0
+        : activeTab === "muraldex"
+          ? 1
+          : activeTab === "tours"
+            ? 2
+            : 3;
     const el = tabRefs.current[idx];
     if (el) {
       setPill({ left: el.offsetLeft, width: el.offsetWidth });
@@ -131,17 +151,17 @@ export function MapHeader({
       </div>
 
       {/* Tabs: Map | Muraldex | Tours — sliding fill indicates active */}
-      <div className="flex w-full min-w-0 flex-1 shrink-0 items-center gap-2 sm:flex-1 sm:flex-nowrap">
+      <div className="flex w-full min-w-0 flex-1 shrink-0 items-center gap-3 sm:flex-1 sm:flex-nowrap sm:gap-2">
         <div
           ref={containerRef}
-          className="relative flex min-h-[44px] min-w-0 flex-1 flex-row overflow-hidden rounded-xl bg-zinc-100/90 p-1 sm:min-w-0 sm:flex-1"
+          className="relative flex min-h-[44px] min-w-0 flex-1 flex-row flex-nowrap gap-1.5 overflow-x-auto rounded-xl bg-zinc-100/90 p-2 sm:min-w-0 sm:flex-1 [-webkit-overflow-scrolling:touch]"
           role="tablist"
           aria-label="Main navigation"
         >
-          {/* Sliding pill — animates to active tab */}
+          {/* Sliding pill — animates to active tab (inset matches p-2 = 8px) */}
           <div
-            className="pointer-events-none absolute top-1 bottom-1 rounded-lg bg-[var(--color-accent)] shadow-sm transition-[left,width] duration-200 ease-out"
-            style={{ left: pill.left + 4, width: pill.width - 8 }}
+            className="pointer-events-none absolute top-2 bottom-2 rounded-lg bg-[var(--color-accent)] shadow-sm transition-[left,width] duration-200 ease-out"
+            style={{ left: pill.left + 8, width: pill.width - 16 }}
             aria-hidden
           />
           {onMapClick && (
@@ -152,7 +172,7 @@ export function MapHeader({
               aria-selected={activeTab === "map"}
               aria-label="Map view"
               onClick={() => { haptics.nudge(); onMapClick(); }}
-              className={`relative z-10 flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg text-base font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 disabled:pointer-events-none sm:flex-initial sm:px-4 ${activeTab === "map" ? "text-[var(--color-accent-foreground)]" : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"}`}
+              className={`relative z-10 flex min-h-[40px] min-w-[72px] flex-shrink-0 items-center justify-center gap-1.5 rounded-lg px-3 text-base font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 disabled:pointer-events-none sm:flex-initial sm:px-4 ${activeTab === "map" ? "text-[var(--color-accent-foreground)]" : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"}`}
             >
               <Map className="h-4 w-4 shrink-0" aria-hidden />
               <span>Map</span>
@@ -167,7 +187,7 @@ export function MapHeader({
               aria-expanded={isMuraldexOpen}
               aria-label="Muraldex — collection progress"
               onClick={() => { haptics.nudge(); onMuraldexClick(); }}
-              className={`relative z-10 flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg text-base font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 disabled:pointer-events-none sm:flex-initial sm:px-4 ${activeTab === "muraldex" ? "text-[var(--color-accent-foreground)]" : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"}`}
+              className={`relative z-10 flex min-h-[40px] min-w-[72px] flex-shrink-0 items-center justify-center gap-1.5 rounded-lg px-3 text-base font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 disabled:pointer-events-none sm:flex-initial sm:px-4 ${activeTab === "muraldex" ? "text-[var(--color-accent-foreground)]" : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"}`}
             >
               <LayoutGrid className="h-4 w-4 shrink-0" aria-hidden />
               <span>Muraldex</span>
@@ -181,7 +201,7 @@ export function MapHeader({
               aria-selected={activeTab === "tours"}
               aria-label="Leave tour and show all murals"
               onClick={() => { haptics.nudge(); onLeaveTour(); }}
-              className={`relative z-10 flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg text-base font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 sm:flex-initial sm:px-4 ${activeTab === "tours" ? "text-[var(--color-accent-foreground)]" : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"}`}
+              className={`relative z-10 flex min-h-[40px] min-w-[72px] flex-shrink-0 items-center justify-center gap-1.5 rounded-lg px-3 text-base font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 sm:flex-initial sm:px-4 ${activeTab === "tours" ? "text-[var(--color-accent-foreground)]" : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"}`}
             >
               <Footprints className="h-4 w-4 shrink-0" aria-hidden />
               <span>Leave tour</span>
@@ -195,12 +215,30 @@ export function MapHeader({
               aria-expanded={isTourListOpen}
               aria-label="Walking tours"
               onClick={() => { haptics.nudge(); onToursClick(); }}
-              className={`relative z-10 flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg text-base font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 sm:flex-initial sm:px-4 ${activeTab === "tours" ? "text-[var(--color-accent-foreground)]" : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"}`}
+              className={`relative z-10 flex min-h-[40px] min-w-[72px] flex-shrink-0 items-center justify-center gap-1.5 rounded-lg px-3 text-base font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 disabled:pointer-events-none sm:flex-initial sm:px-4 ${activeTab === "tours" ? "text-[var(--color-accent-foreground)]" : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"}`}
             >
               <Footprints className="h-4 w-4 shrink-0" aria-hidden />
               <span>Tours</span>
             </button>
           ) : null}
+          {onSignInClick && (
+            <button
+              ref={(el) => { tabRefs.current[3] = el; }}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "auth"}
+              aria-expanded={isAuthDrawerOpen}
+              aria-label={user ? "Account" : "Sign in to sync your captures"}
+              onClick={() => {
+                haptics.nudge();
+                onSignInClick();
+              }}
+              className={`relative z-10 flex min-h-[40px] min-w-[72px] flex-shrink-0 items-center justify-center gap-1.5 rounded-lg px-3 text-base font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 disabled:pointer-events-none sm:flex-initial sm:px-4 ${activeTab === "auth" ? "text-[var(--color-accent-foreground)]" : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"}`}
+            >
+              <User className="h-4 w-4 shrink-0" aria-hidden />
+              <span className="whitespace-nowrap hidden sm:inline">{user ? "Account" : "Sign in"}</span>
+            </button>
+          )}
         </div>
         {onCheckMuralClick && (
           <button

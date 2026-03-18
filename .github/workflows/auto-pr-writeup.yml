@@ -1,0 +1,74 @@
+# Auto PR writeup: sync PR title and body from commits on push.
+# Title: only updated when current title starts with "AUTO:" or contains "[auto]".
+# Body: only updated when empty or contains <!-- AUTO-PR:MANAGED --> (remove marker to take over manually).
+
+name: Auto PR writeup
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  update-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Decide updates
+        id: decide
+        env:
+          CURRENT_TITLE: ${{ github.event.pull_request.title }}
+          CURRENT_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if echo "$CURRENT_TITLE" | grep -qE '^AUTO:|\[auto\]'; then
+            echo "update_title=true" >> $GITHUB_OUTPUT
+          else
+            echo "update_title=false" >> $GITHUB_OUTPUT
+          fi
+          if [ -z "$(echo "$CURRENT_BODY" | tr -d ' \n')" ] || echo "$CURRENT_BODY" | grep -q '<!-- AUTO-PR:MANAGED -->'; then
+            echo "update_body=true" >> $GITHUB_OUTPUT
+          else
+            echo "update_body=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update PR title and body
+        env:
+          UPDATE_TITLE: ${{ steps.decide.outputs.update_title }}
+          UPDATE_BODY: ${{ steps.decide.outputs.update_body }}
+        run: |
+          PR="${{ github.event.pull_request.number }}"
+          REPO="${{ github.repository }}"
+
+          SUBJECT=$(gh api "repos/${REPO}/pulls/${PR}/commits" --jq '.[-1].commit.message' | head -1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+          ARGS=()
+          if [ "$UPDATE_TITLE" = "true" ] && [ -n "$SUBJECT" ]; then
+            ARGS+=(--title "$SUBJECT")
+          fi
+
+          if [ "$UPDATE_BODY" = "true" ]; then
+            COMMITS=$(gh api "repos/${REPO}/pulls/${PR}/commits" --jq '.[].commit.message | split("\n")[0]' -r | while read -r line; do echo "- ${line}"; done)
+            FILES=$(gh api "repos/${REPO}/pulls/${PR}/files" --jq '.[].filename' | while read -r f; do echo "- \`${f}\`"; done)
+            {
+              echo "## Summary"
+              echo ""
+              echo "$SUBJECT"
+              echo ""
+              echo "## Commits"
+              echo ""
+              echo "$COMMITS"
+              echo ""
+              echo "## Files changed"
+              echo ""
+              echo "$FILES"
+              echo ""
+              echo "<!-- AUTO-PR:MANAGED -->"
+            } > /tmp/pr-body.md
+            ARGS+=(--body-file /tmp/pr-body.md)
+          fi
+
+          if [ ${#ARGS[@]} -gt 0 ]; then
+            gh pr edit "$PR" "${ARGS[@]}"
+          fi
