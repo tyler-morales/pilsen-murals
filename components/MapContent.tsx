@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { AuthModal } from "@/components/AuthModal";
 import { CaptureRevealAnimation } from "@/components/CaptureRevealAnimation";
 import { CheckMuralModal } from "@/components/CheckMuralModal";
 import { LocationPrompt } from "@/components/LocationPrompt";
@@ -31,6 +32,7 @@ const enableCheckMural =
 export function MapContent({ murals, collections }: MapContentProps) {
   const [tourListOpen, setTourListOpen] = useState(false);
   const [checkMuralOpen, setCheckMuralOpen] = useState(false);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
   const [muraldexOpen, setMuraldexOpen] = useState(false);
   const [muralNotFoundNotice, setMuralNotFoundNotice] = useState(false);
   const [captureRevealMuralId, setCaptureRevealMuralId] = useState<string | null>(null);
@@ -146,6 +148,8 @@ export function MapContent({ murals, collections }: MapContentProps) {
         onLeaveTour={() => setActiveTour(null)}
         isTourListOpen={tourListOpen}
         onCheckMuralClick={enableCheckMural ? () => setCheckMuralOpen(true) : undefined}
+        onSignInClick={() => setAuthModalOpen(true)}
+        isAuthDrawerOpen={authModalOpen}
       />
       <MuralMap
         murals={displayMurals}
@@ -153,7 +157,9 @@ export function MapContent({ murals, collections }: MapContentProps) {
         routeCoordinates={routeCoordinates}
         nearbyMuralId={nearbyMuralIdForMap}
       />
-      <MuralModal />
+      <MuralModal
+        onRequestAuth={() => setAuthModalOpen(true)}
+      />
       {!isModalOpen && (
         <NearbyMuralCard
           activeTour={activeTour}
@@ -192,9 +198,14 @@ export function MapContent({ murals, collections }: MapContentProps) {
           onClose={() => setCheckMuralOpen(false)}
           onViewOnMap={handleCheckMuralViewOnMap}
           onCaptureConfirmed={handleCaptureConfirmed}
+          onRequestAuth={() => setAuthModalOpen(true)}
           murals={murals}
         />
       )}
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+      />
     </>
   );
 }

@@ -1,7 +1,7 @@
 /**
  * Supabase Storage implementation for mural display and thumbnail images.
  * Bucket must exist and be public (or use signed URLs if private).
- * Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
+ * Env: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
  */
 import { getSupabaseClient } from "@/lib/db/client";
 import type { MuralStorage, StorageUploadResult } from "./types";

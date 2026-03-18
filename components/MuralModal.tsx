@@ -18,7 +18,11 @@ import { isLightColor, normalizeHexToSix, getContentOverlay } from "@/lib/colorU
 import { MAPBOX_STYLE_URLS } from "@/lib/mapbox";
 import { parsePx } from "@/lib/imageMetadata";
 import { ImageEditor } from "@/components/ImageEditor";
-import { ExternalLink, Pencil, X } from "lucide-react";
+import { useAuthStore } from "@/store/authStore";
+import { useCaptureStore } from "@/store/captureStore";
+import { haversineDistanceMeters } from "@/lib/geo";
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- Star used in enlarged view save button
+import { ExternalLink, Pencil, Star, X } from "lucide-react";
 
 const MURAL_EDIT_TURNSTILE_ID = "mural-edit-turnstile";
 const MURAL_EDIT_TURNSTILE_SELECTOR = `#${MURAL_EDIT_TURNSTILE_ID}`;
@@ -82,7 +86,11 @@ function formatPhotoDate(dateTaken: string | undefined): string | null {
   }).format(date);
 }
 
-export function MuralModal() {
+interface MuralModalProps {
+  onRequestAuth?: (title: string, message: string) => void;
+}
+
+export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
   const {
     activeMural,
     isModalOpen,
@@ -95,6 +103,10 @@ export function MuralModal() {
     requestFlyTo,
     updateActiveMural,
   } = useMuralStore();
+  const user = useAuthStore((s) => s.user);
+  const addCapture = useCaptureStore((s) => s.addCapture);
+  const hasCaptured = useCaptureStore((s) => s.hasCaptured);
+  const userCoords = useLocationStore((s) => s.userCoords);
   const mapStyle = useMapStore((s) => s.mapStyle);
   const [isImageExpanded, setIsImageExpanded] = useState(false);
   const [isImageLoaded, setIsImageLoaded] = useState(false);
@@ -436,6 +448,34 @@ export function MuralModal() {
     setIsImageExpanded(false);
     closeModal();
   }, [isTransitioningToMap]);
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- used in enlarged view save button JSX
+  const handleStarClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!activeMural) return;
+      if (hasCaptured(activeMural.id)) return;
+      haptics.tap();
+      if (!user) {
+        onRequestAuth?.("Sign in", "Create an account to save this mural to your account.");
+        return;
+      }
+      const lat = userCoords != null ? userCoords[1] : null;
+      const lng = userCoords != null ? userCoords[0] : null;
+      const distanceMeters =
+        userCoords && activeMural
+          ? haversineDistanceMeters(userCoords, activeMural.coordinates)
+          : null;
+      addCapture({
+        muralId: activeMural.id,
+        capturedAt: new Date().toISOString(),
+        lat,
+        lng,
+        distanceMeters,
+      });
+    },
+    [activeMural, user, userCoords, hasCaptured, addCapture, onRequestAuth, haptics]
+  );
 
   const panelTransition = prefersReducedMotion
     ? { duration: 0 }
@@ -924,6 +964,22 @@ export function MuralModal() {
                         onError={() => setIsImageLoaded(true)}
                       />
                     </button>
+                    <motion.button
+                      type="button"
+                      onClick={handleStarClick}
+                      className="absolute left-4 top-4 z-10 flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-black/20 p-2 text-white backdrop-blur-sm transition-colors hover:bg-black/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+                      aria-label={hasCaptured(activeMural.id) ? "Saved to your account" : "Save mural to your account"}
+                      initial={false}
+                      animate={{
+                        scale: hasCaptured(activeMural.id) ? 1.1 : 1,
+                      }}
+                      transition={prefersReducedMotion ? { duration: 0 } : { type: "spring", stiffness: 400, damping: 25 }}
+                    >
+                      <Star
+                        className={`h-6 w-6 ${hasCaptured(activeMural.id) ? "fill-amber-400 stroke-amber-400" : "fill-transparent stroke-white"} stroke-[2.5] ${!prefersReducedMotion ? "transition-colors duration-200" : ""}`}
+                        aria-hidden
+                      />
+                    </motion.button>
                     {isEditMode && !isCropMode && (
                       <div className="absolute bottom-4 left-4 right-4 z-10 flex justify-center pointer-events-none">
                         <button

@@ -78,8 +78,9 @@ Visual similarity search: upload a mural photo and find if it’s already in the
 Map content is read from **Supabase** (murals table + storage). When Supabase is not configured or fails, the app falls back to **`data/murals.json`** (e.g. during migration or local dev without DB).
 
 1. **Env** — In `.env.local` set:
-   - `SUPABASE_URL` — Supabase project URL
-   - `SUPABASE_SERVICE_ROLE_KEY` — Service role key (server-only)
+   - `NEXT_PUBLIC_SUPABASE_URL` — Supabase project URL (same for auth and server)
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY` — Anon key (client + auth; respects RLS)
+   - `SUPABASE_SERVICE_ROLE_KEY` — Service role key (server-only; bypasses RLS)
    - `NEXT_PUBLIC_TURNSTILE_SITE_KEY` — Cloudflare Turnstile (invisible) site key
    - `TURNSTILE_SECRET_KEY` — Turnstile secret for server verification
 
@@ -87,7 +88,7 @@ Map content is read from **Supabase** (murals table + storage). When Supabase is
 
 3. **Flow** — User taps “Check a mural”, captures or uploads a photo. The photo is sent only to **POST /api/search** (visual similarity); nothing is written to Supabase or the DB at this step. Persistence happens only when the user explicitly taps "Add to database": Turnstile (invisible) runs, then **POST /api/murals/submit** processes the image (WebP display + thumb, dominant color, optional EXIF), uploads to Supabase Storage, inserts a row in `murals`, and upserts the CLIP embedding into Qdrant. The new mural appears on the map on next load (or when the map data is refetched).
 
-4. **Seed DB from JSON** — To populate the Supabase `murals` table from `data/murals.json`, run **`npm run seed-murals-db`** (requires `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`). Uses upsert on `id` so re-runs are safe.
+4. **Seed DB from JSON** — To populate the Supabase `murals` table from `data/murals.json`, run **`npm run seed-murals-db`** (requires `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`). Uses upsert on `id` so re-runs are safe.
 
 5. **Manual pipeline (optional)** — For bulk imports from your own photos: put files in `raw-photos/`, run **`npm run sync-murals`** to generate WebP and update `data/murals.json`, then **`npm run seed-murals-db`** to push into Supabase (and optionally **`npm run backfill-qdrant`** for vector search).
 

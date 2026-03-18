@@ -10,6 +10,14 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  experimental: {
+    optimizePackageImports: ["lucide-react"],
+  },
+  webpack: (config) => {
+    // Suppress PackFileCacheStrategy "Serializing big strings" warning (webpack cache, not app code)
+    config.infrastructureLogging = { level: "error" };
+    return config;
+  },
 };
 
 export default nextConfig;

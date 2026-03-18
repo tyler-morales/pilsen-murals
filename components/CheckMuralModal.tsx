@@ -6,6 +6,7 @@ import { AlertCircle, CircleCheck, ImagePlus, Loader2, RefreshCw, X } from "luci
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { useHaptics } from "@/hooks/useHaptics";
+import { useAuthStore } from "@/store/authStore";
 import { useLocationStore } from "@/store/locationStore";
 import { useCaptureStore } from "@/store/captureStore";
 import { haversineDistanceMeters } from "@/lib/geo";
@@ -51,6 +52,8 @@ interface CheckMuralModalProps {
   onViewOnMap?: (muralId: string) => void;
   /** When provided, called when a match is confirmed (before close); used to show capture-reveal animation. */
   onCaptureConfirmed?: (muralId: string) => void;
+  /** When provided, called when user tries to add a mural but is not authenticated; (title, message) for auth modal. */
+  onRequestAuth?: (title: string, message: string) => void;
   /** Full mural list for computing capture distance; optional. */
   murals?: import("@/types/mural").Mural[];
 }
@@ -282,8 +285,10 @@ export function CheckMuralModal({
   onClose,
   onViewOnMap,
   onCaptureConfirmed,
+  onRequestAuth,
   murals,
 }: CheckMuralModalProps) {
+  const user = useAuthStore((s) => s.user);
   const dialogRef = useRef<HTMLDivElement>(null);
   const fullScreenRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -969,8 +974,12 @@ export function CheckMuralModal({
 
   const handleAddToDb = useCallback(() => {
     if (!lastSubmittedBlobRef.current) return;
+    if (!user) {
+      onRequestAuth?.("Sign in", "Create an account to add your murals to your account.");
+      return;
+    }
     setPhase("confirm-location");
-  }, []);
+  }, [user, onRequestAuth]);
 
   const handleConfirmLocation = useCallback(
     (coords: [number, number]) => {

@@ -1,11 +1,11 @@
 /**
  * Supabase client for server-side DB access. Use for murals table and service role operations.
- * Requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in env.
+ * Requires NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in env.
  */
 import { createClient } from "@supabase/supabase-js";
 import type { MuralRow, MuralInsert, MuralEditRow } from "./schema";
 
-const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 let client: ReturnType<typeof createClient> | null = null;
@@ -13,7 +13,7 @@ let client: ReturnType<typeof createClient> | null = null;
 export function getSupabaseClient(): ReturnType<typeof createClient> {
   if (!supabaseUrl || !supabaseServiceKey) {
     throw new Error(
-      "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in environment"
+      "NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in environment"
     );
   }
   if (!client) {

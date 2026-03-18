@@ -39,6 +39,12 @@ vi.mock("@/components/ImageEditor", () => ({
   ),
 }));
 
+vi.mock("@/store/authStore", () => ({
+  useAuthStore: vi.fn(),
+}));
+
+import { useAuthStore } from "@/store/authStore";
+
 describe("isMatchInDb", () => {
   it("returns true when top result score is at or above threshold", () => {
     const response: SearchResponse = {
@@ -129,6 +135,10 @@ describe("CheckMuralModal persistence (explicit upload only)", () => {
   const noMatchSearchResponse = { results: [] };
 
   beforeEach(() => {
+    process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY = "test-site-key";
+    vi.mocked(useAuthStore).mockImplementation(
+      (selector: (s: { user: unknown }) => unknown) => selector({ user: null }) as ReturnType<typeof useAuthStore>
+    );
     vi.stubGlobal(
       "matchMedia",
       vi.fn(() => ({
@@ -216,6 +226,34 @@ describe("CheckMuralModal persistence (explicit upload only)", () => {
       return p.includes("/api/murals/submit");
     });
     expect(submitCalls.length).toBe(0);
+  });
+
+  it("calls onRequestAuth when Add to database flow triggered and user not logged in", async () => {
+    const user = userEvent.setup();
+    const onRequestAuth = vi.fn();
+    render(
+      <CheckMuralModal isOpen onClose={vi.fn()} onRequestAuth={onRequestAuth} />
+    );
+
+    const fileInput = screen.getByLabelText(/Choose photo from device/i);
+    await user.upload(fileInput, new File(["x"], "capture.jpg", { type: "image/jpeg" }));
+
+    const doneBtn = await screen.findByText("Done");
+    await user.click(doneBtn);
+
+    const confirmPhotoBtn = await screen.findByRole(
+      "button",
+      { name: "Confirm photo and choose location on map", hidden: true },
+      { timeout: 3000 }
+    );
+    await user.click(confirmPhotoBtn);
+
+    expect(onRequestAuth).toHaveBeenCalledTimes(1);
+    expect(onRequestAuth).toHaveBeenCalledWith(
+      "Sign in",
+      "Create an account to add your murals to your account."
+    );
+    expect(screen.queryByText(/Confirm this location/i)).not.toBeInTheDocument();
   });
 
   it("normalizes file upload then calls /api/search (success)", async () => {

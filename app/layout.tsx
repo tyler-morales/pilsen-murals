@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ThemeByPilsenTime } from "@/components/ThemeByPilsenTime";
+import { AuthProvider } from "@/components/AuthProvider";
 import { Analytics } from "@vercel/analytics/next";
 
 export const metadata: Metadata = {
@@ -34,7 +35,7 @@ export default function RootLayout({
           Skip to main content
         </a>
         <ThemeByPilsenTime />
-        {children}
+        <AuthProvider>{children}</AuthProvider>
         <Analytics />
       </body>
     </html>
