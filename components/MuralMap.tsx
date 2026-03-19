@@ -723,8 +723,8 @@ export function MuralMap({
     clusterIndexRef.current = index;
 
     // Dynamic import so Mapbox (window-dependent) only runs on client
-    void ensureMapboxCSS().then(() =>
-      import("mapbox-gl").then((mapboxglModule) => {
+    void ensureMapboxCSS().then(() => {
+      return import("mapbox-gl").then((mapboxglModule) => {
         const mapboxgl = mapboxglModule.default;
         const initialStyle = useMapStore.getState().mapStyle;
         const initialView = prefersReducedMotion ? INTRO_END : INTRO_START;
@@ -1094,7 +1094,9 @@ export function MuralMap({
           };
           map.on("zoomend", onViewChange);
           map.on("moveend", onViewChange);
-        }));
+        });
+      });
+    });
 
     return () => {
       const store = useMapStore.getState();

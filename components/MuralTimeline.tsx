@@ -96,7 +96,7 @@ export function MuralTimeline({
     fetchPhotos();
   }, [fetchPhotos]);
 
-  const [emblaRef, emblaApi] = useEmblaCarousel({
+  const [emblaRef, _emblaApi] = useEmblaCarousel({
     dragFree: true,
     containScroll: "trimSnaps",
     align: "start",

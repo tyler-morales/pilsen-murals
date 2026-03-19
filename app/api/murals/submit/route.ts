@@ -12,6 +12,7 @@ import { insertMural, getArtistById, findOrCreateArtist } from "@/lib/db/client"
 import { supabaseMuralStorage } from "@/lib/storage/supabase";
 import { processUploadedImage } from "@/lib/upload/processImage";
 import { verifyTurnstile } from "@/lib/turnstile";
+import { parseDateCaptured, parseDatePainted } from "@/lib/murals/parseMuralDates";
 
 const FALLBACK_TITLE = "Community Mural";
 const FALLBACK_ARTIST = "Unknown Artist";
@@ -21,23 +22,6 @@ function parseCoord(value: unknown): number | null {
   if (value == null) return null;
   const n = typeof value === "string" ? parseFloat(value) : Number(value);
   return Number.isFinite(n) ? n : null;
-}
-
-export function parseDateCaptured(value: unknown): string {
-  if (value == null || typeof value !== "string" || !value.trim()) return new Date().toISOString();
-  const trimmed = value.trim();
-  const date = new Date(trimmed);
-  return Number.isFinite(date.getTime()) ? date.toISOString() : new Date().toISOString();
-}
-
-export function parseDatePainted(value: unknown): string | null {
-  if (value == null || typeof value !== "string" || !value.trim()) return null;
-  const trimmed = value.trim();
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
-  if (!match) return null;
-  const [, y, m, d] = match;
-  const date = new Date(parseInt(y!, 10), parseInt(m!, 10) - 1, parseInt(d!, 10));
-  return Number.isFinite(date.getTime()) ? trimmed : null;
 }
 
 export async function POST(request: Request) {

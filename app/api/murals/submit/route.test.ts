@@ -2,8 +2,8 @@
  * POST /api/murals/submit: date parsing and insert payload shape.
  * parseDateCaptured / parseDatePainted are used when building the insert payload.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { parseDateCaptured, parseDatePainted } from "./route";
+import { describe, it, expect } from "vitest";
+import { parseDateCaptured, parseDatePainted } from "@/lib/murals/parseMuralDates";
 
 describe("parseDateCaptured", () => {
   it("returns ISO string for valid date string", () => {

@@ -1015,6 +1015,9 @@ export function CheckMuralModal({
         turnstileWidgetIdRef.current = win.turnstile.render(TURNSTILE_CONTAINER_SELECTOR, renderOptions);
       }
     });
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen, turnstileSiteKey, phase, handleTurnstileError]);
 
   const executeTurnstile = useCallback(() => {
