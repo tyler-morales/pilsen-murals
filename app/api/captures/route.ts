@@ -131,7 +131,8 @@ export async function POST(request: Request) {
           lng: lng ?? null,
           distance_meters: null,
           photo_url: storagePath,
-        } as Record<string, unknown>,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- no generated DB types
+        } as any,
         { onConflict: "user_id,mural_id" }
       );
     if (upsertError) {
@@ -143,7 +144,7 @@ export async function POST(request: Request) {
     }
 
     try {
-      const vector = await getImageEmbedding(new Blob([processed.displayBuffer]));
+      const vector = await getImageEmbedding(new Blob([new Uint8Array(processed.displayBuffer)]));
       const qdrant = getQdrantClient();
       const scrollResult = await qdrant.scroll(COLLECTION_NAME, {
         filter: {

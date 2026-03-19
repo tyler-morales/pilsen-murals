@@ -77,8 +77,6 @@ export const ZoomableImage = forwardRef<ZoomableImageHandle, ZoomableImageProps>
       onInit={(ref) => {
         onZoomChange?.(ref.state.scale > 1);
       }}
-      wrapperClass="!w-full !h-full"
-      contentClass="!w-full !h-full flex items-center justify-center"
     >
       <TransformComponent
         wrapperClass="!w-full !h-full"

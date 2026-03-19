@@ -78,7 +78,7 @@ export function MuralTimelineViewer({
     const onSelect = () => setSelectedIndex(emblaApi.selectedScrollSnap());
     onSelect();
     emblaApi.on("select", onSelect);
-    return () => emblaApi.off("select", onSelect);
+    return () => { emblaApi.off("select", onSelect); };
   }, [emblaApi]);
 
   return (
