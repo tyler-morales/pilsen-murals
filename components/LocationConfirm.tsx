@@ -40,6 +40,19 @@ export function LocationConfirm({
     const container = containerRef.current;
     let cancelled = false;
 
+    // Remove existing map synchronously BEFORE async operations to prevent WebGL context leaks
+    if (mapRef.current) {
+      try {
+        mapRef.current.remove();
+      } catch (e) {
+        // Map may already be removed or in invalid state
+        console.warn("Error removing map:", e);
+      }
+      mapRef.current = null;
+    }
+    // Clear container immediately to ensure it's empty (required by Mapbox)
+    container.innerHTML = "";
+
     void ensureMapboxCSS().then(() =>
       import("mapbox-gl").then((mapboxglModule) => {
         if (cancelled || !container) return;
@@ -68,9 +81,19 @@ export function LocationConfirm({
 
     return () => {
       cancelled = true;
+      // Remove map synchronously to prevent WebGL context leaks
       if (mapRef.current) {
-        mapRef.current.remove();
+        try {
+          mapRef.current.remove();
+        } catch (e) {
+          // Map may already be removed or in invalid state
+          console.warn("Error removing map:", e);
+        }
         mapRef.current = null;
+      }
+      // Clear container immediately after removal
+      if (container) {
+        container.innerHTML = "";
       }
       setMapReady(false);
     };

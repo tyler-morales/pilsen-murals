@@ -597,6 +597,12 @@ export function MuralMap({
     nearbyMuralId: string | null;
   } | null>(null);
 
+  const handleMarkerClickRef = useRef<(mural: Mural) => void>(() => { });
+  const hapticsNudgeRef = useRef<(() => void) | undefined>(undefined);
+  const hapticsToggleRef = useRef<(() => void) | undefined>(undefined);
+  const prefersReducedMotionRef = useRef<boolean>(false);
+  const flyDurationRef = useRef<number>(0);
+
   useEffect(() => {
     const props = placementRenderPropsRef.current;
     const root = singleRootRef.current;
@@ -700,7 +706,7 @@ export function MuralMap({
         zoom: FLY_OPTIONS.zoom,
         pitch: FLY_OPTIONS.pitch,
         bearing,
-        duration: flyDuration,
+        duration: flyDurationRef.current,
         essential: FLY_OPTIONS.essential,
       });
 
@@ -709,8 +715,17 @@ export function MuralMap({
         openModal(mural, murals);
       });
     },
-    [openModal, murals, flyDuration]
+    [openModal, murals]
   );
+
+  // Keep refs updated so the main map effect can use stable references
+  useEffect(() => {
+    handleMarkerClickRef.current = handleMarkerClick;
+    hapticsNudgeRef.current = haptics.nudge;
+    hapticsToggleRef.current = haptics.toggle;
+    prefersReducedMotionRef.current = prefersReducedMotion;
+    flyDurationRef.current = flyDuration;
+  }, [handleMarkerClick, haptics.nudge, haptics.toggle, prefersReducedMotion, flyDuration]);
 
   useEffect(() => {
     if (!containerRef.current || !MAPBOX_TOKEN) return;
@@ -722,12 +737,27 @@ export function MuralMap({
     index.load(points);
     clusterIndexRef.current = index;
 
+    // Remove existing map synchronously BEFORE async operations to prevent WebGL context leaks
+    if (mapRef.current) {
+      try {
+        mapRef.current.remove();
+      } catch (e) {
+        // Map may already be removed or in invalid state
+        console.warn("Error removing map:", e);
+      }
+      mapRef.current = null;
+    }
+    // Clear container immediately to ensure it's empty (required by Mapbox)
+    if (containerRef.current) {
+      containerRef.current.innerHTML = "";
+    }
+
     // Dynamic import so Mapbox (window-dependent) only runs on client
     void ensureMapboxCSS().then(() => {
       return import("mapbox-gl").then((mapboxglModule) => {
         const mapboxgl = mapboxglModule.default;
         const initialStyle = useMapStore.getState().mapStyle;
-        const initialView = prefersReducedMotion ? INTRO_END : INTRO_START;
+        const initialView = prefersReducedMotionRef.current ? INTRO_END : INTRO_START;
         const map = new mapboxgl.Map({
           container: containerRef.current!,
           style: STYLE_URLS[initialStyle],
@@ -747,11 +777,11 @@ export function MuralMap({
           "top-right"
         );
         map.addControl(
-          new (createFitMapControl(() => muralsCoordsRef.current, haptics.nudge))(),
+          new (createFitMapControl(() => muralsCoordsRef.current, hapticsNudgeRef.current))(),
           "top-right",
         );
-        map.addControl(new (createStyleControl(haptics.toggle))(), "top-right");
-        map.addControl(new (createHeatmapControl(haptics.toggle))(), "top-right");
+        map.addControl(new (createStyleControl(hapticsToggleRef.current))(), "top-right");
+        map.addControl(new (createHeatmapControl(hapticsToggleRef.current))(), "top-right");
 
         // Merge fit and style into the NavigationControl group; keep heatmap as its own stacked group (compass stays in nav).
         // top-right order: [nav, fit, style, heatmap] -> merge fit, style into nav; heatmap remains separate.
@@ -868,8 +898,8 @@ export function MuralMap({
                   wrappers={leafWrappers}
                   murals={leafMurals}
                   zoom={z}
-                  onClick={handleMarkerClick}
-                  prefersReducedMotion={prefersReducedMotion}
+                  onClick={handleMarkerClickRef.current}
+                  prefersReducedMotion={prefersReducedMotionRef.current}
                   showTourNumbers={showTourNumbers}
                   nearbyMuralId={nearbyMuralIdRef.current}
                 />
@@ -904,7 +934,7 @@ export function MuralMap({
                       map.flyTo({
                         center: [lng, lat],
                         zoom: Math.min(expZoom, 17),
-                        duration: flyDuration,
+                        duration: flyDurationRef.current,
                         essential: true,
                       });
                     }}
@@ -952,8 +982,8 @@ export function MuralMap({
               wrappers: placementWrappers,
               placements,
               zoom: z,
-              onClick: handleMarkerClick,
-              prefersReducedMotion,
+              onClick: handleMarkerClickRef.current,
+              prefersReducedMotion: prefersReducedMotionRef.current,
               nearbyMuralId: nearbyId,
             };
             placementWrappers.forEach((el, i) => {
@@ -975,7 +1005,7 @@ export function MuralMap({
             updateMarkersRef.current = updateMarkers;
           }
 
-          if (prefersReducedMotion) {
+          if (prefersReducedMotionRef.current) {
             requestAnimationFrame(() => {
               setMapReady(true);
               const store = useMapStore.getState();
@@ -1116,6 +1146,22 @@ export function MuralMap({
       const markerRefs = markerRefsRef.current;
       markerRefsRef.current = [];
 
+      // Remove map synchronously to prevent WebGL context leaks
+      // map.remove() already destroys all sources, layers, and the WebGL context
+      if (map) {
+        try {
+          map.remove();
+        } catch (e) {
+          // Map may already be removed or in invalid state
+          console.warn("Error removing map:", e);
+        }
+      }
+      // Clear container immediately after removal
+      if (containerRef.current) {
+        containerRef.current.innerHTML = "";
+      }
+
+      // Defer React root unmounting (safe to defer)
       const doUnmount = () => {
         clusterRefs.forEach(({ marker, root }) => {
           root.unmount();
@@ -1128,51 +1174,11 @@ export function MuralMap({
           markersContainer.remove();
         }
         markerRefs.forEach(({ marker }) => marker.remove());
-        if (map?.getLayer(ROUTE_LAYER_ID)) {
-          map.removeLayer(ROUTE_LAYER_ID);
-        }
-        if (map?.getSource(ROUTE_SOURCE_ID)) {
-          map.removeSource(ROUTE_SOURCE_ID);
-        }
-        if (map?.getLayer(USER_LOCATION_LAYER_ID)) {
-          map.removeLayer(USER_LOCATION_LAYER_ID);
-        }
-        if (map?.getSource(USER_LOCATION_SOURCE_ID)) {
-          map.removeSource(USER_LOCATION_SOURCE_ID);
-        }
-        if (map?.getLayer(HOVER_CIRCLE_LINE_LAYER_ID)) {
-          map.removeLayer(HOVER_CIRCLE_LINE_LAYER_ID);
-        }
-        if (map?.getLayer(HOVER_CIRCLE_FILL_LAYER_ID)) {
-          map.removeLayer(HOVER_CIRCLE_FILL_LAYER_ID);
-        }
-        if (map?.getSource(HOVER_CIRCLE_SOURCE_ID)) {
-          map.removeSource(HOVER_CIRCLE_SOURCE_ID);
-        }
-        if (map?.getLayer(GEOFENCE_LINE_LAYER_ID)) {
-          map.removeLayer(GEOFENCE_LINE_LAYER_ID);
-        }
-        if (map?.getLayer(GEOFENCE_FILL_LAYER_ID)) {
-          map.removeLayer(GEOFENCE_FILL_LAYER_ID);
-        }
-        if (map?.getSource(GEOFENCE_SOURCE_ID)) {
-          map.removeSource(GEOFENCE_SOURCE_ID);
-        }
-        if (map?.getLayer(PILSEN_BOUNDARY_LINE_LAYER_ID)) {
-          map.removeLayer(PILSEN_BOUNDARY_LINE_LAYER_ID);
-        }
-        if (map?.getLayer(PILSEN_BOUNDARY_FILL_LAYER_ID)) {
-          map.removeLayer(PILSEN_BOUNDARY_FILL_LAYER_ID);
-        }
-        if (map?.getSource(PILSEN_BOUNDARY_SOURCE_ID)) {
-          map.removeSource(PILSEN_BOUNDARY_SOURCE_ID);
-        }
-        map?.remove();
       };
 
       queueMicrotask(doUnmount);
     };
-  }, [murals, handleMarkerClick, prefersReducedMotion, flyDuration, showTourNumbers, routeCoordinates, haptics.nudge, haptics.toggle]);
+  }, [murals, showTourNumbers, routeCoordinates]);
 
   // Re-render markers when nearby mural changes (geofence) so the "You're near" styling updates
   useEffect(() => {
@@ -1313,7 +1319,7 @@ export function MuralMap({
       zoom: FLY_OPTIONS.zoom,
       pitch: FLY_OPTIONS.pitch,
       bearing,
-      duration: flyDuration,
+      duration: flyDurationRef.current,
       essential: FLY_OPTIONS.essential,
     });
     map.once("moveend", onMoveEnd);

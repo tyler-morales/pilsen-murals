@@ -605,14 +605,34 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
   }, [isImageExpanded]);
 
   useEffect(() => {
+    const container = minimapContainerRef.current;
     if ((!isImageExpanded || isMinimapMinimized) && minimapRef.current) {
-      minimapRef.current.remove();
+      // Remove map synchronously to prevent WebGL context leaks
+      try {
+        minimapRef.current.remove();
+      } catch (e) {
+        // Map may already be removed or in invalid state
+        console.warn("Error removing minimap:", e);
+      }
       minimapRef.current = null;
+      // Clear container immediately after removal
+      if (container) {
+        container.innerHTML = "";
+      }
     }
     return () => {
       if (minimapRef.current) {
-        minimapRef.current.remove();
+        try {
+          minimapRef.current.remove();
+        } catch (e) {
+          // Map may already be removed or in invalid state
+          console.warn("Error removing minimap:", e);
+        }
         minimapRef.current = null;
+      }
+      // Clear container immediately after removal
+      if (container) {
+        container.innerHTML = "";
       }
     };
   }, [isImageExpanded, isMinimapMinimized]);
@@ -626,41 +646,60 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
       mapStyle === "satellite" ? MINIMAP_STYLE_SATELLITE : MINIMAP_STYLE_STANDARD;
 
     let cancelled = false;
+
+    // Check if existing map can be reused (just update coordinates/data, don't recreate)
+    const existingMap = minimapRef.current;
+    if (existingMap) {
+      // Update existing map coordinates and data
+      existingMap.setCenter(coords);
+      existingMap.setZoom(MINIMAP_ZOOM);
+      const muralSource = existingMap.getSource(
+        MINIMAP_MURAL_SOURCE_ID
+      ) as import("mapbox-gl").GeoJSONSource | undefined;
+      if (muralSource) {
+        muralSource.setData({
+          type: "Feature",
+          properties: {},
+          geometry: { type: "Point", coordinates: coords },
+        });
+      }
+      const userCoords = useLocationStore.getState().userCoords;
+      const userSource = existingMap.getSource(
+        MINIMAP_USER_SOURCE_ID
+      ) as import("mapbox-gl").GeoJSONSource | undefined;
+      if (userSource) {
+        userSource.setData(
+          userCoords
+            ? {
+              type: "Feature",
+              properties: {},
+              geometry: { type: "Point", coordinates: userCoords },
+            }
+            : { type: "FeatureCollection", features: [] }
+        );
+      }
+      // If style changed, need to recreate (setStyle can be unreliable, so recreate for safety)
+      // Note: mapStyle is in dependency array, so effect will run when it changes
+      // For now, always recreate to ensure style matches - performance impact is minimal for minimap
+    }
+
+    // Remove any existing map synchronously BEFORE async operations to prevent WebGL context leaks
+    if (minimapRef.current) {
+      try {
+        minimapRef.current.remove();
+      } catch (e) {
+        // Map may already be removed or in invalid state
+        console.warn("Error removing minimap:", e);
+      }
+      minimapRef.current = null;
+    }
+    // Clear container immediately to ensure it's empty (required by Mapbox)
+    container.innerHTML = "";
+
     void ensureMapboxCSS().then(() =>
       import("mapbox-gl").then((mapboxglModule) => {
         if (cancelled || !container) return;
         const mapboxgl = mapboxglModule.default;
-        const existingMap = minimapRef.current;
-        if (existingMap) {
-          existingMap.setCenter(coords);
-          existingMap.setZoom(MINIMAP_ZOOM);
-          const muralSource = existingMap.getSource(
-            MINIMAP_MURAL_SOURCE_ID
-          ) as import("mapbox-gl").GeoJSONSource | undefined;
-          if (muralSource) {
-            muralSource.setData({
-              type: "Feature",
-              properties: {},
-              geometry: { type: "Point", coordinates: coords },
-            });
-          }
-          const userCoords = useLocationStore.getState().userCoords;
-          const userSource = existingMap.getSource(
-            MINIMAP_USER_SOURCE_ID
-          ) as import("mapbox-gl").GeoJSONSource | undefined;
-          if (userSource) {
-            userSource.setData(
-              userCoords
-                ? {
-                  type: "Feature",
-                  properties: {},
-                  geometry: { type: "Point", coordinates: userCoords },
-                }
-                : { type: "FeatureCollection", features: [] }
-            );
-          }
-          return;
-        }
         const map = new mapboxgl.Map({
           container,
           style: styleUrl,
@@ -726,6 +765,20 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
 
     return () => {
       cancelled = true;
+      // Remove map synchronously to prevent WebGL context leaks
+      if (minimapRef.current) {
+        try {
+          minimapRef.current.remove();
+        } catch (e) {
+          // Map may already be removed or in invalid state
+          console.warn("Error removing minimap:", e);
+        }
+        minimapRef.current = null;
+      }
+      // Clear container immediately after removal
+      if (container) {
+        container.innerHTML = "";
+      }
     };
   }, [
     isImageExpanded,
