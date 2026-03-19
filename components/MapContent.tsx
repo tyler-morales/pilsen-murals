@@ -61,9 +61,9 @@ export function MapContent({ murals, collections }: MapContentProps) {
   const currentNearby = useProximityStore((s) => s.currentNearby);
   const isModalOpen = useMuralStore((s) => s.isModalOpen);
   const activeMural = useMuralStore((s) => s.activeMural);
-  // Don't highlight the nearby marker when that mural is already open in the modal (avoids duplicate thumbnail + "You're near" on screen).
+  // Don't highlight the nearby marker when the modal is open (prevents z-index bleed through enlarged view).
   const nearbyMuralIdForMap =
-    currentNearby?.id != null && (!isModalOpen || activeMural?.id !== currentNearby.id)
+    currentNearby?.id != null && !isModalOpen
       ? currentNearby.id
       : null;
 

@@ -122,6 +122,7 @@ export async function POST(request: Request) {
 
     const { error: upsertError } = await supabase
       .from(USER_CAPTURES_TABLE)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- no generated DB types for user_captures table
       .upsert(
         {
           user_id: userId,
@@ -131,7 +132,7 @@ export async function POST(request: Request) {
           lng: lng ?? null,
           distance_meters: null,
           photo_url: storagePath,
-        },
+        } as any,
         { onConflict: "user_id,mural_id" }
       );
     if (upsertError) {
