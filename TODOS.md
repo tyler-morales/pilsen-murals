@@ -137,6 +137,8 @@
 
 ## Refactor / Cleanup (Mar 2026 — codebase hardening)
 
+- **ESLint migration**: Migrated from deprecated `next lint` to ESLint CLI (`eslint .`). Updated `package.json` lint script; `eslint.config.mjs` uses `FlatCompat` to convert legacy `.eslintrc.json` config for ESLint 9 compatibility. Ignore patterns added for `.next`, `node_modules`, and build artifacts.
+
 - **TypeScript (tests)**: CheckMuralModal.test.tsx — fetch stub callback type widened to `RequestInfo | URL`; `findByLabelText` timeout moved to third arg (waitForOptions).
 - **Dead code removed**: Deleted `lib/muralBuildingLayer.ts` (unused Three.js layer). Removed `getMuralsForMapStrict` from `lib/db/murals.ts`; `getDirectionsGeoUri` from `lib/directions.ts`; `groupByMuralId` and `SearchResultPoint` from `lib/searchUtils.ts` (and corresponding tests). Un-exported `altitudeToBrightness` in `lib/sunPilsen.ts`.
 - **Runtime fixes**: PATCH `/api/murals/[id]` no-op path now returns `muralRowToApp(existing)` instead of re-fetching (avoids null assertion). `locationStore.requestLocation` calls `clearWatch()` before starting a new watch to prevent watch ID leak. `MuralMap` cluster click guards `props.cluster_id == null` before `getClusterExpansionZoom`.

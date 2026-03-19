@@ -1172,7 +1172,7 @@ export function MuralMap({
 
       queueMicrotask(doUnmount);
     };
-  }, [murals, handleMarkerClick, prefersReducedMotion, flyDuration, showTourNumbers, routeCoordinates]);
+  }, [murals, handleMarkerClick, prefersReducedMotion, flyDuration, showTourNumbers, routeCoordinates, haptics.nudge, haptics.toggle]);
 
   // Re-render markers when nearby mural changes (geofence) so the "You're near" styling updates
   useEffect(() => {

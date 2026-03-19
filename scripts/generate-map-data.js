@@ -4,6 +4,7 @@
  * Run: npm run generate-map-data
  */
 
+/* eslint-disable @typescript-eslint/no-require-imports */
 const fs = require("fs");
 const path = require("path");
 const ExifReader = require("exifreader");

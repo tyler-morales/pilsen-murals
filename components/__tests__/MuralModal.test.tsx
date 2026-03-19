@@ -6,16 +6,62 @@ import type { Mural } from "@/types/mural";
 import { fixtureMural } from "@/test/fixtures/mural";
 
 vi.mock("next/image", () => ({
-  default: ({ alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => <img alt={alt} {...props} />,
+  default: ({
+    alt,
+    _fill,
+    _priority,
+    _sizes,
+    _quality,
+    _placeholder,
+    _blurDataURL,
+    _loader,
+    _unoptimized,
+    _overrideSrc,
+    ...props
+  }: Record<string, unknown>) => (
+    // eslint-disable-next-line @next/next/no-img-element -- Test mock for Image component
+    <img alt={alt as string} {...props} />
+  ),
 }));
 
 vi.mock("framer-motion", () => ({
   motion: new Proxy(
     {},
     {
-      get: (_target, tag: string) =>
-        ({ children, ...props }: React.HTMLAttributes<HTMLElement>) =>
-          React.createElement(tag, props, children),
+      get: (_target, tag: string) => {
+        const Component = React.forwardRef(
+          (
+            {
+              children,
+              _initial,
+              _animate,
+              _exit,
+              _variants,
+              _transition,
+              _whileHover,
+              _whileTap,
+              _whileDrag,
+              _whileInView,
+              _drag,
+              _dragConstraints,
+              _dragControls,
+              _dragElastic,
+              _dragListener,
+              _onAnimationComplete,
+              _onDragEnd,
+              _onDrag,
+              _onDragStart,
+              _layout,
+              _layoutId,
+              ...props
+            }: Record<string, unknown>,
+            ref: React.Ref<unknown>
+          ) =>
+            React.createElement(tag, { ...props, ref }, children as React.ReactNode)
+        );
+        Component.displayName = `motion.${tag}`;
+        return Component;
+      },
     }
   ),
   AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,

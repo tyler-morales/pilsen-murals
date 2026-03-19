@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useState, useCallback } from "react";
+import Image from "next/image";
 import { Loader2 } from "lucide-react";
 import { ensureMapboxCSS, MAPBOX_STYLE_URLS } from "@/lib/mapbox";
 
@@ -31,6 +32,8 @@ export function LocationConfirm({
   const mapRef = useRef<import("mapbox-gl").Map | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [mapStyle, setMapStyle] = useState<"standard" | "satellite">("satellite");
+  const initialLng = initialCenter[0];
+  const initialLat = initialCenter[1];
 
   useEffect(() => {
     if (!containerRef.current || !MAPBOX_TOKEN) return;
@@ -71,7 +74,7 @@ export function LocationConfirm({
       }
       setMapReady(false);
     };
-  }, [initialCenter[0], initialCenter[1], mapStyle]);
+  }, [initialCenter, initialLng, initialLat, mapStyle]);
 
   const handleConfirm = useCallback(() => {
     const map = mapRef.current;
@@ -98,12 +101,15 @@ export function LocationConfirm({
           aria-hidden
         >
           <div className="flex flex-col items-center">
-            <div className="h-12 w-12 overflow-hidden rounded-full border-2 border-white bg-zinc-200 shadow-lg ring-2 ring-amber-500">
+            <div className="relative h-12 w-12 overflow-hidden rounded-full border-2 border-white bg-zinc-200 shadow-lg ring-2 ring-amber-500">
               {photoPreviewUrl ? (
-                <img
+                <Image
                   src={photoPreviewUrl}
                   alt=""
-                  className="h-full w-full object-cover"
+                  fill
+                  className="object-cover"
+                  sizes="48px"
+                  unoptimized
                 />
               ) : (
                 <span className="block h-full w-full" />

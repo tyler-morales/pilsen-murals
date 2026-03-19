@@ -120,9 +120,18 @@ export async function POST(request: Request) {
     const lng = parseCoord(formData.get("lng"));
     const capturedAt = new Date().toISOString();
 
+    type UserCaptureUpsert = {
+      user_id: string;
+      mural_id: string;
+      captured_at: string;
+      lat: number | null;
+      lng: number | null;
+      distance_meters: number | null;
+      photo_url: string;
+    };
+
     const { error: upsertError } = await supabase
       .from(USER_CAPTURES_TABLE)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- no generated DB types for user_captures table
       .upsert(
         {
           user_id: userId,
@@ -132,7 +141,7 @@ export async function POST(request: Request) {
           lng: lng ?? null,
           distance_meters: null,
           photo_url: storagePath,
-        } as any,
+        } as UserCaptureUpsert,
         { onConflict: "user_id,mural_id" }
       );
     if (upsertError) {

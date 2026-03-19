@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { motion, AnimatePresence, useDragControls } from "framer-motion";
 import { AlertCircle, CircleCheck, ImagePlus, Loader2, RefreshCw, X } from "lucide-react";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -143,12 +144,13 @@ function thumbImg({
   className?: string;
 }) {
   return src ? (
-    <img
+    <Image
       src={src}
       alt=""
       className={className}
       width={112}
       height={112}
+      sizes="112px"
     />
   ) : (
     <span className="block h-full w-full bg-zinc-100" />
@@ -1417,11 +1419,14 @@ export function CheckMuralModal({
                         <p className="text-mobile-subhead font-medium text-zinc-700">Checking your photo…</p>
                         <p className="text-mobile-subhead text-zinc-500">This may take a few seconds.</p>
                         {checkingPreviewUrl && (
-                          <div className="relative w-full max-w-[280px] overflow-hidden rounded-xl bg-zinc-100">
-                            <img
+                          <div className="relative w-full max-w-[280px] overflow-hidden rounded-xl bg-zinc-100" style={{ height: 160 }}>
+                            <Image
                               src={checkingPreviewUrl}
                               alt="Photo being checked"
-                              className="max-h-[160px] w-full object-contain"
+                              fill
+                              className="object-contain"
+                              sizes="280px"
+                              unoptimized
                             />
                             <motion.div
                               className="absolute left-0 right-0 z-10 h-2 rounded-full bg-gradient-to-b from-transparent via-[var(--color-accent)] to-transparent opacity-90 shadow-[0_0_12px_2px_rgba(226,126,166,0.6)]"
@@ -1459,11 +1464,16 @@ export function CheckMuralModal({
                         )}
                         {previewUrl && (
                           <div className="flex flex-col items-center gap-3">
-                            <div className="flex justify-center">
-                              <img
+                            <div className="relative flex justify-center" style={{ maxHeight: "min(40vh, 280px)", maxWidth: "100%" }}>
+                              <Image
                                 src={previewUrl}
                                 alt="Photo you are adding to the database"
-                                className="max-h-[min(40vh,280px)] w-auto max-w-full rounded-lg border border-zinc-200 object-contain"
+                                width={280}
+                                height={280}
+                                className="rounded-lg border border-zinc-200 object-contain"
+                                style={{ maxHeight: "min(40vh, 280px)", width: "auto", height: "auto" }}
+                                sizes="(max-width: 280px) 100vw, 280px"
+                                unoptimized
                               />
                             </div>
                             {displayBuckets.length > 0 && (

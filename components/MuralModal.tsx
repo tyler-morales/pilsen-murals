@@ -24,7 +24,6 @@ import { ArtistCombobox, type ArtistComboboxValue } from "@/components/ArtistCom
 import { useAuthStore } from "@/store/authStore";
 import { useCaptureStore } from "@/store/captureStore";
 import { haversineDistanceMeters } from "@/lib/geo";
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- Star used in enlarged view save button
 import { ensureTurnstileScript } from "@/lib/turnstile-loader";
 import { ExternalLink, Map, Minus, Pencil, Star, X } from "lucide-react";
 
@@ -407,7 +406,7 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
         turnstileWidgetIdRef.current = null;
       }
     };
-  }, [isEditMode, turnstileSiteKey, activeMural?.id]);
+  }, [isEditMode, turnstileSiteKey, activeMural]);
   const panelVariants = isDesktop ? PANEL_RIGHT : DRAWER_UP;
   const isLight = activeMural ? isLightColor(activeMural.dominantColor) : true;
   const contentOverlay = activeMural ? getContentOverlay(activeMural.dominantColor) : undefined;
@@ -426,16 +425,16 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
   const nextMural = canGoNext ? muralsOrder[activeIndex + 1] : null;
   const prevMural = canGoPrev ? muralsOrder[activeIndex - 1] : null;
 
-  const handlePrev = () => {
+  const handlePrev = useCallback(() => {
     haptics.tap();
     if (prevMural) requestFlyTo(prevMural, { openModalAfterFly: false });
     goPrev();
-  };
-  const handleNext = () => {
+  }, [haptics, prevMural, requestFlyTo, goPrev]);
+  const handleNext = useCallback(() => {
     haptics.tap();
     if (nextMural) requestFlyTo(nextMural, { openModalAfterFly: false });
     goNext();
-  };
+  }, [haptics, nextMural, requestFlyTo, goNext]);
 
   useEffect(() => {
     if (!emblaApi || muralsOrder.length === 0) return;
@@ -488,9 +487,8 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
     setIsTransitioningToMap(false);
     setIsImageExpanded(false);
     closeModal();
-  }, [isTransitioningToMap]);
+  }, [isTransitioningToMap, closeModal]);
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- used in enlarged view save button JSX
   const handleStarClick = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
@@ -585,7 +583,7 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
     const justOpened = isModalOpen && !prevModalOpenRef.current;
     prevModalOpenRef.current = isModalOpen;
     if (justOpened && activeMural) haptics.tapMedium();
-  }, [isModalOpen, activeMural?.id, haptics]);
+  }, [isModalOpen, activeMural, haptics]);
 
   useEffect(() => {
     if (!isImageExpanded) {
@@ -600,7 +598,7 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
       setIsEnlargedImageLoaded(false);
       setIsEditMode(false);
     }
-  }, [activeMural?.id]);
+  }, [activeMural]);
 
   useEffect(() => {
     if (isImageExpanded) setIsMinimapMinimized(false);
@@ -732,8 +730,7 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
   }, [
     isImageExpanded,
     isMinimapMinimized,
-    activeMural?.id,
-    activeMural?.coordinates,
+    activeMural,
     mapStyle,
   ]);
 
@@ -1232,10 +1229,10 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
                         muralsOrder.length > 0;
                       const otherByArtist = showMoreByArtist
                         ? muralsOrder.filter(
-                            (m) =>
-                              m.id !== activeMural.id &&
-                              (m.artist || "").trim().toLowerCase() === artistName.toLowerCase()
-                          )
+                          (m) =>
+                            m.id !== activeMural.id &&
+                            (m.artist || "").trim().toLowerCase() === artistName.toLowerCase()
+                        )
                         : [];
                       if (otherByArtist.length === 0) return null;
                       return (

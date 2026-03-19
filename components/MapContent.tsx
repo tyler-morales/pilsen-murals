@@ -129,7 +129,7 @@ export function MapContent({ murals, collections }: MapContentProps) {
     const search = params.toString();
     const url = search ? `${window.location.pathname}?${search}` : window.location.pathname;
     window.history.replaceState(null, "", url);
-  }, [isModalOpen, activeMural?.id]);
+  }, [isModalOpen, activeMural]);
 
   useEffect(() => {
     if (!authLoading && user && enableCheckMural && hasPendingMuralDraft()) {
