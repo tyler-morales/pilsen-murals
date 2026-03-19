@@ -23,6 +23,18 @@
 
 export type MuralSource = "sync" | "user_submission";
 
+export interface ArtistRow {
+  id: string;
+  name: string;
+  instagram_handle: string | null;
+  created_at: string;
+}
+
+export interface ArtistInsert {
+  name: string;
+  instagram_handle?: string | null;
+}
+
 export interface MuralEditRow {
   id: string;
   mural_id: string;
@@ -37,6 +49,7 @@ export interface MuralRow {
   id: string;
   title: string;
   artist: string;
+  artist_id: string | null;
   artist_instagram_handle: string | null;
   coordinates: [number, number];
   bearing: number | null;
@@ -46,6 +59,8 @@ export interface MuralRow {
   image_metadata: Record<string, string> | null;
   source: MuralSource;
   created_at: string;
+  date_captured: string;
+  date_painted?: string | null;
   description?: string | null;
   year_painted?: number | null;
 }
@@ -54,6 +69,7 @@ export interface MuralInsert {
   id: string;
   title: string;
   artist: string;
+  artist_id?: string | null;
   artist_instagram_handle?: string | null;
   coordinates: [number, number];
   bearing?: number | null;
@@ -62,6 +78,8 @@ export interface MuralInsert {
   thumbnail_url?: string | null;
   image_metadata?: Record<string, string> | null;
   source: MuralSource;
+  date_captured?: string;
+  date_painted?: string | null;
   description?: string | null;
   year_painted?: number | null;
 }
@@ -71,6 +89,7 @@ export interface MuralForApp {
   id: string;
   title: string;
   artist: string;
+  artistId?: string | null;
   artistInstagramHandle?: string;
   coordinates: [number, number];
   bearing?: number;
@@ -78,8 +97,26 @@ export interface MuralForApp {
   imageUrl: string;
   thumbnail?: string;
   imageMetadata?: Record<string, string>;
+  dateCaptured?: string;
+  datePainted?: string | null;
   description?: string | null;
   yearPainted?: number | null;
+}
+
+export interface MuralCommunityImageRow {
+  id: string;
+  mural_id: string;
+  user_id: string | null;
+  image_url: string;
+  thumbnail_url: string | null;
+  created_at: string;
+}
+
+export interface MuralCommunityImageInsert {
+  mural_id: string;
+  user_id?: string | null;
+  image_url: string;
+  thumbnail_url?: string | null;
 }
 
 export function muralRowToApp(row: MuralRow): MuralForApp {
@@ -87,6 +124,7 @@ export function muralRowToApp(row: MuralRow): MuralForApp {
     id: row.id,
     title: row.title,
     artist: row.artist,
+    ...(row.artist_id != null && { artistId: row.artist_id }),
     ...(row.artist_instagram_handle && {
       artistInstagramHandle: row.artist_instagram_handle,
     }),
@@ -98,6 +136,8 @@ export function muralRowToApp(row: MuralRow): MuralForApp {
     ...(row.image_metadata && Object.keys(row.image_metadata).length > 0 && {
       imageMetadata: row.image_metadata,
     }),
+    ...(row.date_captured != null && { dateCaptured: row.date_captured }),
+    ...(row.date_painted != null && { datePainted: row.date_painted }),
     ...(row.description != null && { description: row.description }),
     ...(row.year_painted != null && { yearPainted: row.year_painted }),
   };

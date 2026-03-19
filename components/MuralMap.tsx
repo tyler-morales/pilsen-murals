@@ -24,7 +24,7 @@ import pilsenBoundary from "@/data/pilsen-boundary.json";
 import type { Mural } from "@/types/mural";
 import type { MapLightPreset } from "@/store/themeStore";
 import type { MapStyleKind } from "@/store/mapStore";
-import { MAPBOX_STYLE_URLS } from "@/lib/mapbox";
+import { ensureMapboxCSS, MAPBOX_STYLE_URLS } from "@/lib/mapbox";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
 
@@ -597,6 +597,12 @@ export function MuralMap({
     nearbyMuralId: string | null;
   } | null>(null);
 
+  const handleMarkerClickRef = useRef<(mural: Mural) => void>(() => { });
+  const hapticsNudgeRef = useRef<(() => void) | undefined>(undefined);
+  const hapticsToggleRef = useRef<(() => void) | undefined>(undefined);
+  const prefersReducedMotionRef = useRef<boolean>(false);
+  const flyDurationRef = useRef<number>(0);
+
   useEffect(() => {
     const props = placementRenderPropsRef.current;
     const root = singleRootRef.current;
@@ -700,7 +706,7 @@ export function MuralMap({
         zoom: FLY_OPTIONS.zoom,
         pitch: FLY_OPTIONS.pitch,
         bearing,
-        duration: flyDuration,
+        duration: flyDurationRef.current,
         essential: FLY_OPTIONS.essential,
       });
 
@@ -709,8 +715,17 @@ export function MuralMap({
         openModal(mural, murals);
       });
     },
-    [openModal, murals, flyDuration]
+    [openModal, murals]
   );
+
+  // Keep refs updated so the main map effect can use stable references
+  useEffect(() => {
+    handleMarkerClickRef.current = handleMarkerClick;
+    hapticsNudgeRef.current = haptics.nudge;
+    hapticsToggleRef.current = haptics.toggle;
+    prefersReducedMotionRef.current = prefersReducedMotion;
+    flyDurationRef.current = flyDuration;
+  }, [handleMarkerClick, haptics.nudge, haptics.toggle, prefersReducedMotion, flyDuration]);
 
   useEffect(() => {
     if (!containerRef.current || !MAPBOX_TOKEN) return;
@@ -722,384 +737,394 @@ export function MuralMap({
     index.load(points);
     clusterIndexRef.current = index;
 
+    // Remove existing map synchronously BEFORE async operations to prevent WebGL context leaks
+    if (mapRef.current) {
+      try {
+        mapRef.current.remove();
+      } catch (e) {
+        // Map may already be removed or in invalid state
+        console.warn("Error removing map:", e);
+      }
+      mapRef.current = null;
+    }
+    // Clear container immediately to ensure it's empty (required by Mapbox)
+    if (containerRef.current) {
+      containerRef.current.innerHTML = "";
+    }
+
     // Dynamic import so Mapbox (window-dependent) only runs on client
-    import("mapbox-gl").then((mapboxglModule) => {
-      // Load Mapbox CSS non-blocking so first paint is not delayed
-      if (typeof document !== "undefined") {
-        const link = document.createElement("link");
-        link.rel = "stylesheet";
-        link.href = "/mapbox-gl.css";
-        document.head.appendChild(link);
-      }
-      const mapboxgl = mapboxglModule.default;
-      const initialStyle = useMapStore.getState().mapStyle;
-      const initialView = prefersReducedMotion ? INTRO_END : INTRO_START;
-      const map = new mapboxgl.Map({
-        container: containerRef.current!,
-        style: STYLE_URLS[initialStyle],
-        config: {
-          basemap: { show3dBuildings: false },
-        },
-        center: initialView.center,
-        zoom: initialView.zoom,
-        pitch: initialView.pitch,
-        bearing: initialView.bearing,
-        accessToken: MAPBOX_TOKEN,
-        antialias: true,
-      });
-
-      map.addControl(
-        new mapboxgl.NavigationControl({ showZoom: true, showCompass: true, visualizePitch: true }),
-        "top-right"
-      );
-      map.addControl(
-        new (createFitMapControl(() => muralsCoordsRef.current, haptics.nudge))(),
-        "top-right",
-      );
-      map.addControl(new (createStyleControl(haptics.toggle))(), "top-right");
-      map.addControl(new (createHeatmapControl(haptics.toggle))(), "top-right");
-
-      // Merge fit and style into the NavigationControl group; keep heatmap as its own stacked group (compass stays in nav).
-      // top-right order: [nav, fit, style, heatmap] -> merge fit, style into nav; heatmap remains separate.
-      const topRight = containerRef.current?.querySelector(".mapboxgl-ctrl-top-right");
-      if (topRight) {
-        const groups = Array.from(topRight.querySelectorAll<HTMLElement>(":scope > .mapboxgl-ctrl-group"));
-        if (groups.length === 4) {
-          const [navGroup, fitGroup, styleGroup] = groups;
-          const fitBtn = fitGroup.querySelector("button");
-          const styleBtn = styleGroup.querySelector("button");
-          if (fitBtn) navGroup.appendChild(fitBtn);
-          if (styleBtn) navGroup.appendChild(styleBtn);
-          fitGroup.remove();
-          styleGroup.remove();
-          // heatmapGroup stays as its own stacked group (north/compass remains in navGroup)
-        }
-      }
-
-      map.on("load", () => {
-        const preset = useThemeStore.getState().mapLightPreset;
-        applyLightPreset(map, preset);
-        try {
-          map.setConfigProperty("basemap", "showPointOfInterestLabels", false);
-        } catch {
-          // Standard style may not support this config
-        }
-        unsubThemeRef.current = useThemeStore.subscribe(() => {
-          const next = useThemeStore.getState().mapLightPreset;
-          applyLightPreset(map, next);
+    void ensureMapboxCSS().then(() => {
+      return import("mapbox-gl").then((mapboxglModule) => {
+        const mapboxgl = mapboxglModule.default;
+        const initialStyle = useMapStore.getState().mapStyle;
+        const initialView = prefersReducedMotionRef.current ? INTRO_END : INTRO_START;
+        const map = new mapboxgl.Map({
+          container: containerRef.current!,
+          style: STYLE_URLS[initialStyle],
+          config: {
+            basemap: { show3dBuildings: false },
+          },
+          center: initialView.center,
+          zoom: initialView.zoom,
+          pitch: initialView.pitch,
+          bearing: initialView.bearing,
+          accessToken: MAPBOX_TOKEN,
+          antialias: true,
         });
 
-        try {
-          map.setConfigProperty("basemap", "show3dBuildings", true);
-        } catch {
-          // Style may not support this config (e.g. satellite)
+        map.addControl(
+          new mapboxgl.NavigationControl({ showZoom: true, showCompass: true, visualizePitch: true }),
+          "top-right"
+        );
+        map.addControl(
+          new (createFitMapControl(() => muralsCoordsRef.current, hapticsNudgeRef.current))(),
+          "top-right",
+        );
+        map.addControl(new (createStyleControl(hapticsToggleRef.current))(), "top-right");
+        map.addControl(new (createHeatmapControl(hapticsToggleRef.current))(), "top-right");
+
+        // Merge fit and style into the NavigationControl group; keep heatmap as its own stacked group (compass stays in nav).
+        // top-right order: [nav, fit, style, heatmap] -> merge fit, style into nav; heatmap remains separate.
+        const topRight = containerRef.current?.querySelector(".mapboxgl-ctrl-top-right");
+        if (topRight) {
+          const groups = Array.from(topRight.querySelectorAll<HTMLElement>(":scope > .mapboxgl-ctrl-group"));
+          if (groups.length === 4) {
+            const [navGroup, fitGroup, styleGroup] = groups;
+            const fitBtn = fitGroup.querySelector("button");
+            const styleBtn = styleGroup.querySelector("button");
+            if (fitBtn) navGroup.appendChild(fitBtn);
+            if (styleBtn) navGroup.appendChild(styleBtn);
+            fitGroup.remove();
+            styleGroup.remove();
+            // heatmapGroup stays as its own stacked group (north/compass remains in navGroup)
+          }
         }
-        try {
-          map.setFog({
-            range: [1, 12],
-            color: "white",
-            "high-color": "#add8e6",
-            "space-color": "#c9dff0",
-            "star-intensity": 0,
-            "horizon-blend": 0.03,
+
+        map.on("load", () => {
+          const preset = useThemeStore.getState().mapLightPreset;
+          applyLightPreset(map, preset);
+          try {
+            map.setConfigProperty("basemap", "showPointOfInterestLabels", false);
+          } catch {
+            // Standard style may not support this config
+          }
+          unsubThemeRef.current = useThemeStore.subscribe(() => {
+            const next = useThemeStore.getState().mapLightPreset;
+            applyLightPreset(map, next);
           });
-        } catch {
-          // Fog may not be supported by style
-        }
 
-        mapRef.current = map;
-        mapStyleRef.current = initialStyle;
-        setZoom(map.getZoom());
-        setLoadProgress(100);
-
-        const userCoords = useLocationStore.getState().userCoords;
-        addCustomSourcesAndLayers(map, routeCoordinates, userCoords);
-        addHeatmapLayer(map, murals, useMapStore.getState().heatmapVisible);
-
-        const rootContainer = document.createElement("div");
-        rootContainer.className = "mural-markers-root";
-        rootContainer.setAttribute("aria-hidden", "true");
-        rootContainer.style.cssText =
-          "position:absolute;left:0;top:0;width:0;height:0;overflow:hidden;pointer-events:none;";
-        containerRef.current?.appendChild(rootContainer);
-        markersRootContainerRef.current = rootContainer;
-        const root = createRoot(rootContainer);
-        singleRootRef.current = root;
-
-        function getBbox(): [number, number, number, number] {
-          const bounds = map.getBounds();
-          if (!bounds) return [-180, -90, 180, 90];
-          const sw = bounds.getSouthWest();
-          const ne = bounds.getNorthEast();
-          return [sw.lng, sw.lat, ne.lng, ne.lat];
-        }
-
-        function updateMarkers() {
-          if (introAnimatingRef.current) return;
-          const clustersToTeardown = clusterRefsRef.current;
-          const markersToTeardown = markerRefsRef.current;
-          clusterRefsRef.current = [];
-          markerRefsRef.current = [];
-          queueMicrotask(() => {
-            clustersToTeardown.forEach(({ marker, root }) => {
-              root.unmount();
-              marker.remove();
+          try {
+            map.setConfigProperty("basemap", "show3dBuildings", true);
+          } catch {
+            // Style may not support this config (e.g. satellite)
+          }
+          try {
+            map.setFog({
+              range: [1, 12],
+              color: "white",
+              "high-color": "#add8e6",
+              "space-color": "#c9dff0",
+              "star-intensity": 0,
+              "horizon-blend": 0.03,
             });
-            markersToTeardown.forEach(({ marker }) => marker.remove());
-          });
+          } catch {
+            // Fog may not be supported by style
+          }
 
-          const z = map.getZoom();
-          setZoom(z);
+          mapRef.current = map;
+          mapStyleRef.current = initialStyle;
+          setZoom(map.getZoom());
+          setLoadProgress(100);
 
-          if (showTourNumbers) {
-            const leafMurals = [...murals];
-            const leafWrappers = leafMurals.map(() => {
+          const userCoords = useLocationStore.getState().userCoords;
+          addCustomSourcesAndLayers(map, routeCoordinates, userCoords);
+          addHeatmapLayer(map, murals, useMapStore.getState().heatmapVisible);
+
+          const rootContainer = document.createElement("div");
+          rootContainer.className = "mural-markers-root";
+          rootContainer.setAttribute("aria-hidden", "true");
+          rootContainer.style.cssText =
+            "position:absolute;left:0;top:0;width:0;height:0;overflow:hidden;pointer-events:none;";
+          containerRef.current?.appendChild(rootContainer);
+          markersRootContainerRef.current = rootContainer;
+          const root = createRoot(rootContainer);
+          singleRootRef.current = root;
+
+          function getBbox(): [number, number, number, number] {
+            const bounds = map.getBounds();
+            if (!bounds) return [-180, -90, 180, 90];
+            const sw = bounds.getSouthWest();
+            const ne = bounds.getNorthEast();
+            return [sw.lng, sw.lat, ne.lng, ne.lat];
+          }
+
+          function updateMarkers() {
+            if (introAnimatingRef.current) return;
+            const clustersToTeardown = clusterRefsRef.current;
+            const markersToTeardown = markerRefsRef.current;
+            clusterRefsRef.current = [];
+            markerRefsRef.current = [];
+            queueMicrotask(() => {
+              clustersToTeardown.forEach(({ marker, root }) => {
+                root.unmount();
+                marker.remove();
+              });
+              markersToTeardown.forEach(({ marker }) => marker.remove());
+            });
+
+            const z = map.getZoom();
+            setZoom(z);
+
+            if (showTourNumbers) {
+              const leafMurals = [...murals];
+              const leafWrappers = leafMurals.map(() => {
+                const el = document.createElement("div");
+                el.className = "mural-marker-wrapper";
+                return el;
+              });
+              leafMurals.forEach((mural, i) => {
+                const marker = new mapboxgl.Marker({ element: leafWrappers[i], anchor: "bottom" })
+                  .setLngLat(mural.coordinates)
+                  .addTo(map);
+                markerRefsRef.current.push({ marker, wrapperEl: leafWrappers[i], mural });
+              });
+              const nearbyId = nearbyMuralIdRef.current;
+              leafWrappers.forEach((el, i) => {
+                (el as HTMLDivElement).style.zIndex =
+                  leafMurals[i]?.id === nearbyId ? "1000" : "1";
+              });
+              root.render(
+                <AllMarkers
+                  wrappers={leafWrappers}
+                  murals={leafMurals}
+                  zoom={z}
+                  onClick={handleMarkerClickRef.current}
+                  prefersReducedMotion={prefersReducedMotionRef.current}
+                  showTourNumbers={showTourNumbers}
+                  nearbyMuralId={nearbyMuralIdRef.current}
+                />
+              );
+              updateMarkersRef.current = updateMarkers;
+              return;
+            }
+
+            const idx = clusterIndexRef.current;
+            if (!idx) return;
+
+            const bbox = getBbox();
+            const zoomFloor = Math.floor(z);
+            const clustersAndLeaves = idx.getClusters(bbox, zoomFloor);
+
+            const muralById = new Map(murals.map((m) => [m.id, m]));
+            const leaves: { mural: Mural; coordinates: [number, number] }[] = [];
+
+            for (const feature of clustersAndLeaves) {
+              const props = feature.properties as { cluster?: boolean; point_count?: number; cluster_id?: number; muralId?: string };
+              if (props.cluster && props.point_count != null && props.point_count > 1) {
+                const [lng, lat] = feature.geometry.coordinates as [number, number];
+                const el = document.createElement("div");
+                el.className = "mural-marker-wrapper";
+                const clusterRoot = createRoot(el);
+                clusterRoot.render(
+                  <ClusterMarker
+                    count={props.point_count}
+                    onClick={() => {
+                      if (props.cluster_id == null) return;
+                      const expZoom = idx.getClusterExpansionZoom(props.cluster_id);
+                      map.flyTo({
+                        center: [lng, lat],
+                        zoom: Math.min(expZoom, 17),
+                        duration: flyDurationRef.current,
+                        essential: true,
+                      });
+                    }}
+                  />
+                );
+                const marker = new mapboxgl.Marker({ element: el, anchor: "bottom" })
+                  .setLngLat([lng, lat])
+                  .addTo(map);
+                clusterRefsRef.current.push({ marker, root: clusterRoot });
+              } else {
+                const muralId = props.muralId;
+                const mural = muralId ? muralById.get(muralId) : null;
+                if (!mural) continue;
+                leaves.push({ mural, coordinates: mural.coordinates });
+              }
+            }
+
+            const placements = groupLeavesIntoPlacements(leaves);
+            spreadOverlappingPlacements(
+              placements,
+              (coords) => map.project(coords),
+              (point) => {
+                const ll = map.unproject([point.x, point.y]);
+                return [ll.lng, ll.lat];
+              }
+            );
+            const placementWrappers: HTMLDivElement[] = [];
+
+            for (const placement of placements) {
               const el = document.createElement("div");
               el.className = "mural-marker-wrapper";
-              return el;
-            });
-            leafMurals.forEach((mural, i) => {
-              const marker = new mapboxgl.Marker({ element: leafWrappers[i], anchor: "bottom" })
-                .setLngLat(mural.coordinates)
+              const marker = new mapboxgl.Marker({ element: el, anchor: "bottom" })
+                .setLngLat(placement.center)
                 .addTo(map);
-              markerRefsRef.current.push({ marker, wrapperEl: leafWrappers[i], mural });
-            });
+              markerRefsRef.current.push({
+                marker,
+                wrapperEl: el,
+                murals: placement.murals,
+              });
+              placementWrappers.push(el);
+            }
+
             const nearbyId = nearbyMuralIdRef.current;
-            leafWrappers.forEach((el, i) => {
-              (el as HTMLDivElement).style.zIndex =
-                leafMurals[i]?.id === nearbyId ? "1000" : "1";
+            placementRenderPropsRef.current = {
+              wrappers: placementWrappers,
+              placements,
+              zoom: z,
+              onClick: handleMarkerClickRef.current,
+              prefersReducedMotion: prefersReducedMotionRef.current,
+              nearbyMuralId: nearbyId,
+            };
+            placementWrappers.forEach((el, i) => {
+              const placementMurals = placements[i]?.murals ?? [];
+              const isNearby = placementMurals.some((m) => m.id === nearbyId);
+              const isHovered = placementMurals.some(
+                (m) => m.id === hoveredMuralIdRef.current
+              );
+              el.style.zIndex = isNearby || isHovered ? "1000" : "10";
             });
+
             root.render(
-              <AllMarkers
-                wrappers={leafWrappers}
-                murals={leafMurals}
-                zoom={z}
-                onClick={handleMarkerClick}
-                prefersReducedMotion={prefersReducedMotion}
-                showTourNumbers={showTourNumbers}
-                nearbyMuralId={nearbyMuralIdRef.current}
+              <PlacementMarkers
+                {...placementRenderPropsRef.current}
+                hoveredMuralId={hoveredMuralIdRef.current}
+                onHover={(id) => setHoveredMuralIdRef.current?.(id)}
               />
             );
             updateMarkersRef.current = updateMarkers;
-            return;
           }
 
-          const idx = clusterIndexRef.current;
-          if (!idx) return;
-
-          const bbox = getBbox();
-          const zoomFloor = Math.floor(z);
-          const clustersAndLeaves = idx.getClusters(bbox, zoomFloor);
-
-          const muralById = new Map(murals.map((m) => [m.id, m]));
-          const leaves: { mural: Mural; coordinates: [number, number] }[] = [];
-
-          for (const feature of clustersAndLeaves) {
-            const props = feature.properties as { cluster?: boolean; point_count?: number; cluster_id?: number; muralId?: string };
-            if (props.cluster && props.point_count != null && props.point_count > 1) {
-              const [lng, lat] = feature.geometry.coordinates as [number, number];
-              const el = document.createElement("div");
-              el.className = "mural-marker-wrapper";
-              const clusterRoot = createRoot(el);
-              clusterRoot.render(
-                <ClusterMarker
-                  count={props.point_count}
-                  onClick={() => {
-                    if (props.cluster_id == null) return;
-                    const expZoom = idx.getClusterExpansionZoom(props.cluster_id);
-                    map.flyTo({
-                      center: [lng, lat],
-                      zoom: Math.min(expZoom, 17),
-                      duration: flyDuration,
-                      essential: true,
-                    });
-                  }}
-                />
-              );
-              const marker = new mapboxgl.Marker({ element: el, anchor: "bottom" })
-                .setLngLat([lng, lat])
-                .addTo(map);
-              clusterRefsRef.current.push({ marker, root: clusterRoot });
-            } else {
-              const muralId = props.muralId;
-              const mural = muralId ? muralById.get(muralId) : null;
-              if (!mural) continue;
-              leaves.push({ mural, coordinates: mural.coordinates });
-            }
-          }
-
-          const placements = groupLeavesIntoPlacements(leaves);
-          spreadOverlappingPlacements(
-            placements,
-            (coords) => map.project(coords),
-            (point) => {
-              const ll = map.unproject([point.x, point.y]);
-              return [ll.lng, ll.lat];
-            }
-          );
-          const placementWrappers: HTMLDivElement[] = [];
-
-          for (const placement of placements) {
-            const el = document.createElement("div");
-            el.className = "mural-marker-wrapper";
-            const marker = new mapboxgl.Marker({ element: el, anchor: "bottom" })
-              .setLngLat(placement.center)
-              .addTo(map);
-            markerRefsRef.current.push({
-              marker,
-              wrapperEl: el,
-              murals: placement.murals,
-            });
-            placementWrappers.push(el);
-          }
-
-          const nearbyId = nearbyMuralIdRef.current;
-          placementRenderPropsRef.current = {
-            wrappers: placementWrappers,
-            placements,
-            zoom: z,
-            onClick: handleMarkerClick,
-            prefersReducedMotion,
-            nearbyMuralId: nearbyId,
-          };
-          placementWrappers.forEach((el, i) => {
-            const placementMurals = placements[i]?.murals ?? [];
-            const isNearby = placementMurals.some((m) => m.id === nearbyId);
-            const isHovered = placementMurals.some(
-              (m) => m.id === hoveredMuralIdRef.current
-            );
-            el.style.zIndex = isNearby || isHovered ? "1000" : "10";
-          });
-
-          root.render(
-            <PlacementMarkers
-              {...placementRenderPropsRef.current}
-              hoveredMuralId={hoveredMuralIdRef.current}
-              onHover={(id) => setHoveredMuralIdRef.current?.(id)}
-            />
-          );
-          updateMarkersRef.current = updateMarkers;
-        }
-
-        if (prefersReducedMotion) {
-          requestAnimationFrame(() => {
-            setMapReady(true);
-            const store = useMapStore.getState();
-            store.setMapReady(true);
-            store.setIntroComplete(true);
-          });
-          updateMarkers();
-        } else {
-          const INTRO_FLY_MS = 5000;
-          const OVERLAY_FADE_MS = 700;
-          map.once("idle", () => {
+          if (prefersReducedMotionRef.current) {
             requestAnimationFrame(() => {
               setMapReady(true);
-              useMapStore.getState().setMapReady(true);
+              const store = useMapStore.getState();
+              store.setMapReady(true);
+              store.setIntroComplete(true);
             });
-            setIntroAnimating(true);
-            introAnimatingRef.current = true;
-            map.dragPan?.disable();
-            map.scrollZoom?.disable();
-            map.touchZoomRotate?.disable();
-            map.doubleClickZoom?.disable();
-            map.boxZoom?.disable();
-            map.keyboard?.disable();
-            setTimeout(() => {
-              const FOG_START = {
-                range: [0.25, 2.5] as [number, number],
-                "horizon-blend": 0.22,
-                color: "rgba(248,252,255,0.92)",
-              };
-              const FOG_END = {
-                range: [1, 12] as [number, number],
-                "horizon-blend": 0.03,
-                color: "white",
-              };
-              try {
-                map.setFog({
-                  ...FOG_END,
-                  ...FOG_START,
-                  "high-color": "#add8e6",
-                  "space-color": "#c9dff0",
-                  "star-intensity": 0,
+            updateMarkers();
+          } else {
+            const INTRO_FLY_MS = 5000;
+            const OVERLAY_FADE_MS = 700;
+            map.once("idle", () => {
+              requestAnimationFrame(() => {
+                setMapReady(true);
+                useMapStore.getState().setMapReady(true);
+              });
+              setIntroAnimating(true);
+              introAnimatingRef.current = true;
+              map.dragPan?.disable();
+              map.scrollZoom?.disable();
+              map.touchZoomRotate?.disable();
+              map.doubleClickZoom?.disable();
+              map.boxZoom?.disable();
+              map.keyboard?.disable();
+              setTimeout(() => {
+                const FOG_START = {
+                  range: [0.25, 2.5] as [number, number],
+                  "horizon-blend": 0.22,
+                  color: "rgba(248,252,255,0.92)",
+                };
+                const FOG_END = {
+                  range: [1, 12] as [number, number],
+                  "horizon-blend": 0.03,
+                  color: "white",
+                };
+                try {
+                  map.setFog({
+                    ...FOG_END,
+                    ...FOG_START,
+                    "high-color": "#add8e6",
+                    "space-color": "#c9dff0",
+                    "star-intensity": 0,
+                  });
+                } catch {
+                  // Fog may not be supported by style
+                }
+                let fogRafId: number | null = null;
+                const startTime = performance.now();
+                const tick = () => {
+                  const t = Math.min(
+                    (performance.now() - startTime) / INTRO_FLY_MS,
+                    1
+                  );
+                  try {
+                    map.setFog({
+                      range: [
+                        FOG_START.range[0] + (FOG_END.range[0] - FOG_START.range[0]) * t,
+                        FOG_START.range[1] + (FOG_END.range[1] - FOG_START.range[1]) * t,
+                      ] as [number, number],
+                      "horizon-blend":
+                        FOG_START["horizon-blend"] +
+                        (FOG_END["horizon-blend"] - FOG_START["horizon-blend"]) * t,
+                      color:
+                        t >= 1
+                          ? FOG_END.color
+                          : `rgba(255,255,255,${0.9 + 0.1 * t})`,
+                      "high-color": "#add8e6",
+                      "space-color": "#c9dff0",
+                      "star-intensity": 0,
+                    });
+                  } catch {
+                    // Fog may not be supported
+                  }
+                  if (t < 1) fogRafId = requestAnimationFrame(tick);
+                };
+                fogRafId = requestAnimationFrame(tick);
+                map.flyTo({
+                  center: INTRO_END.center,
+                  zoom: INTRO_END.zoom,
+                  pitch: INTRO_END.pitch,
+                  bearing: INTRO_END.bearing,
+                  duration: INTRO_FLY_MS,
+                  curve: 1.8,
+                  essential: true,
                 });
-              } catch {
-                // Fog may not be supported by style
-              }
-              let fogRafId: number | null = null;
-              const startTime = performance.now();
-              const tick = () => {
-                const t = Math.min(
-                  (performance.now() - startTime) / INTRO_FLY_MS,
-                  1
-                );
-                try {
-                  map.setFog({
-                    range: [
-                      FOG_START.range[0] + (FOG_END.range[0] - FOG_START.range[0]) * t,
-                      FOG_START.range[1] + (FOG_END.range[1] - FOG_START.range[1]) * t,
-                    ] as [number, number],
-                    "horizon-blend":
-                      FOG_START["horizon-blend"] +
-                      (FOG_END["horizon-blend"] - FOG_START["horizon-blend"]) * t,
-                    color:
-                      t >= 1
-                        ? FOG_END.color
-                        : `rgba(255,255,255,${0.9 + 0.1 * t})`,
-                    "high-color": "#add8e6",
-                    "space-color": "#c9dff0",
-                    "star-intensity": 0,
-                  });
-                } catch {
-                  // Fog may not be supported
-                }
-                if (t < 1) fogRafId = requestAnimationFrame(tick);
-              };
-              fogRafId = requestAnimationFrame(tick);
-              map.flyTo({
-                center: INTRO_END.center,
-                zoom: INTRO_END.zoom,
-                pitch: INTRO_END.pitch,
-                bearing: INTRO_END.bearing,
-                duration: INTRO_FLY_MS,
-                curve: 1.8,
-                essential: true,
-              });
-              map.once("moveend", () => {
-                if (fogRafId != null) cancelAnimationFrame(fogRafId);
-                try {
-                  map.setFog({
-                    range: FOG_END.range,
-                    color: FOG_END.color,
-                    "high-color": "#add8e6",
-                    "space-color": "#c9dff0",
-                    "star-intensity": 0,
-                    "horizon-blend": FOG_END["horizon-blend"],
-                  });
-                } catch {
-                  // Fog may not be supported
-                }
-                setIntroAnimating(false);
-                introAnimatingRef.current = false;
-                useMapStore.getState().setIntroComplete(true);
-                map.dragPan?.enable();
-                map.scrollZoom?.enable();
-                map.touchZoomRotate?.enable();
-                map.doubleClickZoom?.enable();
-                map.boxZoom?.enable();
-                map.keyboard?.enable();
-                updateMarkers();
-              });
-            }, OVERLAY_FADE_MS);
-          });
-        }
+                map.once("moveend", () => {
+                  if (fogRafId != null) cancelAnimationFrame(fogRafId);
+                  try {
+                    map.setFog({
+                      range: FOG_END.range,
+                      color: FOG_END.color,
+                      "high-color": "#add8e6",
+                      "space-color": "#c9dff0",
+                      "star-intensity": 0,
+                      "horizon-blend": FOG_END["horizon-blend"],
+                    });
+                  } catch {
+                    // Fog may not be supported
+                  }
+                  setIntroAnimating(false);
+                  introAnimatingRef.current = false;
+                  useMapStore.getState().setIntroComplete(true);
+                  map.dragPan?.enable();
+                  map.scrollZoom?.enable();
+                  map.touchZoomRotate?.enable();
+                  map.doubleClickZoom?.enable();
+                  map.boxZoom?.enable();
+                  map.keyboard?.enable();
+                  updateMarkers();
+                });
+              }, OVERLAY_FADE_MS);
+            });
+          }
 
-        const onViewChange = () => {
-          updateMarkers();
-        };
-        map.on("zoomend", onViewChange);
-        map.on("moveend", onViewChange);
+          const onViewChange = () => {
+            updateMarkers();
+          };
+          map.on("zoomend", onViewChange);
+          map.on("moveend", onViewChange);
+        });
       });
     });
 
@@ -1121,6 +1146,22 @@ export function MuralMap({
       const markerRefs = markerRefsRef.current;
       markerRefsRef.current = [];
 
+      // Remove map synchronously to prevent WebGL context leaks
+      // map.remove() already destroys all sources, layers, and the WebGL context
+      if (map) {
+        try {
+          map.remove();
+        } catch (e) {
+          // Map may already be removed or in invalid state
+          console.warn("Error removing map:", e);
+        }
+      }
+      // Clear container immediately after removal
+      if (containerRef.current) {
+        containerRef.current.innerHTML = "";
+      }
+
+      // Defer React root unmounting (safe to defer)
       const doUnmount = () => {
         clusterRefs.forEach(({ marker, root }) => {
           root.unmount();
@@ -1133,51 +1174,11 @@ export function MuralMap({
           markersContainer.remove();
         }
         markerRefs.forEach(({ marker }) => marker.remove());
-        if (map?.getLayer(ROUTE_LAYER_ID)) {
-          map.removeLayer(ROUTE_LAYER_ID);
-        }
-        if (map?.getSource(ROUTE_SOURCE_ID)) {
-          map.removeSource(ROUTE_SOURCE_ID);
-        }
-        if (map?.getLayer(USER_LOCATION_LAYER_ID)) {
-          map.removeLayer(USER_LOCATION_LAYER_ID);
-        }
-        if (map?.getSource(USER_LOCATION_SOURCE_ID)) {
-          map.removeSource(USER_LOCATION_SOURCE_ID);
-        }
-        if (map?.getLayer(HOVER_CIRCLE_LINE_LAYER_ID)) {
-          map.removeLayer(HOVER_CIRCLE_LINE_LAYER_ID);
-        }
-        if (map?.getLayer(HOVER_CIRCLE_FILL_LAYER_ID)) {
-          map.removeLayer(HOVER_CIRCLE_FILL_LAYER_ID);
-        }
-        if (map?.getSource(HOVER_CIRCLE_SOURCE_ID)) {
-          map.removeSource(HOVER_CIRCLE_SOURCE_ID);
-        }
-        if (map?.getLayer(GEOFENCE_LINE_LAYER_ID)) {
-          map.removeLayer(GEOFENCE_LINE_LAYER_ID);
-        }
-        if (map?.getLayer(GEOFENCE_FILL_LAYER_ID)) {
-          map.removeLayer(GEOFENCE_FILL_LAYER_ID);
-        }
-        if (map?.getSource(GEOFENCE_SOURCE_ID)) {
-          map.removeSource(GEOFENCE_SOURCE_ID);
-        }
-        if (map?.getLayer(PILSEN_BOUNDARY_LINE_LAYER_ID)) {
-          map.removeLayer(PILSEN_BOUNDARY_LINE_LAYER_ID);
-        }
-        if (map?.getLayer(PILSEN_BOUNDARY_FILL_LAYER_ID)) {
-          map.removeLayer(PILSEN_BOUNDARY_FILL_LAYER_ID);
-        }
-        if (map?.getSource(PILSEN_BOUNDARY_SOURCE_ID)) {
-          map.removeSource(PILSEN_BOUNDARY_SOURCE_ID);
-        }
-        map?.remove();
       };
 
       queueMicrotask(doUnmount);
     };
-  }, [murals, handleMarkerClick, prefersReducedMotion, flyDuration, showTourNumbers, routeCoordinates]);
+  }, [murals, showTourNumbers, routeCoordinates]);
 
   // Re-render markers when nearby mural changes (geofence) so the "You're near" styling updates
   useEffect(() => {
@@ -1318,7 +1319,7 @@ export function MuralMap({
       zoom: FLY_OPTIONS.zoom,
       pitch: FLY_OPTIONS.pitch,
       bearing,
-      duration: flyDuration,
+      duration: flyDurationRef.current,
       essential: FLY_OPTIONS.essential,
     });
     map.once("moveend", onMoveEnd);

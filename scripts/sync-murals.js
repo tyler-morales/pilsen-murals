@@ -7,6 +7,7 @@
  * is emptied. Only sources that need conversion are re-processed.
  */
 
+/* eslint-disable @typescript-eslint/no-require-imports */
 const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");

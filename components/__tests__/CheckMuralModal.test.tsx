@@ -44,6 +44,7 @@ vi.mock("@/store/authStore", () => ({
 }));
 
 import { useAuthStore } from "@/store/authStore";
+import { clearPendingMuralDraft } from "@/lib/pendingMuralDraft";
 
 describe("isMatchInDb", () => {
   it("returns true when top result score is at or above threshold", () => {
@@ -135,6 +136,7 @@ describe("CheckMuralModal persistence (explicit upload only)", () => {
   const noMatchSearchResponse = { results: [] };
 
   beforeEach(() => {
+    clearPendingMuralDraft();
     process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY = "test-site-key";
     vi.mocked(useAuthStore).mockImplementation(
       (selector: (s: { user: unknown }) => unknown) => selector({ user: null }) as ReturnType<typeof useAuthStore>
@@ -254,6 +256,44 @@ describe("CheckMuralModal persistence (explicit upload only)", () => {
       "Create an account to add your murals to your account."
     );
     expect(screen.queryByText(/Confirm this location/i)).not.toBeInTheDocument();
+  });
+
+  it("shows submit-details (title, artist, date photo taken, mural date) then Next goes to confirm-location", async () => {
+    vi.mocked(useAuthStore).mockImplementation(
+      (selector: (s: { user: unknown }) => unknown) =>
+        selector({ user: { id: "user-1", email: "u@example.com" } }) as ReturnType<typeof useAuthStore>
+    );
+    const user = userEvent.setup();
+    render(<CheckMuralModal isOpen onClose={vi.fn()} />);
+
+    const submitDetailsIntro = await screen.findByText(/Add a few details, then pick the mural location/i, {}, { timeout: 3000 }).catch(() => null);
+    if (!submitDetailsIntro) {
+      const fileInput = screen.getByLabelText(/Choose photo from device/i);
+      await user.upload(fileInput, new File(["x"], "capture.jpg", { type: "image/jpeg" }));
+      const doneBtn = await screen.findByText("Done", {}, { timeout: 3000 });
+      await user.click(doneBtn);
+      await waitFor(() => {
+        expect(screen.getByText(/Confirm photo/i)).toBeInTheDocument();
+      });
+      const confirmPhotoBtn = screen.getByRole("button", {
+        name: /Confirm photo and choose location on map/i,
+        hidden: true,
+      });
+      await user.click(confirmPhotoBtn);
+    }
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Date photo was taken/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/When the mural was painted/i)).toBeInTheDocument();
+      expect(screen.getByText("Next")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText("Next"));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Drag the map to position the pin/)).toBeInTheDocument();
+      expect(screen.getByText("Confirm location")).toBeInTheDocument();
+    });
   });
 
   it("normalizes file upload then calls /api/search (success)", async () => {
@@ -408,7 +448,7 @@ describe("CheckMuralModal duplicate stack (same mural id)", () => {
     await user.click(photo1);
 
     expect(screen.getByLabelText(/2 photos of this mural/)).toBeInTheDocument();
-    expect(screen.getByText("Confirm selection")).toBeInTheDocument();
+    expect(screen.getByText("Add to collection")).toBeInTheDocument();
   });
 
   describe("when API returns distinct murals", () => {

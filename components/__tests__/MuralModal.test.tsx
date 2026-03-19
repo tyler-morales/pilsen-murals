@@ -6,16 +6,62 @@ import type { Mural } from "@/types/mural";
 import { fixtureMural } from "@/test/fixtures/mural";
 
 vi.mock("next/image", () => ({
-  default: ({ alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => <img alt={alt} {...props} />,
+  default: ({
+    alt,
+    fill: _fill,
+    priority: _priority,
+    sizes: _sizes,
+    quality: _quality,
+    placeholder: _placeholder,
+    blurDataURL: _blurDataURL,
+    loader: _loader,
+    unoptimized: _unoptimized,
+    overrideSrc: _overrideSrc,
+    ...props
+  }: Record<string, unknown>) => (
+    // eslint-disable-next-line @next/next/no-img-element -- Test mock for Image component
+    <img alt={alt as string} {...props} />
+  ),
 }));
 
 vi.mock("framer-motion", () => ({
   motion: new Proxy(
     {},
     {
-      get: (_target, tag: string) =>
-        ({ children, ...props }: React.HTMLAttributes<HTMLElement>) =>
-          React.createElement(tag, props, children),
+      get: (_target, tag: string) => {
+        const Component = React.forwardRef(
+          (
+            {
+              children,
+              initial: _initial,
+              animate: _animate,
+              exit: _exit,
+              variants: _variants,
+              transition: _transition,
+              whileHover: _whileHover,
+              whileTap: _whileTap,
+              whileDrag: _whileDrag,
+              whileInView: _whileInView,
+              drag: _drag,
+              dragConstraints: _dragConstraints,
+              dragControls: _dragControls,
+              dragElastic: _dragElastic,
+              dragListener: _dragListener,
+              onAnimationComplete: _onAnimationComplete,
+              onDragEnd: _onDragEnd,
+              onDrag: _onDrag,
+              onDragStart: _onDragStart,
+              layout: _layout,
+              layoutId: _layoutId,
+              ...props
+            }: Record<string, unknown>,
+            ref: React.Ref<unknown>
+          ) =>
+            React.createElement(tag, { ...props, ref }, children as React.ReactNode)
+        );
+        Component.displayName = `motion.${tag}`;
+        return Component;
+      },
     }
   ),
   AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,

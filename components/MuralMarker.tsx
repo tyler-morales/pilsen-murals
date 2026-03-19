@@ -214,6 +214,7 @@ export function MuralMarker({
               }}
               aria-hidden
             />
+            {/* eslint-disable-next-line @next/next/no-img-element -- Mapbox custom markers require native img elements rendered outside React */}
             <img
               src={thumbSrc}
               srcSet={`${mural.thumbnail ?? mural.imageUrl} 400w, ${mural.imageUrl} 1600w`}

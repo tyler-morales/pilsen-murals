@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { motion, AnimatePresence, useDragControls } from "framer-motion";
 import { AlertCircle, CircleCheck, ImagePlus, Loader2, RefreshCw, X } from "lucide-react";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -13,8 +14,11 @@ import { haversineDistanceMeters } from "@/lib/geo";
 import { normalizeImageForUpload } from "@/lib/upload/normalizeImageForUpload";
 import { bucketResultsByMuralId } from "@/lib/searchUtils";
 import { sanitizeErrorFromServer } from "@/lib/errorUtils";
+import { savePendingMuralDraft, getPendingMuralDraft, clearPendingMuralDraft, dataUrlToBlob } from "@/lib/pendingMuralDraft";
 import { ImageEditor } from "@/components/ImageEditor";
 import { LocationConfirm } from "@/components/LocationConfirm";
+import { ArtistCombobox, type ArtistComboboxValue } from "@/components/ArtistCombobox";
+import { ensureTurnstileScript } from "@/lib/turnstile-loader";
 
 /**
  * Cosine similarity threshold: score >= this means "mural is in DB".
@@ -50,6 +54,8 @@ interface CheckMuralModalProps {
   onClose: () => void;
   /** When provided, "View on map" triggers this with the matched mural id and closes modal (no navigation). */
   onViewOnMap?: (muralId: string) => void;
+  /** When provided, called when user adds a mural and clicks "View on map"; receives the new mural for fly-to + detail panel. */
+  onMuralAdded?: (mural: import("@/types/mural").Mural) => void;
   /** When provided, called when a match is confirmed (before close); used to show capture-reveal animation. */
   onCaptureConfirmed?: (muralId: string) => void;
   /** When provided, called when user tries to add a mural but is not authenticated; (title, message) for auth modal. */
@@ -74,7 +80,6 @@ const SIDEBAR_WIDTH = "min(520px, 94vw)";
 
 const TURNSTILE_WIDGET_ID = "check-mural-turnstile";
 const TURNSTILE_CONTAINER_SELECTOR = `#${TURNSTILE_WIDGET_ID}`;
-const TURNSTILE_SCRIPT_URL = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
 
 /** Fallback map center when user location is unavailable (Pilsen, Chicago). [lng, lat] */
 const PILSEN_CENTER: [number, number] = [-87.657, 41.852];
@@ -102,7 +107,7 @@ type ImageCaptureLike = {
   takePhoto: () => Promise<Blob>;
 };
 
-type Phase = "capture" | "edit" | "checking" | "result" | "confirm-location" | "confirmed" | "error";
+type Phase = "capture" | "edit" | "checking" | "result" | "submit-details" | "confirm-location" | "confirmed" | "error";
 type ConfirmedAction = "match" | "added" | null;
 
 interface ZoomCapability {
@@ -139,12 +144,13 @@ function thumbImg({
   className?: string;
 }) {
   return src ? (
-    <img
+    <Image
       src={src}
       alt=""
       className={className}
       width={112}
       height={112}
+      sizes="112px"
     />
   ) : (
     <span className="block h-full w-full bg-zinc-100" />
@@ -284,6 +290,7 @@ export function CheckMuralModal({
   isOpen,
   onClose,
   onViewOnMap,
+  onMuralAdded,
   onCaptureConfirmed,
   onRequestAuth,
   murals,
@@ -296,9 +303,10 @@ export function CheckMuralModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastSubmittedBlobRef = useRef<Blob | null>(null);
   const addToDbWithTokenRef = useRef<((token: string) => void) | null>(null);
-  const submitLearningUpsertRef = useRef<((muralId: string, token: string) => Promise<void>) | null>(null);
+  const submitDiscoveryCaptureRef = useRef<((muralId: string, token: string) => Promise<void>) | null>(null);
   const pendingTurnstileActionRef = useRef<"submit" | { muralId: string } | null>(null);
   const pendingMuralIdRef = useRef<string | null>(null);
+  const addedMuralRef = useRef<import("@/types/mural").Mural | null>(null);
   const pendingSubmitCoordsRef = useRef<[number, number] | null>(null);
   const turnstileWidgetIdRef = useRef<string | null>(null);
   const zoomLevelRef = useRef(1);
@@ -327,7 +335,17 @@ export function CheckMuralModal({
   const [confirmedAction, setConfirmedAction] = useState<ConfirmedAction>(null);
   const [editImageUrl, setEditImageUrl] = useState<string | null>(null);
   const [submitTitle, setSubmitTitle] = useState("");
-  const [submitArtist, setSubmitArtist] = useState("");
+  const [submitArtistValue, setSubmitArtistValue] = useState<ArtistComboboxValue>({
+    id: null,
+    name: "",
+  });
+  const [submitDateCaptured, setSubmitDateCaptured] = useState("");
+  const [submitDatePainted, setSubmitDatePainted] = useState("");
+
+  function getTodayLocalDate(): string {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
 
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const showFullScreenCapture = isOpen && !isDesktop && phase === "capture";
@@ -505,10 +523,13 @@ export function CheckMuralModal({
       setExpandedStackId(null);
       setAddToDbPending(false);
       setSubmitTitle("");
-      setSubmitArtist("");
+      setSubmitArtistValue({ id: null, name: "" });
+      setSubmitDateCaptured("");
+      setSubmitDatePainted("");
       lastSubmittedBlobRef.current = null;
       pendingMuralIdRef.current = null;
       pendingSubmitCoordsRef.current = null;
+      clearPendingMuralDraft();
       if (previewUrl) {
         URL.revokeObjectURL(previewUrl);
         setPreviewUrl(null);
@@ -521,7 +542,31 @@ export function CheckMuralModal({
   }, [isOpen, stopCamera, previewUrl, checkingPreviewUrl]);
 
   useEffect(() => {
-    if ((phase === "result" || phase === "confirm-location") && lastSubmittedBlobRef.current) {
+    if (!isOpen || !user) return;
+    const draft = getPendingMuralDraft();
+    if (!draft) return;
+    try {
+      const blob = dataUrlToBlob(draft.imageDataUrl);
+      lastSubmittedBlobRef.current = blob;
+      setSearchResult(draft.searchResult as SearchResponse);
+      if (draft.matchedMuralId) {
+        const match = (draft.searchResult.results ?? []).find(
+          (r: { id: string }) => r.id === draft.matchedMuralId
+        );
+        if (match) setSelectedResult(match as SearchResultItem);
+        setPhase("result");
+      } else {
+        setSubmitDateCaptured((d) => d || getTodayLocalDate());
+        setPhase("submit-details");
+      }
+      clearPendingMuralDraft();
+    } catch {
+      clearPendingMuralDraft();
+    }
+  }, [isOpen, user]);
+
+  useEffect(() => {
+    if ((phase === "result" || phase === "submit-details" || phase === "confirm-location") && lastSubmittedBlobRef.current) {
       const url = URL.createObjectURL(lastSubmittedBlobRef.current);
       setPreviewUrl(url);
       return () => {
@@ -777,19 +822,54 @@ export function CheckMuralModal({
     startCamera();
   }, [startCamera, previewUrl]);
 
-  const submitLearningUpsert = useCallback(async (muralId: string, token: string) => {
-    const blob = lastSubmittedBlobRef.current;
-    if (!blob) return;
-    const fd = new FormData();
-    fd.append("turnstileToken", token);
-    fd.append("image", blob, "capture.jpg");
-    fd.append("muralId", muralId);
-    try {
-      await fetch("/api/murals", { method: "POST", body: fd });
-    } catch {
-      // Fire-and-forget; learning best-effort
-    }
-  }, []);
+  const submitDiscoveryCapture = useCallback(
+    async (muralId: string, token: string) => {
+      const blob = lastSubmittedBlobRef.current;
+      if (!blob) return;
+      const fd = new FormData();
+      fd.append("turnstileToken", token);
+      fd.append("image", blob, "capture.jpg");
+      fd.append("muralId", muralId);
+      if (userCoords) {
+        fd.append("lat", String(userCoords[1]));
+        fd.append("lng", String(userCoords[0]));
+      }
+      try {
+        const res = await fetch("/api/captures", { method: "POST", body: fd });
+        if (res.ok) {
+          await res.json();
+          setPhase("confirmed");
+          setConfirmedAction("match");
+          pendingMuralIdRef.current = muralId;
+          setLearningPending(false);
+          haptics.success();
+          const win = window as unknown as { turnstile?: { reset?: (container: string) => void } };
+          win.turnstile?.reset?.(TURNSTILE_CONTAINER_SELECTOR);
+        } else {
+          let err: { error?: string } = {};
+          try {
+            const text = await res.text();
+            err = text ? (JSON.parse(text) as { error?: string }) : {};
+          } catch {
+            // ignore
+          }
+          setSearchError(
+            sanitizeErrorFromServer(err?.error) ??
+            "We couldn't add this to your collection. Please try again."
+          );
+          setPhase("error");
+          setLearningPending(false);
+        }
+      } catch {
+        setSearchError(
+          "It looks like you're offline or have a weak connection. Check your internet and try again."
+        );
+        setPhase("error");
+        setLearningPending(false);
+      }
+    },
+    [userCoords, haptics]
+  );
 
   const doAddToDbWithToken = useCallback(
     async (token: string) => {
@@ -808,12 +888,34 @@ export function CheckMuralModal({
       fd.append("lat", String(coords[1]));
       fd.append("lng", String(coords[0]));
       if (submitTitle.trim()) fd.append("title", submitTitle.trim());
-      if (submitArtist.trim()) fd.append("artist", submitArtist.trim());
+      if (submitArtistValue.id) fd.append("artistId", submitArtistValue.id);
+      if (submitArtistValue.name.trim()) fd.append("artist", submitArtistValue.name.trim());
+      const dateCapturedValue =
+        submitDateCaptured.trim()
+          ? new Date(submitDateCaptured.trim()).toISOString()
+          : new Date().toISOString();
+      fd.append("dateCaptured", dateCapturedValue);
+      if (submitDatePainted.trim()) fd.append("datePainted", submitDatePainted.trim());
       try {
         const res = await fetch("/api/murals/submit", { method: "POST", body: fd });
         if (res.ok) {
+          const data = (await res.json()) as { mural?: import("@/types/mural").Mural };
+          const newMural = data.mural ?? null;
+          addedMuralRef.current = newMural;
           setAddToDbPending(false);
           haptics.success();
+          if (newMural) {
+            addCapture(
+              {
+                muralId: newMural.id,
+                capturedAt: new Date().toISOString(),
+                lat: coords[1],
+                lng: coords[0],
+                distanceMeters: 0,
+              },
+              lastSubmittedBlobRef.current ?? undefined
+            );
+          }
           setConfirmedAction("added");
           setPhase("confirmed");
           const win = window as unknown as {
@@ -843,7 +945,7 @@ export function CheckMuralModal({
         setAddToDbPending(false);
       }
     },
-    [userCoords, haptics, submitTitle, submitArtist]
+    [userCoords, haptics, submitTitle, submitArtistValue, submitDateCaptured, submitDatePainted, addCapture]
   );
 
   useEffect(() => {
@@ -851,8 +953,8 @@ export function CheckMuralModal({
   }, [doAddToDbWithToken]);
 
   useEffect(() => {
-    submitLearningUpsertRef.current = submitLearningUpsert;
-  }, [submitLearningUpsert]);
+    submitDiscoveryCaptureRef.current = submitDiscoveryCapture;
+  }, [submitDiscoveryCapture]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -866,6 +968,7 @@ export function CheckMuralModal({
 
   const handleTurnstileError = useCallback((_errorCode?: number) => {
     setAddToDbPending(false);
+    setLearningPending(false);
     setSearchError(
       "Security check didn't complete. Please try again or refresh the page."
     );
@@ -895,12 +998,9 @@ export function CheckMuralModal({
         if (action === "submit") {
           addToDbWithTokenRef.current?.(token);
         } else if (action && "muralId" in action) {
-          submitLearningUpsertRef.current?.(action.muralId, token).then(() => {
-            setPhase("confirmed");
-            setConfirmedAction("match");
-            pendingMuralIdRef.current = action.muralId;
+          submitDiscoveryCaptureRef.current?.(action.muralId, token).catch(() => {
             setLearningPending(false);
-          }).catch(() => setLearningPending(false));
+          });
         }
       },
       execution: "execute" as const,
@@ -909,24 +1009,17 @@ export function CheckMuralModal({
         return true;
       },
     };
-    const existingScript = document.querySelector(`script[src="${TURNSTILE_SCRIPT_URL}"]`);
-    if (!existingScript) {
-      const script = document.createElement("script");
-      script.src = TURNSTILE_SCRIPT_URL;
-      script.async = true;
-      script.onload = () => {
-        const container = document.querySelector(TURNSTILE_CONTAINER_SELECTOR);
-        if (container && win.turnstile?.render && !turnstileWidgetIdRef.current) {
-          turnstileWidgetIdRef.current = win.turnstile.render(TURNSTILE_CONTAINER_SELECTOR, renderOptions);
-        }
-      };
-      document.head.appendChild(script);
-      return;
-    }
-    const container = document.querySelector(TURNSTILE_CONTAINER_SELECTOR);
-    if (container && win.turnstile?.render && !turnstileWidgetIdRef.current) {
-      turnstileWidgetIdRef.current = win.turnstile.render(TURNSTILE_CONTAINER_SELECTOR, renderOptions);
-    }
+    let cancelled = false;
+    void ensureTurnstileScript().then(() => {
+      if (cancelled) return;
+      const container = document.querySelector(TURNSTILE_CONTAINER_SELECTOR);
+      if (container && win.turnstile?.render && !turnstileWidgetIdRef.current) {
+        turnstileWidgetIdRef.current = win.turnstile.render(TURNSTILE_CONTAINER_SELECTOR, renderOptions);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen, turnstileSiteKey, phase, handleTurnstileError]);
 
   const executeTurnstile = useCallback(() => {
@@ -960,29 +1053,51 @@ export function CheckMuralModal({
     executeTurnstile();
   }, [turnstileSiteKey, executeTurnstile]);
 
-  const executeTurnstileForLearning = useCallback((muralId: string) => {
-    if (!turnstileSiteKey) {
-      setSearchError(
-        "Something's not set up correctly on our end. Please try again later."
-      );
-      setPhase("error");
-      return;
-    }
-    pendingTurnstileActionRef.current = { muralId };
-    executeTurnstile();
-  }, [turnstileSiteKey, executeTurnstile]);
+  const executeTurnstileForDiscovery = useCallback(
+    (muralId: string) => {
+      if (!user) {
+        const blob = lastSubmittedBlobRef.current;
+        const result = searchResult;
+        if (blob && result) {
+          savePendingMuralDraft(blob, result, muralId).catch(() => { });
+        }
+        onRequestAuth?.(
+          "Sign in",
+          "Create an account to save this mural to your collection."
+        );
+        return;
+      }
+      if (!turnstileSiteKey) {
+        setSearchError(
+          "Something's not set up correctly on our end. Please try again later."
+        );
+        setPhase("error");
+        return;
+      }
+      pendingTurnstileActionRef.current = { muralId };
+      executeTurnstile();
+    },
+    [user, turnstileSiteKey, searchResult, onRequestAuth, executeTurnstile]
+  );
 
   const handleAddToDb = useCallback(() => {
     if (!lastSubmittedBlobRef.current) return;
     if (!user) {
+      const blob = lastSubmittedBlobRef.current;
+      const result = searchResult;
+      if (result) {
+        savePendingMuralDraft(blob, result).catch(() => { });
+      }
       onRequestAuth?.("Sign in", "Create an account to add your murals to your account.");
       return;
     }
-    setPhase("confirm-location");
-  }, [user, onRequestAuth]);
+    setSubmitDateCaptured((d) => d || getTodayLocalDate());
+    setPhase("submit-details");
+  }, [user, onRequestAuth, searchResult]);
 
   const handleConfirmLocation = useCallback(
     (coords: [number, number]) => {
+      setAddToDbPending(true);
       pendingSubmitCoordsRef.current = coords;
       executeTurnstileForSubmit();
     },
@@ -1000,13 +1115,16 @@ export function CheckMuralModal({
         userCoords && mural
           ? haversineDistanceMeters(userCoords, mural.coordinates)
           : null;
-      addCapture({
-        muralId,
-        capturedAt: new Date().toISOString(),
-        lat,
-        lng,
-        distanceMeters,
-      });
+      addCapture(
+        {
+          muralId,
+          capturedAt: new Date().toISOString(),
+          lat,
+          lng,
+          distanceMeters,
+        },
+        lastSubmittedBlobRef.current ?? undefined
+      );
       if (onCaptureConfirmed) {
         onCaptureConfirmed(muralId);
         pendingMuralIdRef.current = null;
@@ -1301,11 +1419,14 @@ export function CheckMuralModal({
                         <p className="text-mobile-subhead font-medium text-zinc-700">Checking your photo…</p>
                         <p className="text-mobile-subhead text-zinc-500">This may take a few seconds.</p>
                         {checkingPreviewUrl && (
-                          <div className="relative w-full max-w-[280px] overflow-hidden rounded-xl bg-zinc-100">
-                            <img
+                          <div className="relative w-full max-w-[280px] overflow-hidden rounded-xl bg-zinc-100" style={{ height: 160 }}>
+                            <Image
                               src={checkingPreviewUrl}
                               alt="Photo being checked"
-                              className="max-h-[160px] w-full object-contain"
+                              fill
+                              className="object-contain"
+                              sizes="280px"
+                              unoptimized
                             />
                             <motion.div
                               className="absolute left-0 right-0 z-10 h-2 rounded-full bg-gradient-to-b from-transparent via-[var(--color-accent)] to-transparent opacity-90 shadow-[0_0_12px_2px_rgba(226,126,166,0.6)]"
@@ -1343,11 +1464,16 @@ export function CheckMuralModal({
                         )}
                         {previewUrl && (
                           <div className="flex flex-col items-center gap-3">
-                            <div className="flex justify-center">
-                              <img
+                            <div className="relative flex justify-center" style={{ maxHeight: "min(40vh, 280px)", maxWidth: "100%" }}>
+                              <Image
                                 src={previewUrl}
                                 alt="Photo you are adding to the database"
-                                className="max-h-[min(40vh,280px)] w-auto max-w-full rounded-lg border border-zinc-200 object-contain"
+                                width={280}
+                                height={280}
+                                className="rounded-lg border border-zinc-200 object-contain"
+                                style={{ maxHeight: "min(40vh, 280px)", width: "auto", height: "auto" }}
+                                sizes="(max-width: 280px) 100vw, 280px"
+                                unoptimized
                               />
                             </div>
                             {displayBuckets.length > 0 && (
@@ -1435,7 +1561,7 @@ export function CheckMuralModal({
                                     if (selectedResult && selectedResult !== "none") {
                                       haptics.success();
                                       setLearningPending(true);
-                                      executeTurnstileForLearning(selectedResult.id);
+                                      executeTurnstileForDiscovery(selectedResult.id);
                                     }
                                   }}
                                   disabled={!selectedResult || selectedResult === "none" || learningPending}
@@ -1471,7 +1597,7 @@ export function CheckMuralModal({
                               gridClass={`grid max-h-[min(55vh,360px)] gap-3 overflow-y-auto justify-items-center ${displayBuckets.length === 1 ? "grid-cols-1" : displayBuckets.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}
                               listAriaLabel="Search results"
                               selectLabel="Select"
-                              confirmLabel="Confirm"
+                              confirmLabel="Add to collection"
                             />
                             <div className="flex min-h-[44px] w-full flex-row items-stretch gap-3">
                               <button
@@ -1497,7 +1623,7 @@ export function CheckMuralModal({
                                   } else if (selectedResult) {
                                     haptics.success();
                                     setLearningPending(true);
-                                    executeTurnstileForLearning(selectedResult.id);
+                                    executeTurnstileForDiscovery(selectedResult.id);
                                   }
                                 }}
                                 disabled={selectedResult === null || (selectedResult === "none" && addToDbPending) || (selectedResult !== "none" && selectedResult !== null && learningPending)}
@@ -1511,10 +1637,10 @@ export function CheckMuralModal({
                                 ) : selectedResult !== "none" && selectedResult !== null && learningPending ? (
                                   <>
                                     <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
-                                    Confirming…
+                                    Adding…
                                   </>
                                 ) : (
-                                  "Confirm selection"
+                                  "Add to collection"
                                 )}
                               </button>
                             </div>
@@ -1533,8 +1659,11 @@ export function CheckMuralModal({
                       </div>
                     )}
 
-                    {phase === "confirm-location" && (
+                    {phase === "submit-details" && (
                       <div className="flex flex-col gap-4">
+                        <p className="text-mobile-body text-zinc-600">
+                          Add a few details, then pick the mural location on the map.
+                        </p>
                         <div className="grid gap-3 sm:grid-cols-2">
                           <div>
                             <label htmlFor="submit-mural-title" className="sr-only">
@@ -1554,23 +1683,72 @@ export function CheckMuralModal({
                             <label htmlFor="submit-mural-artist" className="sr-only">
                               Artist (optional)
                             </label>
-                            <input
+                            <ArtistCombobox
                               id="submit-mural-artist"
-                              type="text"
-                              value={submitArtist}
-                              onChange={(e) => setSubmitArtist(e.target.value)}
+                              value={submitArtistValue}
+                              onChange={setSubmitArtistValue}
                               placeholder="e.g., Hector Duarte"
-                              className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-mobile-body text-zinc-900 placeholder:text-zinc-400 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                              isLight
                               aria-label="Artist (optional)"
+                              className="rounded-xl"
                             />
                           </div>
                         </div>
+                        <div>
+                          <label htmlFor="submit-date-captured" className="block text-mobile-subhead font-medium text-zinc-700 mb-1">
+                            Date photo taken
+                          </label>
+                          <input
+                            id="submit-date-captured"
+                            type="date"
+                            value={submitDateCaptured || getTodayLocalDate()}
+                            onChange={(e) => setSubmitDateCaptured(e.target.value)}
+                            className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-mobile-body text-zinc-900 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                            aria-label="Date photo was taken"
+                          />
+                        </div>
+                        <div>
+                          <label htmlFor="submit-date-painted" className="block text-mobile-subhead font-medium text-zinc-700 mb-1">
+                            Mural date (optional)
+                          </label>
+                          <input
+                            id="submit-date-painted"
+                            type="date"
+                            value={submitDatePainted}
+                            onChange={(e) => setSubmitDatePainted(e.target.value)}
+                            className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-mobile-body text-zinc-900 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                            aria-label="When the mural was painted (optional)"
+                          />
+                        </div>
+                        <div className="flex gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setPhase("result")}
+                            className="min-h-[44px] flex-1 rounded-xl border-2 border-zinc-300 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700 transition-colors hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
+                            aria-label="Back to results"
+                          >
+                            Back
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPhase("confirm-location")}
+                            className="min-h-[44px] flex-1 rounded-xl border-2 border-[var(--color-accent)] bg-[var(--color-accent)] px-4 py-2.5 text-sm font-semibold text-[var(--color-accent-foreground)] transition-colors hover:bg-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
+                            aria-label="Next: choose location on map"
+                          >
+                            Next
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {phase === "confirm-location" && (
+                      <div className="flex flex-col gap-4">
                         <LocationConfirm
                           initialCenter={userCoords ?? PILSEN_CENTER}
                           photoPreviewUrl={previewUrl}
                           isSubmitting={addToDbPending}
                           onConfirm={handleConfirmLocation}
-                          onBack={() => setPhase("result")}
+                          onBack={() => setPhase("submit-details")}
                         />
                       </div>
                     )}
@@ -1597,14 +1775,29 @@ export function CheckMuralModal({
                         </p>
                         {confirmedAction !== "match" && (
                           <div className="mt-2 flex w-full max-w-xs flex-col gap-2">
-                            <button
-                              type="button"
-                              onClick={onClose}
-                              className="min-h-[44px] w-full rounded-xl bg-[var(--color-accent)] px-4 py-2.5 text-base font-semibold text-[var(--color-accent-foreground)] shadow-sm transition-colors hover:bg-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
-                              aria-label="Done"
-                            >
-                              Done
-                            </button>
+                            {onMuralAdded ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const mural = addedMuralRef.current;
+                                  if (mural) onMuralAdded(mural);
+                                  onClose();
+                                }}
+                                className="min-h-[44px] w-full rounded-xl bg-[var(--color-accent)] px-4 py-2.5 text-base font-semibold text-[var(--color-accent-foreground)] shadow-sm transition-colors hover:bg-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
+                                aria-label="View on map"
+                              >
+                                View on map
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={onClose}
+                                className="min-h-[44px] w-full rounded-xl bg-[var(--color-accent)] px-4 py-2.5 text-base font-semibold text-[var(--color-accent-foreground)] shadow-sm transition-colors hover:bg-[var(--color-accent-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
+                                aria-label="Done"
+                              >
+                                Done
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={handleCheckAnother}

@@ -4,7 +4,13 @@
  * Writes audit rows to mural_edits; syncs title/artist to Qdrant payload for search.
  */
 import { NextResponse } from "next/server";
-import { insertMural, updateMural, selectMuralById } from "@/lib/db/client";
+import {
+  insertMural,
+  updateMural,
+  selectMuralById,
+  getArtistById,
+  findOrCreateArtist,
+} from "@/lib/db/client";
 import { muralRowToApp } from "@/lib/db/schema";
 import { verifyTurnstile } from "@/lib/turnstile";
 import { getQdrantClient, COLLECTION_NAME } from "@/lib/qdrant/client";
@@ -78,6 +84,7 @@ export async function PATCH(
       turnstileToken?: string;
       title?: string;
       artist?: string;
+      artistId?: string | null;
       artistInstagramHandle?: string | null;
     };
 
@@ -120,9 +127,27 @@ export async function PATCH(
       const v = body.title.trim().slice(0, MAX_TITLE_ARTIST_LEN);
       if (v) fields.title = v;
     }
-    if (typeof body.artist === "string") {
+    if (body.artistId !== undefined) {
+      if (body.artistId == null || body.artistId === "") {
+        fields.artist_id = null;
+        fields.artist = "Unknown Artist";
+      } else {
+        const artistRow = await getArtistById(body.artistId);
+        if (artistRow) {
+          fields.artist_id = artistRow.id;
+          fields.artist = artistRow.name;
+        }
+      }
+    } else if (typeof body.artist === "string") {
       const v = body.artist.trim().slice(0, MAX_TITLE_ARTIST_LEN);
-      if (v) fields.artist = v;
+      if (v) {
+        const artistRow = await findOrCreateArtist(
+          v,
+          body.artistInstagramHandle ?? existing.artist_instagram_handle
+        );
+        fields.artist_id = artistRow.id;
+        fields.artist = artistRow.name;
+      }
     }
     if (body.artistInstagramHandle !== undefined) {
       fields.artist_instagram_handle =

@@ -3,15 +3,16 @@
  * Community submission: Turnstile-verified multipart upload. Processes image to WebP,
  * uploads to storage, inserts canonical mural in DB, and upserts embedding into Qdrant.
  *
- * FormData: turnstileToken (required), image (file), lat, lng (required), optional title, artist.
+ * FormData: turnstileToken (required), image (file), lat, lng (required), optional title, artist, dateCaptured (ISO), datePainted (YYYY-MM-DD).
  */
 import { NextResponse } from "next/server";
 import { getQdrantClient, COLLECTION_NAME } from "@/lib/qdrant/client";
 import { getImageEmbedding } from "@/lib/ai/embedding";
-import { insertMural } from "@/lib/db/client";
+import { insertMural, getArtistById, findOrCreateArtist } from "@/lib/db/client";
 import { supabaseMuralStorage } from "@/lib/storage/supabase";
 import { processUploadedImage } from "@/lib/upload/processImage";
 import { verifyTurnstile } from "@/lib/turnstile";
+import { parseDateCaptured, parseDatePainted } from "@/lib/murals/parseMuralDates";
 
 const FALLBACK_TITLE = "Community Mural";
 const FALLBACK_ARTIST = "Unknown Artist";
@@ -93,12 +94,33 @@ export async function POST(request: Request) {
 
     const titleRaw = formData.get("title");
     const artistRaw = formData.get("artist");
+    const artistIdRaw = formData.get("artistId");
     const title =
       (typeof titleRaw === "string" && titleRaw.trim() !== "" ? titleRaw.trim() : null) ||
       FALLBACK_TITLE;
-    const artist =
-      (typeof artistRaw === "string" && artistRaw.trim() !== "" ? artistRaw.trim() : null) ||
-      FALLBACK_ARTIST;
+
+    let artist = FALLBACK_ARTIST;
+    let artistId: string | null = null;
+    const artistIdParam =
+      typeof artistIdRaw === "string" && artistIdRaw.trim() !== "" ? artistIdRaw.trim() : null;
+    const artistNameParam =
+      typeof artistRaw === "string" && artistRaw.trim() !== "" ? artistRaw.trim() : null;
+
+    if (artistIdParam) {
+      const artistRow = await getArtistById(artistIdParam);
+      if (artistRow) {
+        artist = artistRow.name;
+        artistId = artistRow.id;
+      }
+    }
+    if (!artistId && artistNameParam) {
+      const artistRow = await findOrCreateArtist(artistNameParam);
+      artist = artistRow.name;
+      artistId = artistRow.id;
+    }
+
+    const dateCaptured = parseDateCaptured(formData.get("dateCaptured"));
+    const datePainted = parseDatePainted(formData.get("datePainted"));
 
     const muralId = crypto.randomUUID();
 
@@ -106,6 +128,7 @@ export async function POST(request: Request) {
       id: muralId,
       title,
       artist,
+      artist_id: artistId,
       coordinates,
       bearing: null,
       dominant_color: processed.dominantColor,
@@ -113,6 +136,8 @@ export async function POST(request: Request) {
       thumbnail_url: thumbResult.url,
       image_metadata: processed.imageMetadata ?? null,
       source: "user_submission",
+      date_captured: dateCaptured,
+      date_painted: datePainted,
     });
 
     const vector = await getImageEmbedding(displayResult.url);
@@ -138,7 +163,22 @@ export async function POST(request: Request) {
     });
 
     return NextResponse.json(
-      { id: muralId, ok: true, imageUrl: displayResult.url },
+      {
+        id: muralId,
+        ok: true,
+        mural: {
+          id: muralId,
+          title,
+          artist,
+          artistId: artistId ?? undefined,
+          coordinates,
+          dominantColor: processed.dominantColor,
+          imageUrl: displayResult.url,
+          thumbnail: thumbResult.url,
+          dateCaptured,
+          datePainted,
+        },
+      },
       { status: 201 }
     );
   } catch (err) {

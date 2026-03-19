@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { motion } from "framer-motion";
 import { useHaptics } from "@/hooks/useHaptics";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
@@ -199,10 +200,12 @@ export function CaptureRevealAnimation({
               className="absolute inset-0 rounded-2xl border-4 border-white shadow-2xl"
               style={{ backfaceVisibility: "hidden" }}
             >
-              <img
+              <Image
                 src={mural.thumbnail ?? mural.imageUrl}
                 alt=""
-                className="h-full w-full rounded-xl object-cover"
+                fill
+                className="rounded-xl object-cover"
+                sizes="200px"
               />
             </div>
             <div

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { useWebHaptics } from "web-haptics/react";
 import { usePrefersReducedMotion } from "./usePrefersReducedMotion";
 
@@ -19,15 +19,18 @@ export function useHaptics() {
     [trigger, reducedMotion],
   );
 
-  return {
-    tap: () => fire([20]),
-    tapMedium: () => fire([30]),
-    nudge: () => fire("nudge"),
-    success: () => fire("success"),
-    error: () => fire("error"),
-    toggle: () => fire([25, 30, 25]),
-    pulse: () => fire([100, 50, 100]),
-    shutter: () => fire([40]),
-    cancel,
-  };
+  return useMemo(
+    () => ({
+      tap: () => fire([20]),
+      tapMedium: () => fire([30]),
+      nudge: () => fire("nudge"),
+      success: () => fire("success"),
+      error: () => fire("error"),
+      toggle: () => fire([25, 30, 25]),
+      pulse: () => fire([100, 50, 100]),
+      shutter: () => fire([40]),
+      cancel,
+    }),
+    [fire, cancel],
+  );
 }

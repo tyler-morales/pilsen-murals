@@ -1,8 +1,9 @@
 "use client";
 
 import { useRef, useEffect, useState, useCallback } from "react";
+import Image from "next/image";
 import { Loader2 } from "lucide-react";
-import { MAPBOX_STYLE_URLS } from "@/lib/mapbox";
+import { ensureMapboxCSS, MAPBOX_STYLE_URLS } from "@/lib/mapbox";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
 const STYLE_STANDARD = MAPBOX_STYLE_URLS.standard;
@@ -31,56 +32,72 @@ export function LocationConfirm({
   const mapRef = useRef<import("mapbox-gl").Map | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [mapStyle, setMapStyle] = useState<"standard" | "satellite">("satellite");
+  const initialLng = initialCenter[0];
+  const initialLat = initialCenter[1];
 
   useEffect(() => {
     if (!containerRef.current || !MAPBOX_TOKEN) return;
     const container = containerRef.current;
     let cancelled = false;
 
-    if (typeof document !== "undefined") {
-      const existing = document.querySelector('link[href="/mapbox-gl.css"]');
-      if (!existing) {
-        const link = document.createElement("link");
-        link.rel = "stylesheet";
-        link.href = "/mapbox-gl.css";
-        document.head.appendChild(link);
+    // Remove existing map synchronously BEFORE async operations to prevent WebGL context leaks
+    if (mapRef.current) {
+      try {
+        mapRef.current.remove();
+      } catch (e) {
+        // Map may already be removed or in invalid state
+        console.warn("Error removing map:", e);
       }
+      mapRef.current = null;
     }
+    // Clear container immediately to ensure it's empty (required by Mapbox)
+    container.innerHTML = "";
 
-    import("mapbox-gl").then((mapboxglModule) => {
-      if (cancelled || !container) return;
-      const mapboxgl = mapboxglModule.default;
-      const styleUrl = mapStyle === "satellite" ? STYLE_SATELLITE : STYLE_STANDARD;
-      const map = new mapboxgl.Map({
-        container,
-        style: styleUrl,
-        center: initialCenter,
-        zoom: INITIAL_ZOOM,
-        pitch: 0,
-        bearing: 0,
-        accessToken: MAPBOX_TOKEN,
-        interactive: true,
-      });
-      map.addControl(
-        new mapboxgl.NavigationControl({ showZoom: true, showCompass: true, visualizePitch: false }),
-        "top-right"
-      );
-      map.on("load", () => {
-        if (cancelled) return;
-        mapRef.current = map;
-        setMapReady(true);
-      });
-    });
+    void ensureMapboxCSS().then(() =>
+      import("mapbox-gl").then((mapboxglModule) => {
+        if (cancelled || !container) return;
+        const mapboxgl = mapboxglModule.default;
+        const styleUrl = mapStyle === "satellite" ? STYLE_SATELLITE : STYLE_STANDARD;
+        const map = new mapboxgl.Map({
+          container,
+          style: styleUrl,
+          center: initialCenter,
+          zoom: INITIAL_ZOOM,
+          pitch: 0,
+          bearing: 0,
+          accessToken: MAPBOX_TOKEN,
+          interactive: true,
+        });
+        map.addControl(
+          new mapboxgl.NavigationControl({ showZoom: true, showCompass: true, visualizePitch: false }),
+          "top-right"
+        );
+        map.on("load", () => {
+          if (cancelled) return;
+          mapRef.current = map;
+          setMapReady(true);
+        });
+      }));
 
     return () => {
       cancelled = true;
+      // Remove map synchronously to prevent WebGL context leaks
       if (mapRef.current) {
-        mapRef.current.remove();
+        try {
+          mapRef.current.remove();
+        } catch (e) {
+          // Map may already be removed or in invalid state
+          console.warn("Error removing map:", e);
+        }
         mapRef.current = null;
+      }
+      // Clear container immediately after removal
+      if (container) {
+        container.innerHTML = "";
       }
       setMapReady(false);
     };
-  }, [initialCenter[0], initialCenter[1], mapStyle]);
+  }, [initialCenter, initialLng, initialLat, mapStyle]);
 
   const handleConfirm = useCallback(() => {
     const map = mapRef.current;
@@ -107,12 +124,15 @@ export function LocationConfirm({
           aria-hidden
         >
           <div className="flex flex-col items-center">
-            <div className="h-12 w-12 overflow-hidden rounded-full border-2 border-white bg-zinc-200 shadow-lg ring-2 ring-amber-500">
+            <div className="relative h-12 w-12 overflow-hidden rounded-full border-2 border-white bg-zinc-200 shadow-lg ring-2 ring-amber-500">
               {photoPreviewUrl ? (
-                <img
+                <Image
                   src={photoPreviewUrl}
                   alt=""
-                  className="h-full w-full object-cover"
+                  fill
+                  className="object-cover"
+                  sizes="48px"
+                  unoptimized
                 />
               ) : (
                 <span className="block h-full w-full" />

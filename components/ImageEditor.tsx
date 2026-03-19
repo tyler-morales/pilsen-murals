@@ -136,6 +136,7 @@ export function ImageEditor({ imageUrl, onComplete, onBack }: ImageEditorProps) 
           className="max-h-[60vh]"
           style={{ maxHeight: "60vh" }}
         >
+          {/* eslint-disable-next-line @next/next/no-img-element -- ReactCrop requires a native img element */}
           <img
             src={currentImageUrl}
             alt="Crop this image"
