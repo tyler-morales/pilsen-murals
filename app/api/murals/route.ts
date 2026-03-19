@@ -1,9 +1,15 @@
 import { NextResponse } from "next/server";
 import { getQdrantClient, COLLECTION_NAME } from "@/lib/qdrant/client";
 import { getImageEmbedding } from "@/lib/ai/embedding";
-import { selectAllMurals } from "@/lib/db/client";
+import {
+  selectAllMurals,
+  insertCommunityImage,
+  selectMuralById,
+} from "@/lib/db/client";
 import { muralRowToApp } from "@/lib/db/schema";
 import { verifyTurnstile } from "@/lib/turnstile";
+import { supabaseMuralStorage } from "@/lib/storage/supabase";
+import { processUploadedImage } from "@/lib/upload/processImage";
 
 /**
  * GET /api/murals
@@ -41,6 +47,9 @@ export async function POST(request: Request) {
     let vector: number[];
     let payload: Record<string, unknown>;
     let pointId: string;
+
+    let learningMuralId: string | null = null;
+    let learningFile: File | null = null;
 
     if (contentType.includes("multipart/form-data")) {
       const formData = await request.formData();
@@ -80,6 +89,10 @@ export async function POST(request: Request) {
       }
       vector = await getImageEmbedding(file);
       pointId = crypto.randomUUID();
+      if (muralId) {
+        learningMuralId = muralId;
+        learningFile = file;
+      }
 
       if (muralId) {
         const client = getQdrantClient();
@@ -174,6 +187,42 @@ export async function POST(request: Request) {
         },
       ],
     });
+
+    if (learningMuralId && learningFile) {
+      try {
+        const mural = await selectMuralById(learningMuralId);
+        if (mural) {
+          const buffer = Buffer.from(await learningFile.arrayBuffer());
+          const MAX_SIZE = 5 * 1024 * 1024;
+          if (buffer.length <= MAX_SIZE) {
+            const processed = await processUploadedImage(buffer);
+            const [displayResult, thumbResult] = await Promise.all([
+              supabaseMuralStorage.upload(
+                "murals/community/display",
+                processed.displayBuffer,
+                "image/webp"
+              ),
+              supabaseMuralStorage.upload(
+                "murals/community/thumbnails",
+                processed.thumbBuffer,
+                "image/webp"
+              ),
+            ]);
+            await insertCommunityImage({
+              mural_id: learningMuralId,
+              user_id: null,
+              image_url: displayResult.url,
+              thumbnail_url: thumbResult.url,
+            });
+          }
+        }
+      } catch (communityErr) {
+        console.error(
+          "Community image insert failed (learning succeeded):",
+          communityErr
+        );
+      }
+    }
 
     return NextResponse.json({ id: pointId, ok: true }, { status: 201 });
   } catch (err) {

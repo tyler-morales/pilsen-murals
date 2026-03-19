@@ -3,7 +3,13 @@
  * Requires NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in env.
  */
 import { createClient } from "@supabase/supabase-js";
-import type { MuralRow, MuralInsert, MuralEditRow } from "./schema";
+import type {
+  MuralRow,
+  MuralInsert,
+  MuralEditRow,
+  MuralCommunityImageRow,
+  MuralCommunityImageInsert,
+} from "./schema";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -38,6 +44,8 @@ export async function insertMural(row: MuralInsert): Promise<MuralRow> {
     thumbnail_url: row.thumbnail_url ?? null,
     image_metadata: row.image_metadata ?? null,
     source: row.source,
+    ...(row.date_captured != null && { date_captured: row.date_captured }),
+    ...(row.date_painted != null && { date_painted: row.date_painted }),
   };
   const { data, error } = await supabase
     .from(MURALS_TABLE)
@@ -69,6 +77,8 @@ export async function upsertMurals(rows: MuralInsert[]): Promise<void> {
       thumbnail_url: row.thumbnail_url ?? null,
       image_metadata: row.image_metadata ?? null,
       source: row.source,
+      ...(row.date_captured != null && { date_captured: row.date_captured }),
+      ...(row.date_painted != null && { date_painted: row.date_painted }),
     }));
     const { error } = await supabase
       .from(MURALS_TABLE)
@@ -109,6 +119,8 @@ export type MuralUpdateFields = Partial<{
   artist_instagram_handle: string | null;
   description: string | null;
   year_painted: number | null;
+  date_captured: string;
+  date_painted: string | null;
   image_url: string;
   thumbnail_url: string | null;
   dominant_color: string;
@@ -135,6 +147,8 @@ export async function updateMural(
     artist_instagram_handle: "artist_instagram_handle",
     description: "description",
     year_painted: "year_painted",
+    date_captured: "date_captured",
+    date_painted: "date_painted",
     image_url: "image_url",
     thumbnail_url: "thumbnail_url",
     dominant_color: "dominant_color",
@@ -200,4 +214,41 @@ export async function getMuralEditHistory(id: string): Promise<MuralEditRow[]> {
 
   if (error) throw error;
   return (data ?? []) as MuralEditRow[];
+}
+
+const MURAL_COMMUNITY_IMAGES_TABLE = "mural_community_images";
+
+export async function insertCommunityImage(
+  row: MuralCommunityImageInsert
+): Promise<MuralCommunityImageRow> {
+  const supabase = getSupabaseClient();
+  const payload = {
+    mural_id: row.mural_id,
+    user_id: row.user_id ?? null,
+    image_url: row.image_url,
+    thumbnail_url: row.thumbnail_url ?? null,
+  };
+  const { data, error } = await supabase
+    .from(MURAL_COMMUNITY_IMAGES_TABLE)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- no generated DB types
+    .insert(payload as any)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as MuralCommunityImageRow;
+}
+
+export async function getCommunityImages(
+  muralId: string
+): Promise<MuralCommunityImageRow[]> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from(MURAL_COMMUNITY_IMAGES_TABLE)
+    .select("*")
+    .eq("mural_id", muralId)
+    .order("created_at", { ascending: true });
+
+  if (error) throw error;
+  return (data ?? []) as MuralCommunityImageRow[];
 }

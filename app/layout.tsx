@@ -8,6 +8,15 @@ export const metadata: Metadata = {
   title: "The Pilsen Mural Project",
   description: "Interactive 3D map of street art and murals in Pilsen, Chicago",
   robots: "index, follow",
+  openGraph: {
+    title: "The Pilsen Mural Project",
+    description: "Interactive 3D map of street art and murals in Pilsen, Chicago",
+  },
+  twitter: {
+    card: "summary",
+    title: "The Pilsen Mural Project",
+    description: "Interactive 3D map of street art and murals in Pilsen, Chicago",
+  },
 };
 
 export const viewport: Viewport = {

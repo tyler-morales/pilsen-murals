@@ -13,6 +13,8 @@ export interface CaptureRecord {
   lat: number | null;
   lng: number | null;
   distanceMeters: number | null;
+  /** Public URL for user's discovery photo (user-photos bucket). */
+  photoUrl?: string | null;
 }
 
 function loadCaptures(): CaptureRecord[] {
@@ -35,7 +37,7 @@ interface CaptureState {
   captures: CaptureRecord[];
   /** Browser Supabase client when authenticated; used for dual-write. Set by AuthProvider. */
   supabaseClient: SupabaseClient | null;
-  addCapture: (record: CaptureRecord) => void;
+  addCapture: (record: CaptureRecord, photoBlob?: Blob) => void | Promise<void>;
   hasCaptured: (muralId: string) => boolean;
   getCaptureFor: (muralId: string) => CaptureRecord | undefined;
   setSupabaseClient: (client: SupabaseClient | null) => void;
@@ -49,32 +51,64 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
   captures: loadCaptures(),
   supabaseClient: null,
 
-  addCapture: (record) => {
+  addCapture: (record, photoBlob) => {
     const { captures, supabaseClient } = get();
-    const existing = captures.find((c) => c.muralId === record.muralId);
-    const next = existing
-      ? captures.map((c) => (c.muralId === record.muralId ? record : c))
-      : [...captures, record];
-    set({ captures: next });
-    persistCaptures(next);
 
+    const applyRecord = (r: CaptureRecord) => {
+      const existing = captures.find((c) => c.muralId === r.muralId);
+      const next = existing
+        ? captures.map((c) => (c.muralId === r.muralId ? r : c))
+        : [...captures, r];
+      set({ captures: next });
+      persistCaptures(next);
+    };
+
+    const upsertToServer = (r: CaptureRecord, userId: string) => {
+      void supabaseClient!
+        .from(USER_CAPTURES_TABLE)
+        .upsert(
+          {
+            user_id: userId,
+            mural_id: r.muralId,
+            captured_at: r.capturedAt,
+            lat: r.lat,
+            lng: r.lng,
+            distance_meters: r.distanceMeters,
+            photo_url: r.photoUrl ?? null,
+          },
+          { onConflict: "user_id,mural_id" }
+        )
+        .then(() => { }, () => { });
+    };
+
+    if (supabaseClient && photoBlob) {
+      return supabaseClient.auth.getUser().then(async ({ data }) => {
+        if (!data.user) {
+          applyRecord(record);
+          return;
+        }
+        const userId = data.user.id;
+        const path = `${userId}/${record.muralId}.webp`;
+        const { error: uploadError } = await supabaseClient.storage
+          .from("user-photos")
+          .upload(path, photoBlob, { upsert: true, contentType: photoBlob.type || "image/jpeg" });
+        if (uploadError) {
+          applyRecord(record);
+          upsertToServer(record, userId);
+          return;
+        }
+        const { data: urlData } = supabaseClient.storage.from("user-photos").getPublicUrl(path);
+        const r: CaptureRecord = { ...record, photoUrl: urlData.publicUrl };
+        applyRecord(r);
+        upsertToServer(r, userId);
+      });
+    }
+
+    applyRecord(record);
     if (supabaseClient) {
       supabaseClient.auth.getUser().then(({ data }) => {
         if (!data.user) return;
-        void supabaseClient
-          .from(USER_CAPTURES_TABLE)
-          .upsert(
-            {
-              user_id: data.user.id,
-              mural_id: record.muralId,
-              captured_at: record.capturedAt,
-              lat: record.lat,
-              lng: record.lng,
-              distance_meters: record.distanceMeters,
-            },
-            { onConflict: "user_id,mural_id" }
-          )
-          .then(() => { }, () => { });
+        upsertToServer(record, data.user.id);
       });
     }
   },
@@ -100,6 +134,7 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
       lat: c.lat,
       lng: c.lng,
       distance_meters: c.distanceMeters,
+      photo_url: c.photoUrl ?? null,
     }));
     await client.from(USER_CAPTURES_TABLE).upsert(rows, {
       onConflict: "user_id,mural_id",
@@ -109,7 +144,7 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
   loadServerCaptures: async (client) => {
     const { data } = await client
       .from(USER_CAPTURES_TABLE)
-      .select("mural_id, captured_at, lat, lng, distance_meters");
+      .select("mural_id, captured_at, lat, lng, distance_meters, photo_url");
     if (!data?.length) return;
     const serverRecords: CaptureRecord[] = data.map((row) => ({
       muralId: row.mural_id,
@@ -117,6 +152,7 @@ export const useCaptureStore = create<CaptureState>((set, get) => ({
       lat: row.lat ?? null,
       lng: row.lng ?? null,
       distanceMeters: row.distance_meters ?? null,
+      photoUrl: row.photo_url ?? null,
     }));
     const { captures: local } = get();
     const merged = new Map<string, CaptureRecord>();

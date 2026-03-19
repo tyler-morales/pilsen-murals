@@ -13,16 +13,18 @@ import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { useHaptics } from "@/hooks/useHaptics";
 import type { Mural } from "@/types/mural";
 import { getDirectionsUrl } from "@/lib/directions";
+import { ZoomableImage, type ZoomableImageHandle } from "@/components/ZoomableImage";
 import { getArtistInstagramUrl } from "@/lib/instagram";
 import { isLightColor, normalizeHexToSix, getContentOverlay } from "@/lib/colorUtils";
 import { MAPBOX_STYLE_URLS } from "@/lib/mapbox";
 import { parsePx } from "@/lib/imageMetadata";
 import { ImageEditor } from "@/components/ImageEditor";
+import { MuralTimeline } from "@/components/MuralTimeline";
 import { useAuthStore } from "@/store/authStore";
 import { useCaptureStore } from "@/store/captureStore";
 import { haversineDistanceMeters } from "@/lib/geo";
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Star used in enlarged view save button
-import { ExternalLink, Pencil, Star, X } from "lucide-react";
+import { ExternalLink, Map, Minus, Pencil, Star, X } from "lucide-react";
 
 const MURAL_EDIT_TURNSTILE_ID = "mural-edit-turnstile";
 const MURAL_EDIT_TURNSTILE_SELECTOR = `#${MURAL_EDIT_TURNSTILE_ID}`;
@@ -67,7 +69,7 @@ function getModalImageAspectRatio(mural: Mural): number {
   return ASPECT_DEFAULT;
 }
 
-/** Parse "2025:04:23 14:19:12" to "April 2025" or "Apr 23, 2025". */
+/** Parse "2025:04:23 14:19:12" to "Apr 23, 2025". */
 function formatPhotoDate(dateTaken: string | undefined): string | null {
   if (!dateTaken || !dateTaken.trim()) return null;
   const [datePart] = dateTaken.split(" ");
@@ -84,6 +86,33 @@ function formatPhotoDate(dateTaken: string | undefined): string | null {
     day: "numeric",
     year: "numeric",
   }).format(date);
+}
+
+/** Format ISO date string for display. */
+function formatIsoDate(iso: string | undefined): string | null {
+  if (!iso?.trim()) return null;
+  const d = new Date(iso);
+  return Number.isFinite(d.getTime())
+    ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(d)
+    : null;
+}
+
+/** Mural painted date: year only (YYYY-01-01 or year_painted) or full date. */
+function formatMuralDate(
+  datePainted: string | null | undefined,
+  yearPainted?: number | null
+): string | null {
+  if (datePainted) {
+    const parts = datePainted.split("-").map(Number);
+    const [y, m, d] = [parts[0], parts[1], parts[2]];
+    if (m === 1 && d === 1) return String(y);
+    const date = new Date(y, m - 1, d);
+    return Number.isFinite(date.getTime())
+      ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(date)
+      : String(y);
+  }
+  if (yearPainted != null) return String(yearPainted);
+  return null;
 }
 
 interface MuralModalProps {
@@ -106,12 +135,16 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
   const user = useAuthStore((s) => s.user);
   const addCapture = useCaptureStore((s) => s.addCapture);
   const hasCaptured = useCaptureStore((s) => s.hasCaptured);
+  const getCaptureFor = useCaptureStore((s) => s.getCaptureFor);
   const userCoords = useLocationStore((s) => s.userCoords);
   const mapStyle = useMapStore((s) => s.mapStyle);
   const [isImageExpanded, setIsImageExpanded] = useState(false);
   const [isImageLoaded, setIsImageLoaded] = useState(false);
   const [isEnlargedImageLoaded, setIsEnlargedImageLoaded] = useState(false);
+  const [isEnlargedZoomed, setIsEnlargedZoomed] = useState(false);
+  const zoomableRef = useRef<ZoomableImageHandle>(null);
   const [isTransitioningToMap, setIsTransitioningToMap] = useState(false);
+  const [isMinimapMinimized, setIsMinimapMinimized] = useState(false);
   const prefersReducedMotion = usePrefersReducedMotion();
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const dragControls = useDragControls();
@@ -120,6 +153,7 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
   const enlargedRef = useRef<HTMLDivElement>(null);
   const minimapContainerRef = useRef<HTMLDivElement>(null);
   const minimapRef = useRef<import("mapbox-gl").Map | null>(null);
+  const minimapConstraintsRef = useRef<HTMLDivElement>(null);
   const [emblaRef, emblaApi] = useEmblaCarousel({
     loop: true,
     startIndex: activeIndex,
@@ -422,6 +456,11 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
     }
   }, [isImageExpanded, emblaApi, activeIndex, muralsOrder.length]);
 
+  useEffect(() => {
+    if (!emblaApi || muralsOrder.length <= 1) return;
+    emblaApi.reInit({ watchDrag: !isEnlargedZoomed });
+  }, [emblaApi, muralsOrder.length, isEnlargedZoomed]);
+
   const handleMinimapClick = useCallback(() => {
     if (!activeMural) return;
     // Start map fly and fade modal so user sees smooth transition from photo to map.
@@ -547,7 +586,10 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
   }, [isModalOpen, activeMural?.id, haptics]);
 
   useEffect(() => {
-    if (!isImageExpanded) setIsEnlargedImageLoaded(false);
+    if (!isImageExpanded) {
+      setIsEnlargedImageLoaded(false);
+      setIsEnlargedZoomed(false);
+    }
   }, [isImageExpanded]);
 
   useEffect(() => {
@@ -559,7 +601,11 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
   }, [activeMural?.id]);
 
   useEffect(() => {
-    if (!isImageExpanded && minimapRef.current) {
+    if (isImageExpanded) setIsMinimapMinimized(false);
+  }, [isImageExpanded]);
+
+  useEffect(() => {
+    if ((!isImageExpanded || isMinimapMinimized) && minimapRef.current) {
       minimapRef.current.remove();
       minimapRef.current = null;
     }
@@ -569,12 +615,12 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
         minimapRef.current = null;
       }
     };
-  }, [isImageExpanded]);
+  }, [isImageExpanded, isMinimapMinimized]);
 
   useEffect(() => {
     const container = minimapContainerRef.current;
     const hasToken = !!MINIMAP_MAPBOX_TOKEN;
-    if (!isImageExpanded || !activeMural || !container || !hasToken) return;
+    if (!isImageExpanded || isMinimapMinimized || !activeMural || !container || !hasToken) return;
     const coords = activeMural.coordinates;
     const styleUrl =
       mapStyle === "satellite" ? MINIMAP_STYLE_SATELLITE : MINIMAP_STYLE_STANDARD;
@@ -690,6 +736,7 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
     };
   }, [
     isImageExpanded,
+    isMinimapMinimized,
     activeMural?.id,
     activeMural?.coordinates,
     mapStyle,
@@ -731,8 +778,12 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
                   exit={{ opacity: 0 }}
                   transition={{ duration: 0.2 }}
                   onClick={() => {
-                    haptics.tapMedium();
-                    setIsImageExpanded(false);
+                    if (isEnlargedZoomed) {
+                      zoomableRef.current?.resetTransform(0.2);
+                    } else {
+                      haptics.tapMedium();
+                      setIsImageExpanded(false);
+                    }
                   }}
                   aria-hidden
                 />
@@ -747,8 +798,12 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
                   exit={{ opacity: 0, scale: 0.98 }}
                   transition={{ duration: 0.2 }}
                   onClick={() => {
-                    haptics.tapMedium();
-                    setIsImageExpanded(false);
+                    if (isEnlargedZoomed) {
+                      zoomableRef.current?.resetTransform(0.2);
+                    } else {
+                      haptics.tapMedium();
+                      setIsImageExpanded(false);
+                    }
                   }}
                 >
                   {muralsOrder.length > 1 ? (
@@ -780,14 +835,16 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
                             aria-label={`Mural ${idx + 1} of ${muralsOrder.length}: ${mural.title}`}
                           >
                             <div className="absolute inset-0">
-                              <Image
+                              <ZoomableImage
+                                ref={mural.id === activeMural.id ? zoomableRef : undefined}
                                 src={mural.imageUrl}
                                 alt={mural.id === activeMural.id ? `${mural.title} — full size` : ""}
                                 fill
                                 sizes="90vw"
-                                className="object-contain pointer-events-none"
-                                onLoad={() => { }}
-                                onError={() => { }}
+                                resetKey={activeIndex}
+                                onZoomChange={
+                                  mural.id === activeMural.id ? setIsEnlargedZoomed : undefined
+                                }
                               />
                             </div>
                           </div>
@@ -803,14 +860,16 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
                         />
                       )}
                       <div className="absolute inset-0">
-                        <Image
+                        <ZoomableImage
+                          ref={zoomableRef}
                           src={activeMural.imageUrl}
                           alt={`${activeMural.title} — full size`}
                           fill
                           sizes="90vw"
-                          className={`object-contain cursor-default transition-opacity duration-300 ease-out ${isEnlargedImageLoaded ? "opacity-100" : "opacity-0"}`}
+                          isLoaded={isEnlargedImageLoaded}
                           onLoad={() => setIsEnlargedImageLoaded(true)}
                           onError={() => setIsEnlargedImageLoaded(true)}
+                          onZoomChange={setIsEnlargedZoomed}
                           onClick={(e) => e.stopPropagation()}
                         />
                       </div>
@@ -869,21 +928,70 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
                   </button>
                 </motion.div>
                 {MINIMAP_MAPBOX_TOKEN && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleMinimapClick();
-                    }}
-                    className="fixed left-3 bottom-3 z-[80] h-[88px] w-[128px] overflow-hidden rounded-lg border border-white/20 bg-zinc-900/80 shadow-lg backdrop-blur-sm cursor-pointer transition-[border-color,box-shadow] hover:border-amber-400/50 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent sm:left-4 sm:bottom-4 sm:h-[140px] sm:w-[200px]"
-                    aria-label="View this mural on the main map"
-                    title="View on map"
-                  >
+                  <>
                     <div
-                      ref={minimapContainerRef}
-                      className="h-full w-full pointer-events-none"
+                      ref={minimapConstraintsRef}
+                      className="fixed inset-0 z-[79] pointer-events-none"
+                      aria-hidden
                     />
-                  </button>
+                    <AnimatePresence mode="wait">
+                      {isMinimapMinimized ? (
+                        <motion.button
+                          key="minimap-pill"
+                          type="button"
+                          initial={{ opacity: 0, scale: 0.9 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.9 }}
+                          transition={{ duration: 0.15 }}
+                          onClick={() => setIsMinimapMinimized(false)}
+                          className="fixed left-3 bottom-3 z-[80] flex items-center gap-1.5 rounded-full border border-white/20 bg-zinc-900/80 px-3 py-1.5 text-xs text-white/90 shadow-lg backdrop-blur-sm transition-colors hover:border-amber-400/50 hover:bg-zinc-800/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent sm:left-4 sm:bottom-4"
+                          aria-label="Show mini map"
+                        >
+                          <Map className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                          Mini Map
+                        </motion.button>
+                      ) : (
+                        <motion.div
+                          key="minimap-expanded"
+                          drag
+                          dragMomentum={false}
+                          dragConstraints={minimapConstraintsRef}
+                          initial={{ opacity: 0, scale: 0.9 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.9 }}
+                          transition={{ duration: 0.15 }}
+                          className="fixed left-3 bottom-3 z-[80] h-[88px] w-[128px] overflow-visible rounded-lg border border-white/20 bg-zinc-900/80 shadow-lg backdrop-blur-sm sm:left-4 sm:bottom-4 sm:h-[140px] sm:w-[200px]"
+                        >
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setIsMinimapMinimized(true);
+                            }}
+                            className="absolute -right-1.5 -top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-zinc-800 text-white/80 shadow transition-colors hover:bg-zinc-700 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900"
+                            aria-label="Minimize mini map"
+                          >
+                            <Minus className="h-3 w-3" aria-hidden />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleMinimapClick();
+                            }}
+                            className="h-full w-full cursor-pointer overflow-hidden rounded-lg transition-[border-color,box-shadow] hover:border-amber-400/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+                            aria-label="View this mural on the main map"
+                            title="View on map"
+                          >
+                            <div
+                              ref={minimapContainerRef}
+                              className="h-full w-full pointer-events-none"
+                            />
+                          </button>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </>
                 )}
               </>
             )}
@@ -922,7 +1030,7 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
             </div>
             <div className="flex flex-1 flex-col overflow-y-auto overscroll-contain">
               <div
-                className="relative w-full shrink-0 overflow-hidden"
+                className={`relative w-full shrink-0 overflow-hidden ${getCaptureFor(activeMural.id)?.photoUrl ? "ring-2 ring-amber-400 ring-inset" : ""}`}
                 style={{
                   aspectRatio: isEditMode && isCropMode && cropImageUrl ? undefined : getModalImageAspectRatio(activeMural),
                   backgroundColor: activeMural.dominantColor,
@@ -945,6 +1053,14 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
                         aria-hidden
                       />
                     )}
+                    {getCaptureFor(activeMural.id)?.photoUrl && (
+                      <span
+                        className="absolute right-3 bottom-3 z-10 rounded bg-amber-400/95 px-2 py-1 text-xs font-medium text-amber-950 shadow-sm"
+                        aria-hidden
+                      >
+                        Your photo
+                      </span>
+                    )}
                     <button
                       type="button"
                       onClick={() => {
@@ -955,7 +1071,7 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
                       aria-label={`View larger image of ${activeMural.title}`}
                     >
                       <Image
-                        src={isEditMode && croppedPreviewUrl ? croppedPreviewUrl : activeMural.imageUrl}
+                        src={isEditMode && croppedPreviewUrl ? croppedPreviewUrl : (getCaptureFor(activeMural.id)?.photoUrl ?? activeMural.imageUrl)}
                         alt={`Mural: ${activeMural.title} by ${activeMural.artist}`}
                         fill
                         sizes="(max-width: 512px) 100vw, 512px"
@@ -1114,17 +1230,31 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
                     <p className={`mt-1 text-mobile-body ${isLight ? "text-zinc-800" : "text-white/90"}`}>
                       by {activeMural.artist || "Unknown Artist"}
                     </p>
-                    {(formatPhotoDate(activeMural.imageMetadata?.["Date taken"]) ||
+                    {(formatIsoDate(activeMural.dateCaptured) ||
+                      formatPhotoDate(activeMural.imageMetadata?.["Date taken"]) ||
+                      formatMuralDate(activeMural.datePainted ?? null, activeMural.yearPainted) ||
                       activeMural.imageMetadata?.["Camera model"] ||
                       activeMural.artistInstagramHandle) && (
                         <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-4">
-                          {formatPhotoDate(activeMural.imageMetadata?.["Date taken"]) && (
+                          {(formatIsoDate(activeMural.dateCaptured) ||
+                            formatPhotoDate(activeMural.imageMetadata?.["Date taken"])) && (
+                              <div>
+                                <p className={`text-mobile-caption font-medium uppercase tracking-[0.08em] ${isLight ? "text-zinc-600" : "text-white/70"}`}>
+                                  Date captured
+                                </p>
+                                <p className={`mt-0.5 text-mobile-body ${isLight ? "text-zinc-900" : "text-white"}`} aria-label="Date photo was captured">
+                                  {formatIsoDate(activeMural.dateCaptured) ??
+                                    formatPhotoDate(activeMural.imageMetadata?.["Date taken"])}
+                                </p>
+                              </div>
+                            )}
+                          {formatMuralDate(activeMural.datePainted ?? null, activeMural.yearPainted) && (
                             <div>
                               <p className={`text-mobile-caption font-medium uppercase tracking-[0.08em] ${isLight ? "text-zinc-600" : "text-white/70"}`}>
-                                Date captured
+                                Painted
                               </p>
-                              <p className={`mt-0.5 text-mobile-body ${isLight ? "text-zinc-900" : "text-white"}`} aria-label="Date photo was captured">
-                                {formatPhotoDate(activeMural.imageMetadata?.["Date taken"])}
+                              <p className={`mt-0.5 text-mobile-body ${isLight ? "text-zinc-900" : "text-white"}`} aria-label="Date mural was painted">
+                                {formatMuralDate(activeMural.datePainted ?? null, activeMural.yearPainted)}
                               </p>
                             </div>
                           )}
@@ -1139,7 +1269,7 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
                             </div>
                           )}
                           {activeMural.artistInstagramHandle && (
-                            <div className={formatPhotoDate(activeMural.imageMetadata?.["Date taken"]) || activeMural.imageMetadata?.["Camera model"] ? "col-span-2" : ""}>
+                            <div className={(formatIsoDate(activeMural.dateCaptured) || formatPhotoDate(activeMural.imageMetadata?.["Date taken"]) || formatMuralDate(activeMural.datePainted ?? null, activeMural.yearPainted) || activeMural.imageMetadata?.["Camera model"]) ? "col-span-2" : ""}>
                               <p className={`text-mobile-caption font-medium uppercase tracking-[0.08em] ${isLight ? "text-zinc-600" : "text-white/70"}`}>
                                 Instagram
                               </p>
@@ -1203,6 +1333,18 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
                         )}
                       </button>
                     </div>
+                    <MuralTimeline
+                      muralId={activeMural.id}
+                      canonicalImageUrl={activeMural.imageUrl}
+                      canonicalThumbnailUrl={activeMural.thumbnail}
+                      canonicalDateLabel={
+                        formatIsoDate(activeMural.dateCaptured) ??
+                        formatPhotoDate(activeMural.imageMetadata?.["Date taken"]) ??
+                        "Original"
+                      }
+                      dominantColor={activeMural.dominantColor}
+                      onRequestAuth={onRequestAuth}
+                    />
                     <details
                       id="mural-modal-desc"
                       className={`mt-8 border-t pt-5 group/details ${isLight ? "border-zinc-200" : "border-white/20"}`}

@@ -13,4 +13,10 @@ export interface Mural {
   thumbnail?: string;
   /** EXIF/image metadata (e.g. date, camera, exposure). Populated by generate-map-data. */
   imageMetadata?: Record<string, string>;
+  /** When the photo was taken (ISO). Shown in mural description. */
+  dateCaptured?: string;
+  /** When the mural was painted (YYYY-MM-DD). Shown as year or full date when known. */
+  datePainted?: string | null;
+  /** Legacy: year painted when only year is known. */
+  yearPainted?: number | null;
 }

@@ -3,7 +3,7 @@
  * Community submission: Turnstile-verified multipart upload. Processes image to WebP,
  * uploads to storage, inserts canonical mural in DB, and upserts embedding into Qdrant.
  *
- * FormData: turnstileToken (required), image (file), lat, lng (required), optional title, artist.
+ * FormData: turnstileToken (required), image (file), lat, lng (required), optional title, artist, dateCaptured (ISO), datePainted (YYYY-MM-DD).
  */
 import { NextResponse } from "next/server";
 import { getQdrantClient, COLLECTION_NAME } from "@/lib/qdrant/client";
@@ -21,6 +21,23 @@ function parseCoord(value: unknown): number | null {
   if (value == null) return null;
   const n = typeof value === "string" ? parseFloat(value) : Number(value);
   return Number.isFinite(n) ? n : null;
+}
+
+export function parseDateCaptured(value: unknown): string {
+  if (value == null || typeof value !== "string" || !value.trim()) return new Date().toISOString();
+  const trimmed = value.trim();
+  const date = new Date(trimmed);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : new Date().toISOString();
+}
+
+export function parseDatePainted(value: unknown): string | null {
+  if (value == null || typeof value !== "string" || !value.trim()) return null;
+  const trimmed = value.trim();
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+  if (!match) return null;
+  const [, y, m, d] = match;
+  const date = new Date(parseInt(y!, 10), parseInt(m!, 10) - 1, parseInt(d!, 10));
+  return Number.isFinite(date.getTime()) ? trimmed : null;
 }
 
 export async function POST(request: Request) {
@@ -100,6 +117,9 @@ export async function POST(request: Request) {
       (typeof artistRaw === "string" && artistRaw.trim() !== "" ? artistRaw.trim() : null) ||
       FALLBACK_ARTIST;
 
+    const dateCaptured = parseDateCaptured(formData.get("dateCaptured"));
+    const datePainted = parseDatePainted(formData.get("datePainted"));
+
     const muralId = crypto.randomUUID();
 
     await insertMural({
@@ -113,6 +133,8 @@ export async function POST(request: Request) {
       thumbnail_url: thumbResult.url,
       image_metadata: processed.imageMetadata ?? null,
       source: "user_submission",
+      date_captured: dateCaptured,
+      date_painted: datePainted,
     });
 
     const vector = await getImageEmbedding(displayResult.url);
@@ -138,7 +160,21 @@ export async function POST(request: Request) {
     });
 
     return NextResponse.json(
-      { id: muralId, ok: true, imageUrl: displayResult.url },
+      {
+        id: muralId,
+        ok: true,
+        mural: {
+          id: muralId,
+          title,
+          artist,
+          coordinates,
+          dominantColor: processed.dominantColor,
+          imageUrl: displayResult.url,
+          thumbnail: thumbResult.url,
+          dateCaptured,
+          datePainted,
+        },
+      },
       { status: 201 }
     );
   } catch (err) {

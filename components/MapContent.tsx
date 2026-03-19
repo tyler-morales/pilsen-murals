@@ -12,11 +12,13 @@ import { MuralModal } from "@/components/MuralModal";
 import { MuraldexView } from "@/components/MuraldexView";
 import { NearbyMuralCard } from "@/components/NearbyMuralCard";
 import { TourList } from "@/components/TourList";
+import { useAuthStore } from "@/store/authStore";
 import { useCaptureStore } from "@/store/captureStore";
 import { useMuralStore } from "@/store/muralStore";
 import { useProximityStore } from "@/store/proximityStore";
 import { useTourStore } from "@/store/tourStore";
 import { getOrderedMuralsForCollection } from "@/lib/collections";
+import { hasPendingMuralDraft } from "@/lib/pendingMuralDraft";
 import { useProximity } from "@/hooks/useProximity";
 import type { Mural } from "@/types/mural";
 import type { Collection } from "@/types/collection";
@@ -36,15 +38,24 @@ export function MapContent({ murals, collections }: MapContentProps) {
   const [muraldexOpen, setMuraldexOpen] = useState(false);
   const [muralNotFoundNotice, setMuralNotFoundNotice] = useState(false);
   const [captureRevealMuralId, setCaptureRevealMuralId] = useState<string | null>(null);
+  const [addedMurals, setAddedMurals] = useState<Mural[]>([]);
+  const user = useAuthStore((s) => s.user);
+  const authLoading = useAuthStore((s) => s.loading);
   const requestFlyTo = useMuralStore((s) => s.requestFlyTo);
   const getCaptureFor = useCaptureStore((s) => s.getCaptureFor);
   const activeTour = useTourStore((s) => s.activeTour);
   const setActiveTour = useTourStore((s) => s.setActiveTour);
 
+  const allMurals = useMemo(() => {
+    const serverIds = new Set(murals.map((m) => m.id));
+    const unique = addedMurals.filter((m) => !serverIds.has(m.id));
+    return [...murals, ...unique];
+  }, [murals, addedMurals]);
+
   const displayMurals = useMemo(() => {
-    if (!activeTour) return murals;
-    return getOrderedMuralsForCollection(activeTour, murals);
-  }, [activeTour, murals]);
+    if (!activeTour) return allMurals;
+    return getOrderedMuralsForCollection(activeTour, allMurals);
+  }, [activeTour, allMurals]);
 
   useProximity(displayMurals);
   const currentNearby = useProximityStore((s) => s.currentNearby);
@@ -65,11 +76,17 @@ export function MapContent({ murals, collections }: MapContentProps) {
   );
 
   const handleCheckMuralViewOnMap = (muralId: string) => {
-    const mural = murals.find((m) => m.id === muralId);
+    const mural = allMurals.find((m) => m.id === muralId);
     if (mural) {
       requestFlyTo(mural, { openModalAfterFly: false });
     }
     setCheckMuralOpen(false);
+  };
+
+  const handleMuralAdded = (mural: Mural) => {
+    setAddedMurals((prev) => [...prev, mural]);
+    setCheckMuralOpen(false);
+    setCaptureRevealMuralId(mural.id);
   };
 
   const handleCaptureConfirmed = (muralId: string) => {
@@ -81,7 +98,7 @@ export function MapContent({ murals, collections }: MapContentProps) {
     const muralId = captureRevealMuralId;
     setCaptureRevealMuralId(null);
     if (muralId) {
-      const mural = murals.find((m) => m.id === muralId);
+      const mural = allMurals.find((m) => m.id === muralId);
       if (mural) requestFlyTo(mural, { openModalAfterFly: false });
     }
   };
@@ -92,14 +109,14 @@ export function MapContent({ murals, collections }: MapContentProps) {
     if (appliedDeepLinkRef.current) return;
     const muralId = searchParams.get("mural");
     if (!muralId) return;
-    const mural = murals.find((m) => m.id === muralId);
+    const mural = allMurals.find((m) => m.id === muralId);
     appliedDeepLinkRef.current = true;
     if (!mural) {
       setMuralNotFoundNotice(true);
       return;
     }
     requestFlyTo(mural);
-  }, [searchParams, murals, requestFlyTo]);
+  }, [searchParams, allMurals, requestFlyTo]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -113,6 +130,12 @@ export function MapContent({ murals, collections }: MapContentProps) {
     const url = search ? `${window.location.pathname}?${search}` : window.location.pathname;
     window.history.replaceState(null, "", url);
   }, [isModalOpen, activeMural?.id]);
+
+  useEffect(() => {
+    if (!authLoading && user && enableCheckMural && hasPendingMuralDraft()) {
+      setCheckMuralOpen(true);
+    }
+  }, [authLoading, user]);
 
   return (
     <>
@@ -141,7 +164,7 @@ export function MapContent({ murals, collections }: MapContentProps) {
       <MapHeader
         murals={displayMurals}
         onMapClick={() => { setMuraldexOpen(false); setTourListOpen(false); }}
-        onMuraldexClick={murals.length > 0 ? () => setMuraldexOpen((o) => !o) : undefined}
+        onMuraldexClick={allMurals.length > 0 ? () => setMuraldexOpen((o) => !o) : undefined}
         isMuraldexOpen={muraldexOpen}
         activeTour={activeTour}
         onToursClick={() => setTourListOpen(true)}
@@ -172,7 +195,7 @@ export function MapContent({ murals, collections }: MapContentProps) {
         onClose={() => setTourListOpen(false)}
       />
       <MuraldexView
-        murals={murals}
+        murals={allMurals}
         isOpen={muraldexOpen}
         onClose={() => setMuraldexOpen(false)}
         onSelectMural={(mural) => {
@@ -181,7 +204,7 @@ export function MapContent({ murals, collections }: MapContentProps) {
         }}
       />
       {captureRevealMuralId && (() => {
-        const mural = murals.find((m) => m.id === captureRevealMuralId);
+        const mural = allMurals.find((m) => m.id === captureRevealMuralId);
         const capture = getCaptureFor(captureRevealMuralId);
         if (!mural || !capture) return null;
         return (
@@ -197,9 +220,10 @@ export function MapContent({ murals, collections }: MapContentProps) {
           isOpen={checkMuralOpen}
           onClose={() => setCheckMuralOpen(false)}
           onViewOnMap={handleCheckMuralViewOnMap}
+          onMuralAdded={handleMuralAdded}
           onCaptureConfirmed={handleCaptureConfirmed}
           onRequestAuth={() => setAuthModalOpen(true)}
-          murals={murals}
+          murals={allMurals}
         />
       )}
       <AuthModal

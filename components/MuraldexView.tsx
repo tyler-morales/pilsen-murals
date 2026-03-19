@@ -191,16 +191,18 @@ export function MuraldexView({
                   const capture = getCaptureFor(mural.id);
                   const rarity = computeRarity(mural);
                   const borderClass = getRarityBorderClass(rarity);
+                  const imageSrc = captured && capture?.photoUrl ? capture.photoUrl : (mural.thumbnail ?? mural.imageUrl);
+                  const hasUserPhoto = !!(captured && capture?.photoUrl);
                   return (
                     <button
                       key={mural.id}
                       type="button"
                       onClick={() => handleSelect(mural)}
-                      className={`group flex flex-col overflow-hidden rounded-xl bg-zinc-100 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 ${borderClass}`}
+                      className={`group flex flex-col overflow-hidden rounded-xl bg-zinc-100 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 ${borderClass} ${hasUserPhoto ? "ring-2 ring-amber-400 ring-offset-1" : ""}`}
                     >
                       <div className="relative aspect-[3/4] w-full overflow-hidden bg-zinc-200">
                         <Image
-                          src={mural.thumbnail ?? mural.imageUrl}
+                          src={imageSrc}
                           alt={captured ? mural.title : "Undiscovered mural"}
                           width={200}
                           height={267}
