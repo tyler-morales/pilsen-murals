@@ -16,6 +16,8 @@ import { sanitizeErrorFromServer } from "@/lib/errorUtils";
 import { savePendingMuralDraft, getPendingMuralDraft, clearPendingMuralDraft, dataUrlToBlob } from "@/lib/pendingMuralDraft";
 import { ImageEditor } from "@/components/ImageEditor";
 import { LocationConfirm } from "@/components/LocationConfirm";
+import { ArtistCombobox, type ArtistComboboxValue } from "@/components/ArtistCombobox";
+import { ensureTurnstileScript } from "@/lib/turnstile-loader";
 
 /**
  * Cosine similarity threshold: score >= this means "mural is in DB".
@@ -77,7 +79,6 @@ const SIDEBAR_WIDTH = "min(520px, 94vw)";
 
 const TURNSTILE_WIDGET_ID = "check-mural-turnstile";
 const TURNSTILE_CONTAINER_SELECTOR = `#${TURNSTILE_WIDGET_ID}`;
-const TURNSTILE_SCRIPT_URL = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
 
 /** Fallback map center when user location is unavailable (Pilsen, Chicago). [lng, lat] */
 const PILSEN_CENTER: [number, number] = [-87.657, 41.852];
@@ -332,7 +333,10 @@ export function CheckMuralModal({
   const [confirmedAction, setConfirmedAction] = useState<ConfirmedAction>(null);
   const [editImageUrl, setEditImageUrl] = useState<string | null>(null);
   const [submitTitle, setSubmitTitle] = useState("");
-  const [submitArtist, setSubmitArtist] = useState("");
+  const [submitArtistValue, setSubmitArtistValue] = useState<ArtistComboboxValue>({
+    id: null,
+    name: "",
+  });
   const [submitDateCaptured, setSubmitDateCaptured] = useState("");
   const [submitDatePainted, setSubmitDatePainted] = useState("");
 
@@ -517,7 +521,7 @@ export function CheckMuralModal({
       setExpandedStackId(null);
       setAddToDbPending(false);
       setSubmitTitle("");
-      setSubmitArtist("");
+      setSubmitArtistValue({ id: null, name: "" });
       setSubmitDateCaptured("");
       setSubmitDatePainted("");
       lastSubmittedBlobRef.current = null;
@@ -882,7 +886,8 @@ export function CheckMuralModal({
       fd.append("lat", String(coords[1]));
       fd.append("lng", String(coords[0]));
       if (submitTitle.trim()) fd.append("title", submitTitle.trim());
-      if (submitArtist.trim()) fd.append("artist", submitArtist.trim());
+      if (submitArtistValue.id) fd.append("artistId", submitArtistValue.id);
+      if (submitArtistValue.name.trim()) fd.append("artist", submitArtistValue.name.trim());
       const dateCapturedValue =
         submitDateCaptured.trim()
           ? new Date(submitDateCaptured.trim()).toISOString()
@@ -938,7 +943,7 @@ export function CheckMuralModal({
         setAddToDbPending(false);
       }
     },
-    [userCoords, haptics, submitTitle, submitArtist, submitDateCaptured, submitDatePainted, addCapture]
+    [userCoords, haptics, submitTitle, submitArtistValue, submitDateCaptured, submitDatePainted, addCapture]
   );
 
   useEffect(() => {
@@ -1002,24 +1007,14 @@ export function CheckMuralModal({
         return true;
       },
     };
-    const existingScript = document.querySelector(`script[src="${TURNSTILE_SCRIPT_URL}"]`);
-    if (!existingScript) {
-      const script = document.createElement("script");
-      script.src = TURNSTILE_SCRIPT_URL;
-      script.async = true;
-      script.onload = () => {
-        const container = document.querySelector(TURNSTILE_CONTAINER_SELECTOR);
-        if (container && win.turnstile?.render && !turnstileWidgetIdRef.current) {
-          turnstileWidgetIdRef.current = win.turnstile.render(TURNSTILE_CONTAINER_SELECTOR, renderOptions);
-        }
-      };
-      document.head.appendChild(script);
-      return;
-    }
-    const container = document.querySelector(TURNSTILE_CONTAINER_SELECTOR);
-    if (container && win.turnstile?.render && !turnstileWidgetIdRef.current) {
-      turnstileWidgetIdRef.current = win.turnstile.render(TURNSTILE_CONTAINER_SELECTOR, renderOptions);
-    }
+    let cancelled = false;
+    void ensureTurnstileScript().then(() => {
+      if (cancelled) return;
+      const container = document.querySelector(TURNSTILE_CONTAINER_SELECTOR);
+      if (container && win.turnstile?.render && !turnstileWidgetIdRef.current) {
+        turnstileWidgetIdRef.current = win.turnstile.render(TURNSTILE_CONTAINER_SELECTOR, renderOptions);
+      }
+    });
   }, [isOpen, turnstileSiteKey, phase, handleTurnstileError]);
 
   const executeTurnstile = useCallback(() => {
@@ -1675,14 +1670,14 @@ export function CheckMuralModal({
                             <label htmlFor="submit-mural-artist" className="sr-only">
                               Artist (optional)
                             </label>
-                            <input
+                            <ArtistCombobox
                               id="submit-mural-artist"
-                              type="text"
-                              value={submitArtist}
-                              onChange={(e) => setSubmitArtist(e.target.value)}
+                              value={submitArtistValue}
+                              onChange={setSubmitArtistValue}
                               placeholder="e.g., Hector Duarte"
-                              className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-mobile-body text-zinc-900 placeholder:text-zinc-400 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                              isLight
                               aria-label="Artist (optional)"
+                              className="rounded-xl"
                             />
                           </div>
                         </div>

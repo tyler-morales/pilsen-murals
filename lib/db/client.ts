@@ -9,6 +9,8 @@ import type {
   MuralEditRow,
   MuralCommunityImageRow,
   MuralCommunityImageInsert,
+  ArtistRow,
+  ArtistInsert,
 } from "./schema";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -29,6 +31,7 @@ export function getSupabaseClient(): ReturnType<typeof createClient> {
 }
 
 const MURALS_TABLE = "murals";
+const ARTISTS_TABLE = "artists";
 
 export async function insertMural(row: MuralInsert): Promise<MuralRow> {
   const supabase = getSupabaseClient();
@@ -36,6 +39,7 @@ export async function insertMural(row: MuralInsert): Promise<MuralRow> {
     id: row.id,
     title: row.title,
     artist: row.artist,
+    artist_id: row.artist_id ?? null,
     artist_instagram_handle: row.artist_instagram_handle ?? null,
     coordinates: row.coordinates,
     bearing: row.bearing ?? null,
@@ -69,6 +73,7 @@ export async function upsertMurals(rows: MuralInsert[]): Promise<void> {
       id: row.id,
       title: row.title,
       artist: row.artist,
+      artist_id: row.artist_id ?? null,
       artist_instagram_handle: row.artist_instagram_handle ?? null,
       coordinates: row.coordinates,
       bearing: row.bearing ?? null,
@@ -116,6 +121,7 @@ const MURAL_EDITS_TABLE = "mural_edits";
 export type MuralUpdateFields = Partial<{
   title: string;
   artist: string;
+  artist_id: string | null;
   artist_instagram_handle: string | null;
   description: string | null;
   year_painted: number | null;
@@ -144,6 +150,7 @@ export async function updateMural(
   const fieldToColumn: Record<string, keyof MuralRow> = {
     title: "title",
     artist: "artist",
+    artist_id: "artist_id",
     artist_instagram_handle: "artist_instagram_handle",
     description: "description",
     year_painted: "year_painted",
@@ -251,4 +258,75 @@ export async function getCommunityImages(
 
   if (error) throw error;
   return (data ?? []) as MuralCommunityImageRow[];
+}
+
+// --- Artists ---
+
+const ARTISTS_SEARCH_LIMIT = 10;
+
+/** Search artists by name (case-insensitive ilike). For autocomplete. */
+export async function searchArtists(query: string): Promise<ArtistRow[]> {
+  const q = query.trim();
+  if (!q) return [];
+  const supabase = getSupabaseClient();
+  const pattern = `%${q.replace(/%/g, "\\%").replace(/_/g, "\\_")}%`;
+  const { data, error } = await supabase
+    .from(ARTISTS_TABLE)
+    .select("*")
+    .ilike("name", pattern)
+    .order("name", { ascending: true })
+    .limit(ARTISTS_SEARCH_LIMIT);
+
+  if (error) throw error;
+  return (data ?? []) as ArtistRow[];
+}
+
+/** Get artist by id. */
+export async function getArtistById(id: string): Promise<ArtistRow | null> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from(ARTISTS_TABLE)
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data as ArtistRow | null;
+}
+
+/** Find artist by exact name (case-insensitive) or create one. Returns the artist row. */
+export async function findOrCreateArtist(
+  name: string,
+  instagramHandle?: string | null
+): Promise<ArtistRow> {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    throw new Error("Artist name cannot be empty");
+  }
+  const supabase = getSupabaseClient();
+  const { data: existing, error: findError } = await supabase
+    .from(ARTISTS_TABLE)
+    .select("*")
+    .ilike("name", trimmed)
+    .limit(1)
+    .maybeSingle();
+
+  if (findError) throw findError;
+  if (existing) {
+    return existing as ArtistRow;
+  }
+
+  const insert: ArtistInsert = { name: trimmed };
+  if (instagramHandle != null && instagramHandle.trim() !== "") {
+    insert.instagram_handle = instagramHandle.trim();
+  }
+  const { data: created, error: insertError } = await supabase
+    .from(ARTISTS_TABLE)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- no generated DB types
+    .insert(insert as any)
+    .select()
+    .single();
+
+  if (insertError) throw insertError;
+  return created as ArtistRow;
 }

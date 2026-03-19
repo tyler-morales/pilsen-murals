@@ -8,6 +8,7 @@ import { useHaptics } from "@/hooks/useHaptics";
 import { useAuthStore } from "@/store/authStore";
 import { isLightColor } from "@/lib/colorUtils";
 import { MuralTimelineViewer } from "@/components/MuralTimelineViewer";
+import { ensureTurnstileScript } from "@/lib/turnstile-loader";
 import { Plus } from "lucide-react";
 
 export interface TimelinePhoto {
@@ -29,8 +30,6 @@ interface MuralTimelineProps {
 }
 
 const TURNSTILE_CONTAINER_ID = "mural-timeline-turnstile";
-const TURNSTILE_SCRIPT_URL =
-  "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
 
 function formatTimelineDate(iso: string): string {
   const d = new Date(iso);
@@ -169,33 +168,27 @@ export function MuralTimeline({
         remove?: (id: string) => void;
       };
     };
-    if (!win.turnstile) {
-      const script = document.createElement("script");
-      script.src = TURNSTILE_SCRIPT_URL;
-      script.async = true;
-      script.defer = true;
-      document.head.appendChild(script);
-    }
-    const render = () => {
-      if (!win.turnstile?.render) return;
-      turnstileWidgetIdRef.current = win.turnstile.render(
-        `#${TURNSTILE_CONTAINER_ID}`,
-        {
-          sitekey: turnstileSiteKey,
-          size: "invisible",
-          execution: "execute" as const,
-          callback: (token: string) => {
-            const file = pendingFileRef.current;
-            if (file) submitPhotoRef.current(token, file);
-          },
-        }
-      );
-    };
-    if (win.turnstile?.render) render();
-    else window.addEventListener("load", render);
+    let cancelled = false;
+    void ensureTurnstileScript().then(() => {
+      if (cancelled) return;
+      if (win.turnstile?.render) {
+        turnstileWidgetIdRef.current = win.turnstile.render(
+          `#${TURNSTILE_CONTAINER_ID}`,
+          {
+            sitekey: turnstileSiteKey,
+            size: "invisible",
+            execution: "execute" as const,
+            callback: (token: string) => {
+              const file = pendingFileRef.current;
+              if (file) submitPhotoRef.current(token, file);
+            },
+          }
+        );
+      }
+    });
     return () => {
-      window.removeEventListener("load", render);
-      if (turnstileWidgetIdRef.current && win.turnstile.remove) {
+      cancelled = true;
+      if (turnstileWidgetIdRef.current && win.turnstile?.remove) {
         win.turnstile.remove(turnstileWidgetIdRef.current);
         turnstileWidgetIdRef.current = null;
       }

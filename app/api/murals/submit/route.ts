@@ -8,7 +8,7 @@
 import { NextResponse } from "next/server";
 import { getQdrantClient, COLLECTION_NAME } from "@/lib/qdrant/client";
 import { getImageEmbedding } from "@/lib/ai/embedding";
-import { insertMural } from "@/lib/db/client";
+import { insertMural, getArtistById, findOrCreateArtist } from "@/lib/db/client";
 import { supabaseMuralStorage } from "@/lib/storage/supabase";
 import { processUploadedImage } from "@/lib/upload/processImage";
 import { verifyTurnstile } from "@/lib/turnstile";
@@ -110,12 +110,30 @@ export async function POST(request: Request) {
 
     const titleRaw = formData.get("title");
     const artistRaw = formData.get("artist");
+    const artistIdRaw = formData.get("artistId");
     const title =
       (typeof titleRaw === "string" && titleRaw.trim() !== "" ? titleRaw.trim() : null) ||
       FALLBACK_TITLE;
-    const artist =
-      (typeof artistRaw === "string" && artistRaw.trim() !== "" ? artistRaw.trim() : null) ||
-      FALLBACK_ARTIST;
+
+    let artist = FALLBACK_ARTIST;
+    let artistId: string | null = null;
+    const artistIdParam =
+      typeof artistIdRaw === "string" && artistIdRaw.trim() !== "" ? artistIdRaw.trim() : null;
+    const artistNameParam =
+      typeof artistRaw === "string" && artistRaw.trim() !== "" ? artistRaw.trim() : null;
+
+    if (artistIdParam) {
+      const artistRow = await getArtistById(artistIdParam);
+      if (artistRow) {
+        artist = artistRow.name;
+        artistId = artistRow.id;
+      }
+    }
+    if (!artistId && artistNameParam) {
+      const artistRow = await findOrCreateArtist(artistNameParam);
+      artist = artistRow.name;
+      artistId = artistRow.id;
+    }
 
     const dateCaptured = parseDateCaptured(formData.get("dateCaptured"));
     const datePainted = parseDatePainted(formData.get("datePainted"));
@@ -126,6 +144,7 @@ export async function POST(request: Request) {
       id: muralId,
       title,
       artist,
+      artist_id: artistId,
       coordinates,
       bearing: null,
       dominant_color: processed.dominantColor,
@@ -167,6 +186,7 @@ export async function POST(request: Request) {
           id: muralId,
           title,
           artist,
+          artistId: artistId ?? undefined,
           coordinates,
           dominantColor: processed.dominantColor,
           imageUrl: displayResult.url,

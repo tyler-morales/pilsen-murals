@@ -2,6 +2,8 @@ export interface Mural {
   id: string;
   title: string;
   artist: string;
+  /** Normalized artist id when mural is linked to artists table. */
+  artistId?: string | null;
   /** Instagram username (no @) for linking to artist profile. Shown as link when present. */
   artistInstagramHandle?: string;
   coordinates: [number, number];

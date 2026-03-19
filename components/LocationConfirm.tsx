@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useState, useCallback } from "react";
 import { Loader2 } from "lucide-react";
-import { MAPBOX_STYLE_URLS } from "@/lib/mapbox";
+import { ensureMapboxCSS, MAPBOX_STYLE_URLS } from "@/lib/mapbox";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
 const STYLE_STANDARD = MAPBOX_STYLE_URLS.standard;
@@ -37,40 +37,31 @@ export function LocationConfirm({
     const container = containerRef.current;
     let cancelled = false;
 
-    if (typeof document !== "undefined") {
-      const existing = document.querySelector('link[href="/mapbox-gl.css"]');
-      if (!existing) {
-        const link = document.createElement("link");
-        link.rel = "stylesheet";
-        link.href = "/mapbox-gl.css";
-        document.head.appendChild(link);
-      }
-    }
-
-    import("mapbox-gl").then((mapboxglModule) => {
-      if (cancelled || !container) return;
-      const mapboxgl = mapboxglModule.default;
-      const styleUrl = mapStyle === "satellite" ? STYLE_SATELLITE : STYLE_STANDARD;
-      const map = new mapboxgl.Map({
-        container,
-        style: styleUrl,
-        center: initialCenter,
-        zoom: INITIAL_ZOOM,
-        pitch: 0,
-        bearing: 0,
-        accessToken: MAPBOX_TOKEN,
-        interactive: true,
-      });
-      map.addControl(
-        new mapboxgl.NavigationControl({ showZoom: true, showCompass: true, visualizePitch: false }),
-        "top-right"
-      );
-      map.on("load", () => {
-        if (cancelled) return;
-        mapRef.current = map;
-        setMapReady(true);
-      });
-    });
+    void ensureMapboxCSS().then(() =>
+      import("mapbox-gl").then((mapboxglModule) => {
+        if (cancelled || !container) return;
+        const mapboxgl = mapboxglModule.default;
+        const styleUrl = mapStyle === "satellite" ? STYLE_SATELLITE : STYLE_STANDARD;
+        const map = new mapboxgl.Map({
+          container,
+          style: styleUrl,
+          center: initialCenter,
+          zoom: INITIAL_ZOOM,
+          pitch: 0,
+          bearing: 0,
+          accessToken: MAPBOX_TOKEN,
+          interactive: true,
+        });
+        map.addControl(
+          new mapboxgl.NavigationControl({ showZoom: true, showCompass: true, visualizePitch: false }),
+          "top-right"
+        );
+        map.on("load", () => {
+          if (cancelled) return;
+          mapRef.current = map;
+          setMapReady(true);
+        });
+      }));
 
     return () => {
       cancelled = true;

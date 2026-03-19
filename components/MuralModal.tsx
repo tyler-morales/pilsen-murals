@@ -16,19 +16,20 @@ import { getDirectionsUrl } from "@/lib/directions";
 import { ZoomableImage, type ZoomableImageHandle } from "@/components/ZoomableImage";
 import { getArtistInstagramUrl } from "@/lib/instagram";
 import { isLightColor, normalizeHexToSix, getContentOverlay } from "@/lib/colorUtils";
-import { MAPBOX_STYLE_URLS } from "@/lib/mapbox";
+import { ensureMapboxCSS, MAPBOX_STYLE_URLS } from "@/lib/mapbox";
 import { parsePx } from "@/lib/imageMetadata";
 import { ImageEditor } from "@/components/ImageEditor";
 import { MuralTimeline } from "@/components/MuralTimeline";
+import { ArtistCombobox, type ArtistComboboxValue } from "@/components/ArtistCombobox";
 import { useAuthStore } from "@/store/authStore";
 import { useCaptureStore } from "@/store/captureStore";
 import { haversineDistanceMeters } from "@/lib/geo";
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Star used in enlarged view save button
+import { ensureTurnstileScript } from "@/lib/turnstile-loader";
 import { ExternalLink, Map, Minus, Pencil, Star, X } from "lucide-react";
 
 const MURAL_EDIT_TURNSTILE_ID = "mural-edit-turnstile";
 const MURAL_EDIT_TURNSTILE_SELECTOR = `#${MURAL_EDIT_TURNSTILE_ID}`;
-const TURNSTILE_SCRIPT_URL = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
 
 const MINIMAP_MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
 const MINIMAP_STYLE_STANDARD = MAPBOX_STYLE_URLS.standard;
@@ -167,7 +168,10 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
   const [croppedPreviewUrl, setCroppedPreviewUrl] = useState<string | null>(null);
   const [cropImageUrl, setCropImageUrl] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
-  const [editArtist, setEditArtist] = useState("");
+  const [editArtistValue, setEditArtistValue] = useState<ArtistComboboxValue>({
+    id: null,
+    name: "",
+  });
   const [editInstagramHandle, setEditInstagramHandle] = useState("");
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
@@ -181,7 +185,10 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
   const startEditMode = useCallback(() => {
     if (!activeMural) return;
     setEditTitle(activeMural.title);
-    setEditArtist(activeMural.artist);
+    setEditArtistValue({
+      id: activeMural.artistId ?? null,
+      name: activeMural.artist ?? "",
+    });
     setEditInstagramHandle(activeMural.artistInstagramHandle?.replace(/^@/, "") ?? "");
     setEditError(null);
     setCroppedBlob(null);
@@ -331,7 +338,8 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
         }
         const metadataChanged =
           (editTitle.trim() || "") !== (currentMural.title || "") ||
-          (editArtist.trim() || "") !== (currentMural.artist || "") ||
+          (editArtistValue.name.trim() || "") !== (currentMural.artist || "") ||
+          (editArtistValue.id ?? "") !== ((currentMural as Mural).artistId ?? "") ||
           (editInstagramHandle.trim().replace(/^@/, "") || "") !== (currentMural.artistInstagramHandle?.replace(/^@/, "") || "");
         if (metadataChanged) {
           const res = await fetch(`/api/murals/${activeMural.id}`, {
@@ -340,7 +348,8 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
             body: JSON.stringify({
               turnstileToken: token,
               title: editTitle.trim() || undefined,
-              artist: editArtist.trim() || undefined,
+              artistId: editArtistValue.id ?? undefined,
+              artist: editArtistValue.name.trim() || undefined,
               artistInstagramHandle: editInstagramHandle.trim() ? editInstagramHandle.trim().replace(/^@/, "") : null,
             }),
           });
@@ -359,7 +368,7 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
         setEditSaving(false);
       }
     },
-    [activeMural, croppedBlob, editTitle, editArtist, editInstagramHandle, updateActiveMural, cancelEditMode, haptics]
+    [activeMural, croppedBlob, editTitle, editArtistValue, editInstagramHandle, updateActiveMural, cancelEditMode, haptics]
   );
 
   const submitEditWithTokenRef = useRef(submitEditWithToken);
@@ -383,23 +392,16 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
         return true;
       },
     };
-    const existingScript = document.querySelector(`script[src="${TURNSTILE_SCRIPT_URL}"]`);
-    const doRender = () => {
+    let cancelled = false;
+    void ensureTurnstileScript().then(() => {
+      if (cancelled) return;
       const container = document.querySelector(MURAL_EDIT_TURNSTILE_SELECTOR);
       if (container && win.turnstile?.render && !turnstileWidgetIdRef.current) {
         turnstileWidgetIdRef.current = win.turnstile.render(MURAL_EDIT_TURNSTILE_SELECTOR, renderOptions);
       }
-    };
-    if (!existingScript) {
-      const script = document.createElement("script");
-      script.src = TURNSTILE_SCRIPT_URL;
-      script.async = true;
-      script.onload = doRender;
-      document.head.appendChild(script);
-      return () => { };
-    }
-    doRender();
+    });
     return () => {
+      cancelled = true;
       if (turnstileWidgetIdRef.current && win.turnstile?.remove) {
         win.turnstile.remove(turnstileWidgetIdRef.current);
         turnstileWidgetIdRef.current = null;
@@ -626,110 +628,103 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
       mapStyle === "satellite" ? MINIMAP_STYLE_SATELLITE : MINIMAP_STYLE_STANDARD;
 
     let cancelled = false;
-    import("mapbox-gl").then((mapboxglModule) => {
-      if (cancelled || !container) return;
-      if (typeof document !== "undefined") {
-        const existing = document.querySelector('link[href="/mapbox-gl.css"]');
-        if (!existing) {
-          const link = document.createElement("link");
-          link.rel = "stylesheet";
-          link.href = "/mapbox-gl.css";
-          document.head.appendChild(link);
+    void ensureMapboxCSS().then(() =>
+      import("mapbox-gl").then((mapboxglModule) => {
+        if (cancelled || !container) return;
+        const mapboxgl = mapboxglModule.default;
+        const existingMap = minimapRef.current;
+        if (existingMap) {
+          existingMap.setCenter(coords);
+          existingMap.setZoom(MINIMAP_ZOOM);
+          const muralSource = existingMap.getSource(
+            MINIMAP_MURAL_SOURCE_ID
+          ) as import("mapbox-gl").GeoJSONSource | undefined;
+          if (muralSource) {
+            muralSource.setData({
+              type: "Feature",
+              properties: {},
+              geometry: { type: "Point", coordinates: coords },
+            });
+          }
+          const userCoords = useLocationStore.getState().userCoords;
+          const userSource = existingMap.getSource(
+            MINIMAP_USER_SOURCE_ID
+          ) as import("mapbox-gl").GeoJSONSource | undefined;
+          if (userSource) {
+            userSource.setData(
+              userCoords
+                ? {
+                  type: "Feature",
+                  properties: {},
+                  geometry: { type: "Point", coordinates: userCoords },
+                }
+                : { type: "FeatureCollection", features: [] }
+            );
+          }
+          return;
         }
-      }
-      const mapboxgl = mapboxglModule.default;
-      const existingMap = minimapRef.current;
-      if (existingMap) {
-        existingMap.setCenter(coords);
-        existingMap.setZoom(MINIMAP_ZOOM);
-        const muralSource = existingMap.getSource(
-          MINIMAP_MURAL_SOURCE_ID
-        ) as import("mapbox-gl").GeoJSONSource | undefined;
-        if (muralSource) {
-          muralSource.setData({
-            type: "Feature",
-            properties: {},
-            geometry: { type: "Point", coordinates: coords },
+        const map = new mapboxgl.Map({
+          container,
+          style: styleUrl,
+          center: coords,
+          zoom: MINIMAP_ZOOM,
+          pitch: 0,
+          bearing: 0,
+          accessToken: MINIMAP_MAPBOX_TOKEN,
+          interactive: false,
+        });
+        map.on("load", () => {
+          if (cancelled) return;
+          const emptyFC = { type: "FeatureCollection" as const, features: [] };
+          map.addSource(MINIMAP_MURAL_SOURCE_ID, {
+            type: "geojson",
+            data: {
+              type: "Feature",
+              properties: {},
+              geometry: { type: "Point", coordinates: coords },
+            },
           });
-        }
-        const userCoords = useLocationStore.getState().userCoords;
-        const userSource = existingMap.getSource(
-          MINIMAP_USER_SOURCE_ID
-        ) as import("mapbox-gl").GeoJSONSource | undefined;
-        if (userSource) {
-          userSource.setData(
-            userCoords
-              ? {
-                type: "Feature",
-                properties: {},
-                geometry: { type: "Point", coordinates: userCoords },
-              }
-              : { type: "FeatureCollection", features: [] }
-          );
-        }
-        return;
-      }
-      const map = new mapboxgl.Map({
-        container,
-        style: styleUrl,
-        center: coords,
-        zoom: MINIMAP_ZOOM,
-        pitch: 0,
-        bearing: 0,
-        accessToken: MINIMAP_MAPBOX_TOKEN,
-        interactive: false,
-      });
-      map.on("load", () => {
-        if (cancelled) return;
-        const emptyFC = { type: "FeatureCollection" as const, features: [] };
-        map.addSource(MINIMAP_MURAL_SOURCE_ID, {
-          type: "geojson",
-          data: {
-            type: "Feature",
-            properties: {},
-            geometry: { type: "Point", coordinates: coords },
-          },
-        });
-        map.addLayer({
-          id: MINIMAP_MURAL_LAYER_ID,
-          type: "circle",
-          source: MINIMAP_MURAL_SOURCE_ID,
-          paint: {
-            "circle-radius": 8,
-            "circle-color": "#d97706",
-            "circle-stroke-width": 2,
-            "circle-stroke-color": "#fff",
-          },
-        });
-        map.addSource(MINIMAP_USER_SOURCE_ID, {
-          type: "geojson",
-          data: emptyFC,
-        });
-        map.addLayer({
-          id: MINIMAP_USER_LAYER_ID,
-          type: "circle",
-          source: MINIMAP_USER_SOURCE_ID,
-          paint: {
-            "circle-radius": 6,
-            "circle-color": "#4285F4",
-            "circle-stroke-width": 2,
-            "circle-stroke-color": "#fff",
-          },
-        });
-        const userCoords = useLocationStore.getState().userCoords;
-        const userSource = map.getSource(
-          MINIMAP_USER_SOURCE_ID
-        ) as import("mapbox-gl").GeoJSONSource | undefined;
-        if (userSource && userCoords) {
-          userSource.setData({
-            type: "Feature",
-            properties: {},
-            geometry: { type: "Point", coordinates: userCoords },
+          map.addLayer({
+            id: MINIMAP_MURAL_LAYER_ID,
+            type: "circle",
+            source: MINIMAP_MURAL_SOURCE_ID,
+            paint: {
+              "circle-radius": 8,
+              "circle-color": "#d97706",
+              "circle-stroke-width": 2,
+              "circle-stroke-color": "#fff",
+            },
           });
-        }
-        minimapRef.current = map;
-      });
-    });
+          map.addSource(MINIMAP_USER_SOURCE_ID, {
+            type: "geojson",
+            data: emptyFC,
+          });
+          map.addLayer({
+            id: MINIMAP_USER_LAYER_ID,
+            type: "circle",
+            source: MINIMAP_USER_SOURCE_ID,
+            paint: {
+              "circle-radius": 6,
+              "circle-color": "#4285F4",
+              "circle-stroke-width": 2,
+              "circle-stroke-color": "#fff",
+            },
+          });
+          const userCoords = useLocationStore.getState().userCoords;
+          const userSource = map.getSource(
+            MINIMAP_USER_SOURCE_ID
+          ) as import("mapbox-gl").GeoJSONSource | undefined;
+          if (userSource && userCoords) {
+            userSource.setData({
+              type: "Feature",
+              properties: {},
+              geometry: { type: "Point", coordinates: userCoords },
+            });
+          }
+          minimapRef.current = map;
+        });
+      })
+    );
 
     return () => {
       cancelled = true;
@@ -934,7 +929,7 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
                       className="fixed inset-0 z-[79] pointer-events-none"
                       aria-hidden
                     />
-                    <AnimatePresence mode="wait">
+                    <AnimatePresence>
                       {isMinimapMinimized ? (
                         <motion.button
                           key="minimap-pill"
@@ -1147,13 +1142,12 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
                           autoFocus
                         />
                         <label htmlFor="mural-edit-artist" className="sr-only">Artist</label>
-                        <input
+                        <ArtistCombobox
                           id="mural-edit-artist"
-                          type="text"
-                          value={editArtist}
-                          onChange={(e) => setEditArtist(e.target.value)}
+                          value={editArtistValue}
+                          onChange={setEditArtistValue}
                           placeholder="Artist name"
-                          className={`w-full rounded-lg border px-3 py-2 text-mobile-body focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 ${isLight ? "border-zinc-300 bg-white text-zinc-900 placeholder:text-zinc-400" : "border-white/30 bg-white/10 text-white placeholder:text-white/50"}`}
+                          isLight={isLight}
                           aria-label="Artist"
                         />
                         <div className="space-y-1">
@@ -1230,6 +1224,64 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
                     <p className={`mt-1 text-mobile-body ${isLight ? "text-zinc-800" : "text-white/90"}`}>
                       by {activeMural.artist || "Unknown Artist"}
                     </p>
+                    {(() => {
+                      const artistName = (activeMural.artist || "").trim();
+                      const showMoreByArtist =
+                        artistName &&
+                        artistName.toLowerCase() !== "unknown artist" &&
+                        muralsOrder.length > 0;
+                      const otherByArtist = showMoreByArtist
+                        ? muralsOrder.filter(
+                            (m) =>
+                              m.id !== activeMural.id &&
+                              (m.artist || "").trim().toLowerCase() === artistName.toLowerCase()
+                          )
+                        : [];
+                      if (otherByArtist.length === 0) return null;
+                      return (
+                        <section
+                          className="mt-5"
+                          aria-labelledby="more-by-artist-heading"
+                        >
+                          <h3
+                            id="more-by-artist-heading"
+                            className={`text-mobile-caption font-medium uppercase tracking-[0.08em] ${isLight ? "text-zinc-600" : "text-white/70"}`}
+                          >
+                            More by {artistName}
+                          </h3>
+                          <ul className="mt-3 grid grid-cols-2 gap-3" role="list">
+                            {otherByArtist.map((mural) => {
+                              const idx = muralsOrder.findIndex((m) => m.id === mural.id);
+                              const thumb = mural.thumbnail || mural.imageUrl;
+                              return (
+                                <li key={mural.id}>
+                                  <button
+                                    type="button"
+                                    onClick={() => idx >= 0 && goToIndex(idx)}
+                                    className={`group w-full rounded-lg border text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 ${isLight ? "border-zinc-200 bg-white hover:border-zinc-300" : "border-white/20 bg-white/5 hover:border-white/30"}`}
+                                    aria-label={`View mural: ${mural.title}`}
+                                  >
+                                    <div className="aspect-[4/5] w-full overflow-hidden rounded-t-lg">
+                                      <Image
+                                        src={thumb}
+                                        alt=""
+                                        width={200}
+                                        height={250}
+                                        className="h-full w-full object-cover transition-opacity group-hover:opacity-90"
+                                        sizes="(max-width: 512px) 50vw, 200px"
+                                      />
+                                    </div>
+                                    <p className={`truncate px-2 py-1.5 text-mobile-footnote ${isLight ? "text-zinc-800" : "text-white/90"}`}>
+                                      {mural.title}
+                                    </p>
+                                  </button>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </section>
+                      );
+                    })()}
                     {(formatIsoDate(activeMural.dateCaptured) ||
                       formatPhotoDate(activeMural.imageMetadata?.["Date taken"]) ||
                       formatMuralDate(activeMural.datePainted ?? null, activeMural.yearPainted) ||

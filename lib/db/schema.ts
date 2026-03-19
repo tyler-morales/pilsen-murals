@@ -23,6 +23,18 @@
 
 export type MuralSource = "sync" | "user_submission";
 
+export interface ArtistRow {
+  id: string;
+  name: string;
+  instagram_handle: string | null;
+  created_at: string;
+}
+
+export interface ArtistInsert {
+  name: string;
+  instagram_handle?: string | null;
+}
+
 export interface MuralEditRow {
   id: string;
   mural_id: string;
@@ -37,6 +49,7 @@ export interface MuralRow {
   id: string;
   title: string;
   artist: string;
+  artist_id: string | null;
   artist_instagram_handle: string | null;
   coordinates: [number, number];
   bearing: number | null;
@@ -56,6 +69,7 @@ export interface MuralInsert {
   id: string;
   title: string;
   artist: string;
+  artist_id?: string | null;
   artist_instagram_handle?: string | null;
   coordinates: [number, number];
   bearing?: number | null;
@@ -75,6 +89,7 @@ export interface MuralForApp {
   id: string;
   title: string;
   artist: string;
+  artistId?: string | null;
   artistInstagramHandle?: string;
   coordinates: [number, number];
   bearing?: number;
@@ -109,6 +124,7 @@ export function muralRowToApp(row: MuralRow): MuralForApp {
     id: row.id,
     title: row.title,
     artist: row.artist,
+    ...(row.artist_id != null && { artistId: row.artist_id }),
     ...(row.artist_instagram_handle && {
       artistInstagramHandle: row.artist_instagram_handle,
     }),
