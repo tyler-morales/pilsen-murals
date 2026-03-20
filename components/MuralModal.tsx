@@ -17,6 +17,7 @@ import { ZoomableImage, type ZoomableImageHandle } from "@/components/ZoomableIm
 import { getArtistInstagramUrl } from "@/lib/instagram";
 import { isLightColor, normalizeHexToSix, getContentOverlay } from "@/lib/colorUtils";
 import { ensureMapboxCSS, MAPBOX_STYLE_URLS } from "@/lib/mapbox";
+import { attachMapboxErrorHandler } from "@/lib/mapboxErrorHandler";
 import { parsePx } from "@/lib/imageMetadata";
 import { ImageEditor } from "@/components/ImageEditor";
 import { MuralTimeline } from "@/components/MuralTimeline";
@@ -25,7 +26,7 @@ import { useAuthStore } from "@/store/authStore";
 import { useCaptureStore } from "@/store/captureStore";
 import { haversineDistanceMeters } from "@/lib/geo";
 import { ensureTurnstileScript } from "@/lib/turnstile-loader";
-import { ExternalLink, Map, Minus, Pencil, Star, X } from "lucide-react";
+import { ExternalLink, Loader2, Map, Minus, Pencil, Star, X } from "lucide-react";
 
 const MURAL_EDIT_TURNSTILE_ID = "mural-edit-turnstile";
 const MURAL_EDIT_TURNSTILE_SELECTOR = `#${MURAL_EDIT_TURNSTILE_ID}`;
@@ -172,8 +173,10 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
     name: "",
   });
   const [editInstagramHandle, setEditInstagramHandle] = useState("");
+  const [editDatePainted, setEditDatePainted] = useState("");
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [starSaving, setStarSaving] = useState(false);
   const turnstileWidgetIdRef = useRef<string | null>(null);
   const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
   const [shareFeedback, setShareFeedback] = useState<"copied" | "failed" | null>(null);
@@ -189,6 +192,7 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
       name: activeMural.artist ?? "",
     });
     setEditInstagramHandle(activeMural.artistInstagramHandle?.replace(/^@/, "") ?? "");
+    setEditDatePainted(activeMural.datePainted ?? "");
     setEditError(null);
     setCroppedBlob(null);
     setCropImageUrl(null);
@@ -339,7 +343,8 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
           (editTitle.trim() || "") !== (currentMural.title || "") ||
           (editArtistValue.name.trim() || "") !== (currentMural.artist || "") ||
           (editArtistValue.id ?? "") !== ((currentMural as Mural).artistId ?? "") ||
-          (editInstagramHandle.trim().replace(/^@/, "") || "") !== (currentMural.artistInstagramHandle?.replace(/^@/, "") || "");
+          (editInstagramHandle.trim().replace(/^@/, "") || "") !== (currentMural.artistInstagramHandle?.replace(/^@/, "") || "") ||
+          (editDatePainted.trim() || "") !== (currentMural.datePainted ?? "");
         if (metadataChanged) {
           const res = await fetch(`/api/murals/${activeMural.id}`, {
             method: "PATCH",
@@ -350,6 +355,7 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
               artistId: editArtistValue.id ?? undefined,
               artist: editArtistValue.name.trim() || undefined,
               artistInstagramHandle: editInstagramHandle.trim() ? editInstagramHandle.trim().replace(/^@/, "") : null,
+              datePainted: editDatePainted.trim() || null,
             }),
           });
           const data = await res.json();
@@ -490,7 +496,7 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
   }, [isTransitioningToMap, closeModal]);
 
   const handleStarClick = useCallback(
-    (e: React.MouseEvent) => {
+    async (e: React.MouseEvent) => {
       e.stopPropagation();
       if (!activeMural) return;
       if (hasCaptured(activeMural.id)) return;
@@ -505,13 +511,18 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
         userCoords && activeMural
           ? haversineDistanceMeters(userCoords, activeMural.coordinates)
           : null;
-      addCapture({
-        muralId: activeMural.id,
-        capturedAt: new Date().toISOString(),
-        lat,
-        lng,
-        distanceMeters,
-      });
+      setStarSaving(true);
+      try {
+        await addCapture({
+          muralId: activeMural.id,
+          capturedAt: new Date().toISOString(),
+          lat,
+          lng,
+          distanceMeters,
+        });
+      } finally {
+        setStarSaving(false);
+      }
     },
     [activeMural, user, userCoords, hasCaptured, addCapture, onRequestAuth, haptics]
   );
@@ -710,6 +721,7 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
           accessToken: MINIMAP_MAPBOX_TOKEN,
           interactive: false,
         });
+        attachMapboxErrorHandler(map);
         map.on("load", () => {
           if (cancelled) return;
           const emptyFC = { type: "FeatureCollection" as const, features: [] };
@@ -1217,6 +1229,19 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
                             Instagram only for now. If you paste @username, we&apos;ll clean it up.
                           </p>
                         </div>
+                        <div className="space-y-1">
+                          <label htmlFor="mural-edit-date-painted" className={`block text-xs font-medium uppercase tracking-wide ${isLight ? "text-zinc-800" : "text-white/85"}`}>
+                            Date painted (optional)
+                          </label>
+                          <input
+                            id="mural-edit-date-painted"
+                            type="date"
+                            value={editDatePainted}
+                            onChange={(e) => setEditDatePainted(e.target.value)}
+                            className={`w-full rounded-lg border px-3 py-2 text-mobile-body focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 ${isLight ? "border-zinc-300 bg-white text-zinc-900 placeholder:text-zinc-400" : "border-white/30 bg-white/10 text-white placeholder:text-white/50"}`}
+                            aria-label="Date mural was painted"
+                          />
+                        </div>
                       </div>
                       <button
                         type="button"
@@ -1245,9 +1270,16 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
                         type="button"
                         onClick={saveEdit}
                         disabled={editSaving}
-                        className="flex-1 min-h-[44px] rounded-lg border border-amber-600 bg-amber-600 py-3 text-base font-medium text-white shadow-sm transition-colors hover:bg-amber-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 disabled:opacity-50"
+                        className="flex-1 min-h-[44px] rounded-lg border border-amber-600 bg-amber-600 py-3 text-base font-medium text-white shadow-sm transition-colors hover:bg-amber-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 disabled:opacity-50 flex items-center justify-center gap-2"
                       >
-                        {editSaving ? "Saving…" : "Save"}
+                        {editSaving ? (
+                          <>
+                            <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                            Saving…
+                          </>
+                        ) : (
+                          "Save"
+                        )}
                       </button>
                     </div>
                   </>

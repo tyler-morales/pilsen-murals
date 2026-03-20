@@ -25,6 +25,7 @@ import type { Mural } from "@/types/mural";
 import type { MapLightPreset } from "@/store/themeStore";
 import type { MapStyleKind } from "@/store/mapStore";
 import { ensureMapboxCSS, MAPBOX_STYLE_URLS } from "@/lib/mapbox";
+import { attachMapboxErrorHandler } from "@/lib/mapboxErrorHandler";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
 
@@ -782,6 +783,8 @@ export function MuralMap({
         );
         map.addControl(new (createStyleControl(hapticsToggleRef.current))(), "top-right");
         map.addControl(new (createHeatmapControl(hapticsToggleRef.current))(), "top-right");
+
+        attachMapboxErrorHandler(map);
 
         // Merge fit and style into the NavigationControl group; keep heatmap as its own stacked group (compass stays in nav).
         // top-right order: [nav, fit, style, heatmap] -> merge fit, style into nav; heatmap remains separate.
