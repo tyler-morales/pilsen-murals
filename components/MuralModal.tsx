@@ -21,7 +21,6 @@ import { attachMapboxErrorHandler } from "@/lib/mapboxErrorHandler";
 import {
   getModalImageAspectRatio,
   aspectRatioFromDimensions,
-  MODAL_ASPECT_DEFAULT,
 } from "@/lib/muralHeroAspect";
 import { ImageEditor } from "@/components/ImageEditor";
 import { MuralTimeline } from "@/components/MuralTimeline";
@@ -168,7 +167,6 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
   const [editDatePainted, setEditDatePainted] = useState("");
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
-  const [starSaving, setStarSaving] = useState(false);
   const turnstileWidgetIdRef = useRef<string | null>(null);
   const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
   const [shareFeedback, setShareFeedback] = useState<"copied" | "failed" | null>(null);
@@ -360,7 +358,17 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
         setEditSaving(false);
       }
     },
-    [activeMural, croppedBlob, editTitle, editArtistValue, editInstagramHandle, updateActiveMural, cancelEditMode, haptics]
+    [
+      activeMural,
+      croppedBlob,
+      editTitle,
+      editArtistValue,
+      editInstagramHandle,
+      editDatePainted,
+      updateActiveMural,
+      cancelEditMode,
+      haptics,
+    ]
   );
 
   const submitEditWithTokenRef = useRef(submitEditWithToken);
@@ -498,18 +506,13 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
         userCoords && activeMural
           ? haversineDistanceMeters(userCoords, activeMural.coordinates)
           : null;
-      setStarSaving(true);
-      try {
-        await addCapture({
-          muralId: activeMural.id,
-          capturedAt: new Date().toISOString(),
-          lat,
-          lng,
-          distanceMeters,
-        });
-      } finally {
-        setStarSaving(false);
-      }
+      await addCapture({
+        muralId: activeMural.id,
+        capturedAt: new Date().toISOString(),
+        lat,
+        lng,
+        distanceMeters,
+      });
     },
     [activeMural, user, userCoords, hasCaptured, addCapture, onRequestAuth, haptics]
   );

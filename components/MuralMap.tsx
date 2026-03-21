@@ -731,6 +731,7 @@ export function MuralMap({
 
   useEffect(() => {
     if (!containerRef.current || !MAPBOX_TOKEN) return;
+    const mapContainerEl = containerRef.current;
     setMapReady(false);
     setLoadProgress(0);
 
@@ -1166,8 +1167,8 @@ export function MuralMap({
         }
       }
       // Clear container immediately after removal
-      if (containerRef.current) {
-        containerRef.current.innerHTML = "";
+      if (mapContainerEl) {
+        mapContainerEl.innerHTML = "";
       }
 
       // Defer React root unmounting (safe to defer)
