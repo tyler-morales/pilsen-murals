@@ -13,6 +13,10 @@ export async function verifyTurnstile(
   token: string,
   remoteIp?: string
 ): Promise<TurnstileVerifyResult> {
+  // Bypass CAPTCHA verification in development
+  if (process.env.NODE_ENV === "development") {
+    return { success: true };
+  }
   const secret = process.env.TURNSTILE_SECRET_KEY;
   if (!secret) {
     throw new Error("TURNSTILE_SECRET_KEY is not set");

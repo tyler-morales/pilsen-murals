@@ -86,6 +86,7 @@ export async function PATCH(
       artist?: string;
       artistId?: string | null;
       artistInstagramHandle?: string | null;
+      datePainted?: string | null;
     };
 
     const token =
@@ -154,6 +155,20 @@ export async function PATCH(
         typeof body.artistInstagramHandle === "string" && body.artistInstagramHandle.trim()
           ? body.artistInstagramHandle.trim().replace(/^@/, "").slice(0, MAX_HANDLE_LEN)
           : null;
+    }
+    if (body.datePainted !== undefined) {
+      if (body.datePainted == null || body.datePainted === "") {
+        fields.date_painted = null;
+      } else {
+        const trimmed = body.datePainted.trim();
+        // Validate ISO date format (YYYY-MM-DD)
+        if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+          const date = new Date(trimmed);
+          if (Number.isFinite(date.getTime())) {
+            fields.date_painted = trimmed;
+          }
+        }
+      }
     }
 
     if (Object.keys(fields).length === 0) {

@@ -8,7 +8,7 @@ import { useHaptics } from "@/hooks/useHaptics";
 import { useAuthStore } from "@/store/authStore";
 import { isLightColor } from "@/lib/colorUtils";
 import { MuralTimelineViewer } from "@/components/MuralTimelineViewer";
-import { ensureTurnstileScript } from "@/lib/turnstile-loader";
+import { ensureTurnstileScript, executeTurnstileOrBypass } from "@/lib/turnstile-loader";
 import { Plus } from "lucide-react";
 
 export interface TimelinePhoto {
@@ -207,11 +207,11 @@ export function MuralTimeline({
         return;
       }
       pendingFileRef.current = file;
-      const win = window as unknown as {
-        turnstile?: { execute: (sel: string, opts: object) => void };
-      };
       try {
-        win.turnstile?.execute(`#${TURNSTILE_CONTAINER_ID}`, {});
+        executeTurnstileOrBypass(`#${TURNSTILE_CONTAINER_ID}`, (token) => {
+          const file = pendingFileRef.current;
+          if (file) submitPhotoRef.current(token, file);
+        });
       } catch {
         setUploadError("Captcha failed. Try again.");
         pendingFileRef.current = null;

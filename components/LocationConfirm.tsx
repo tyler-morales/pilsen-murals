@@ -4,6 +4,7 @@ import { useRef, useEffect, useState, useCallback } from "react";
 import Image from "next/image";
 import { Loader2 } from "lucide-react";
 import { ensureMapboxCSS, MAPBOX_STYLE_URLS } from "@/lib/mapbox";
+import { attachMapboxErrorHandler } from "@/lib/mapboxErrorHandler";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
 const STYLE_STANDARD = MAPBOX_STYLE_URLS.standard;
@@ -68,6 +69,7 @@ export function LocationConfirm({
           accessToken: MAPBOX_TOKEN,
           interactive: true,
         });
+        attachMapboxErrorHandler(map);
         map.addControl(
           new mapboxgl.NavigationControl({ showZoom: true, showCompass: true, visualizePitch: false }),
           "top-right"

@@ -12,13 +12,14 @@ import { useLocationStore } from "@/store/locationStore";
 import { useCaptureStore } from "@/store/captureStore";
 import { haversineDistanceMeters } from "@/lib/geo";
 import { normalizeImageForUpload } from "@/lib/upload/normalizeImageForUpload";
+import { reencodeBlobToJpegForDisplay } from "@/lib/upload/reencodeBlobToJpegForDisplay";
 import { bucketResultsByMuralId } from "@/lib/searchUtils";
 import { sanitizeErrorFromServer } from "@/lib/errorUtils";
 import { savePendingMuralDraft, getPendingMuralDraft, clearPendingMuralDraft, dataUrlToBlob } from "@/lib/pendingMuralDraft";
 import { ImageEditor } from "@/components/ImageEditor";
 import { LocationConfirm } from "@/components/LocationConfirm";
 import { ArtistCombobox, type ArtistComboboxValue } from "@/components/ArtistCombobox";
-import { ensureTurnstileScript } from "@/lib/turnstile-loader";
+import { ensureTurnstileScript, executeTurnstileOrBypass } from "@/lib/turnstile-loader";
 
 /**
  * Cosine similarity threshold: score >= this means "mural is in DB".
@@ -702,6 +703,21 @@ export function CheckMuralModal({
     [editImageUrl, stopCamera]
   );
 
+  const openEditWithPickedImage = useCallback(
+    async (file: File) => {
+      try {
+        const jpeg = await reencodeBlobToJpegForDisplay(file);
+        goToEdit(jpeg);
+      } catch {
+        setSearchError(
+          "We couldn't open that image in this browser. Try a JPEG or PNG photo, or use the camera."
+        );
+        setPhase("error");
+      }
+    },
+    [goToEdit]
+  );
+
   const handleEditBack = useCallback(() => {
     if (editImageUrl) {
       URL.revokeObjectURL(editImageUrl);
@@ -757,7 +773,26 @@ export function CheckMuralModal({
       const imageCapture = new ImageCaptureCtor(track);
       imageCapture
         .takePhoto()
-        .then((blob) => submitCapture(blob))
+        .then(async (photoBlob) => {
+          try {
+            const jpeg = await reencodeBlobToJpegForDisplay(photoBlob);
+            submitCapture(jpeg);
+          } catch {
+            const canvas = document.createElement("canvas");
+            const w = video.videoWidth;
+            const h = video.videoHeight;
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext("2d");
+            if (!ctx) return;
+            ctx.drawImage(video, 0, 0);
+            canvas.toBlob(
+              (blob) => blob && submitCapture(blob),
+              "image/jpeg",
+              0.9
+            );
+          }
+        })
         .catch(() => {
           const canvas = document.createElement("canvas");
           const w = video.videoWidth;
@@ -804,9 +839,9 @@ export function CheckMuralModal({
       const file = e.target.files?.[0];
       if (!file || !file.type.startsWith("image/")) return;
       e.target.value = "";
-      goToEdit(file);
+      void openEditWithPickedImage(file);
     },
-    [goToEdit]
+    [openEditWithPickedImage]
   );
 
   const handleCheckAnother = useCallback(() => {
@@ -1023,19 +1058,16 @@ export function CheckMuralModal({
   }, [isOpen, turnstileSiteKey, phase, handleTurnstileError]);
 
   const executeTurnstile = useCallback(() => {
-    const w = (window as unknown as {
-      turnstile?: {
-        execute: (container: string, params: object) => void;
-        reset?: (container: string) => void;
-      };
-    }).turnstile;
-    if (!w?.execute) {
-      setSearchError("Still loading — give it a moment and tap again.");
-      setPhase("error");
-      return;
-    }
     try {
-      w.execute(TURNSTILE_CONTAINER_SELECTOR, {});
+      executeTurnstileOrBypass(TURNSTILE_CONTAINER_SELECTOR, (token) => {
+        const action = pendingTurnstileActionRef.current;
+        pendingTurnstileActionRef.current = null;
+        if (action === "submit") {
+          addToDbWithTokenRef.current?.(token);
+        } else if (action && "muralId" in action) {
+          submitDiscoveryCaptureRef.current?.(action.muralId, token);
+        }
+      });
     } catch {
       handleTurnstileError();
     }

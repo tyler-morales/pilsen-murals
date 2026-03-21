@@ -17,15 +17,20 @@ import { ZoomableImage, type ZoomableImageHandle } from "@/components/ZoomableIm
 import { getArtistInstagramUrl } from "@/lib/instagram";
 import { isLightColor, normalizeHexToSix, getContentOverlay } from "@/lib/colorUtils";
 import { ensureMapboxCSS, MAPBOX_STYLE_URLS } from "@/lib/mapbox";
-import { parsePx } from "@/lib/imageMetadata";
+import { attachMapboxErrorHandler } from "@/lib/mapboxErrorHandler";
+import {
+  getModalImageAspectRatio,
+  aspectRatioFromDimensions,
+  MODAL_ASPECT_DEFAULT,
+} from "@/lib/muralHeroAspect";
 import { ImageEditor } from "@/components/ImageEditor";
 import { MuralTimeline } from "@/components/MuralTimeline";
 import { ArtistCombobox, type ArtistComboboxValue } from "@/components/ArtistCombobox";
 import { useAuthStore } from "@/store/authStore";
 import { useCaptureStore } from "@/store/captureStore";
 import { haversineDistanceMeters } from "@/lib/geo";
-import { ensureTurnstileScript } from "@/lib/turnstile-loader";
-import { ExternalLink, Map, Minus, Pencil, Star, X } from "lucide-react";
+import { ensureTurnstileScript, executeTurnstileOrBypass } from "@/lib/turnstile-loader";
+import { ExternalLink, Loader2, Map, Minus, Pencil, Star, X } from "lucide-react";
 
 const MURAL_EDIT_TURNSTILE_ID = "mural-edit-turnstile";
 const MURAL_EDIT_TURNSTILE_SELECTOR = `#${MURAL_EDIT_TURNSTILE_ID}`;
@@ -55,19 +60,6 @@ const DRAWER_UP = {
   exit: { opacity: 0, y: "100%" },
 };
 
-const ASPECT_MIN = 9 / 16;
-const ASPECT_MAX = 2;
-const ASPECT_DEFAULT = 4 / 5;
-
-function getModalImageAspectRatio(mural: Mural): number {
-  const w = parsePx(mural.imageMetadata?.Width);
-  const h = parsePx(mural.imageMetadata?.Height);
-  if (w != null && h != null && h > 0) {
-    const ratio = w / h;
-    return Math.max(ASPECT_MIN, Math.min(ASPECT_MAX, ratio));
-  }
-  return ASPECT_DEFAULT;
-}
 
 /** Parse "2025:04:23 14:19:12" to "Apr 23, 2025". */
 function formatPhotoDate(dateTaken: string | undefined): string | null {
@@ -142,6 +134,7 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
   const [isImageLoaded, setIsImageLoaded] = useState(false);
   const [isEnlargedImageLoaded, setIsEnlargedImageLoaded] = useState(false);
   const [isEnlargedZoomed, setIsEnlargedZoomed] = useState(false);
+  const [measuredHeroAspect, setMeasuredHeroAspect] = useState<number | null>(null);
   const zoomableRef = useRef<ZoomableImageHandle>(null);
   const [isTransitioningToMap, setIsTransitioningToMap] = useState(false);
   const [isMinimapMinimized, setIsMinimapMinimized] = useState(false);
@@ -172,8 +165,10 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
     name: "",
   });
   const [editInstagramHandle, setEditInstagramHandle] = useState("");
+  const [editDatePainted, setEditDatePainted] = useState("");
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [starSaving, setStarSaving] = useState(false);
   const turnstileWidgetIdRef = useRef<string | null>(null);
   const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
   const [shareFeedback, setShareFeedback] = useState<"copied" | "failed" | null>(null);
@@ -189,6 +184,7 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
       name: activeMural.artist ?? "",
     });
     setEditInstagramHandle(activeMural.artistInstagramHandle?.replace(/^@/, "") ?? "");
+    setEditDatePainted(activeMural.datePainted ?? "");
     setEditError(null);
     setCroppedBlob(null);
     setCropImageUrl(null);
@@ -296,15 +292,10 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
       setEditError("Captcha is not configured. Please try again later.");
       return;
     }
-    const win = window as unknown as {
-      turnstile?: { execute: (container: string, params: object) => void };
-    };
-    if (!win.turnstile?.execute) {
-      setEditError("Still loading — give it a moment and try again.");
-      return;
-    }
     try {
-      win.turnstile.execute(MURAL_EDIT_TURNSTILE_SELECTOR, {});
+      executeTurnstileOrBypass(MURAL_EDIT_TURNSTILE_SELECTOR, (token) => {
+        submitEditWithTokenRef.current?.(token);
+      });
     } catch {
       setEditError("Something went wrong. Please try again.");
     }
@@ -339,7 +330,8 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
           (editTitle.trim() || "") !== (currentMural.title || "") ||
           (editArtistValue.name.trim() || "") !== (currentMural.artist || "") ||
           (editArtistValue.id ?? "") !== ((currentMural as Mural).artistId ?? "") ||
-          (editInstagramHandle.trim().replace(/^@/, "") || "") !== (currentMural.artistInstagramHandle?.replace(/^@/, "") || "");
+          (editInstagramHandle.trim().replace(/^@/, "") || "") !== (currentMural.artistInstagramHandle?.replace(/^@/, "") || "") ||
+          (editDatePainted.trim() || "") !== (currentMural.datePainted ?? "");
         if (metadataChanged) {
           const res = await fetch(`/api/murals/${activeMural.id}`, {
             method: "PATCH",
@@ -350,6 +342,7 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
               artistId: editArtistValue.id ?? undefined,
               artist: editArtistValue.name.trim() || undefined,
               artistInstagramHandle: editInstagramHandle.trim() ? editInstagramHandle.trim().replace(/^@/, "") : null,
+              datePainted: editDatePainted.trim() || null,
             }),
           });
           const data = await res.json();
@@ -490,7 +483,7 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
   }, [isTransitioningToMap, closeModal]);
 
   const handleStarClick = useCallback(
-    (e: React.MouseEvent) => {
+    async (e: React.MouseEvent) => {
       e.stopPropagation();
       if (!activeMural) return;
       if (hasCaptured(activeMural.id)) return;
@@ -505,13 +498,18 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
         userCoords && activeMural
           ? haversineDistanceMeters(userCoords, activeMural.coordinates)
           : null;
-      addCapture({
-        muralId: activeMural.id,
-        capturedAt: new Date().toISOString(),
-        lat,
-        lng,
-        distanceMeters,
-      });
+      setStarSaving(true);
+      try {
+        await addCapture({
+          muralId: activeMural.id,
+          capturedAt: new Date().toISOString(),
+          lat,
+          lng,
+          distanceMeters,
+        });
+      } finally {
+        setStarSaving(false);
+      }
     },
     [activeMural, user, userCoords, hasCaptured, addCapture, onRequestAuth, haptics]
   );
@@ -599,6 +597,18 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
       setIsEditMode(false);
     }
   }, [activeMural]);
+
+  // Compute displayed hero image URL (same logic as Image src)
+  const heroDisplayUrl = activeMural
+    ? isEditMode && croppedPreviewUrl
+      ? croppedPreviewUrl
+      : getCaptureFor(activeMural.id)?.photoUrl ?? activeMural.imageUrl
+    : null;
+
+  // Reset measured aspect when displayed image or mural changes
+  useEffect(() => {
+    setMeasuredHeroAspect(null);
+  }, [heroDisplayUrl, activeMural?.id]);
 
   useEffect(() => {
     if (isImageExpanded) setIsMinimapMinimized(false);
@@ -710,6 +720,7 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
           accessToken: MINIMAP_MAPBOX_TOKEN,
           interactive: false,
         });
+        attachMapboxErrorHandler(map);
         map.on("load", () => {
           if (cancelled) return;
           const emptyFC = { type: "FeatureCollection" as const, features: [] };
@@ -1077,7 +1088,9 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
               <div
                 className={`relative w-full shrink-0 overflow-hidden ${getCaptureFor(activeMural.id)?.photoUrl ? "ring-2 ring-amber-400 ring-inset" : ""}`}
                 style={{
-                  aspectRatio: isEditMode && isCropMode && cropImageUrl ? undefined : getModalImageAspectRatio(activeMural),
+                  aspectRatio: isEditMode && isCropMode && cropImageUrl
+                    ? undefined
+                    : measuredHeroAspect ?? getModalImageAspectRatio(activeMural),
                   backgroundColor: activeMural.dominantColor,
                   minHeight: isEditMode && isCropMode && cropImageUrl ? "280px" : undefined,
                 }}
@@ -1098,6 +1111,16 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
                         aria-hidden
                       />
                     )}
+                    <Image
+                      src={isEditMode && croppedPreviewUrl
+                        ? croppedPreviewUrl
+                        : (getCaptureFor(activeMural.id)?.photoUrl ?? activeMural.imageUrl)}
+                      alt=""
+                      fill
+                      sizes="(max-width: 512px) 100vw, 512px"
+                      className="object-cover blur-xl scale-105"
+                      aria-hidden
+                    />
                     {getCaptureFor(activeMural.id)?.photoUrl && (
                       <span
                         className="absolute right-3 bottom-3 z-10 rounded bg-amber-400/95 px-2 py-1 text-xs font-medium text-amber-950 shadow-sm"
@@ -1121,7 +1144,17 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
                         fill
                         sizes="(max-width: 512px) 100vw, 512px"
                         className={`object-contain transition-opacity duration-300 ease-out ${isImageLoaded ? "opacity-100" : "opacity-0"}`}
-                        onLoad={() => setIsImageLoaded(true)}
+                        onLoad={(e) => {
+                          setIsImageLoaded(true);
+                          // Measure natural dimensions to override stale metadata aspect ratio
+                          const img = e.currentTarget;
+                          if (img && img.naturalWidth > 0 && img.naturalHeight > 0) {
+                            const aspect = aspectRatioFromDimensions(img.naturalWidth, img.naturalHeight);
+                            if (aspect != null) {
+                              setMeasuredHeroAspect(aspect);
+                            }
+                          }
+                        }}
                         onError={() => setIsImageLoaded(true)}
                       />
                     </button>
@@ -1217,6 +1250,19 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
                             Instagram only for now. If you paste @username, we&apos;ll clean it up.
                           </p>
                         </div>
+                        <div className="space-y-1">
+                          <label htmlFor="mural-edit-date-painted" className={`block text-xs font-medium uppercase tracking-wide ${isLight ? "text-zinc-800" : "text-white/85"}`}>
+                            Date painted (optional)
+                          </label>
+                          <input
+                            id="mural-edit-date-painted"
+                            type="date"
+                            value={editDatePainted}
+                            onChange={(e) => setEditDatePainted(e.target.value)}
+                            className={`w-full rounded-lg border px-3 py-2 text-mobile-body focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 ${isLight ? "border-zinc-300 bg-white text-zinc-900 placeholder:text-zinc-400" : "border-white/30 bg-white/10 text-white placeholder:text-white/50"}`}
+                            aria-label="Date mural was painted"
+                          />
+                        </div>
                       </div>
                       <button
                         type="button"
@@ -1245,9 +1291,16 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
                         type="button"
                         onClick={saveEdit}
                         disabled={editSaving}
-                        className="flex-1 min-h-[44px] rounded-lg border border-amber-600 bg-amber-600 py-3 text-base font-medium text-white shadow-sm transition-colors hover:bg-amber-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 disabled:opacity-50"
+                        className="flex-1 min-h-[44px] rounded-lg border border-amber-600 bg-amber-600 py-3 text-base font-medium text-white shadow-sm transition-colors hover:bg-amber-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 disabled:opacity-50 flex items-center justify-center gap-2"
                       >
-                        {editSaving ? "Saving…" : "Save"}
+                        {editSaving ? (
+                          <>
+                            <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                            Saving…
+                          </>
+                        ) : (
+                          "Save"
+                        )}
                       </button>
                     </div>
                   </>

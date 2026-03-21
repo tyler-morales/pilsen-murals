@@ -12,6 +12,7 @@ import { getQdrantClient, COLLECTION_NAME } from "@/lib/qdrant/client";
 import { createHash } from "crypto";
 import { supabaseMuralStorage } from "@/lib/storage/supabase";
 import { processUploadedImage } from "@/lib/upload/processImage";
+import sharp from "sharp";
 
 function hashIp(ip: string | undefined): string | null {
   if (!ip?.trim()) return null;
@@ -83,16 +84,32 @@ export async function PATCH(
       supabaseMuralStorage.upload("murals/thumbnails", processed.thumbBuffer, "image/webp"),
     ]);
 
+    // Extract dimensions from processed display image to update metadata
+    let updatedMetadata: Record<string, string> | null = null;
+    try {
+      const displayMeta = await sharp(processed.displayBuffer).metadata();
+      if (displayMeta.width != null && displayMeta.height != null) {
+        updatedMetadata = {
+          ...(existing.image_metadata ?? {}),
+          Width: String(displayMeta.width),
+          Height: String(displayMeta.height),
+        };
+      }
+    } catch {
+      // If metadata extraction fails, keep existing metadata unchanged
+    }
+
     const ipHash = hashIp(remoteIp);
-    const updated = await updateMural(
-      id,
-      {
-        image_url: displayResult.url,
-        thumbnail_url: thumbResult.url,
-        dominant_color: processed.dominantColor,
-      },
-      ipHash
-    );
+    const updateFields: Parameters<typeof updateMural>[1] = {
+      image_url: displayResult.url,
+      thumbnail_url: thumbResult.url,
+      dominant_color: processed.dominantColor,
+    };
+    if (updatedMetadata != null) {
+      updateFields.image_metadata = updatedMetadata;
+    }
+
+    const updated = await updateMural(id, updateFields, ipHash);
 
     try {
       const qdrant = getQdrantClient();

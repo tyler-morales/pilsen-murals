@@ -16,6 +16,12 @@ vi.mock("@/lib/upload/normalizeImageForUpload", () => ({
   ),
 }));
 
+vi.mock("@/lib/upload/reencodeBlobToJpegForDisplay", () => ({
+  reencodeBlobToJpegForDisplay: vi.fn((_blob: Blob) =>
+    Promise.resolve(new Blob(["x"], { type: "image/jpeg" }))
+  ),
+}));
+
 vi.mock("@/lib/upload/cropImage", () => ({
   getCroppedImg: vi.fn(() =>
     Promise.resolve(new Blob(["x"], { type: "image/jpeg" }))
