@@ -18,14 +18,18 @@ import { getArtistInstagramUrl } from "@/lib/instagram";
 import { isLightColor, normalizeHexToSix, getContentOverlay } from "@/lib/colorUtils";
 import { ensureMapboxCSS, MAPBOX_STYLE_URLS } from "@/lib/mapbox";
 import { attachMapboxErrorHandler } from "@/lib/mapboxErrorHandler";
-import { parsePx } from "@/lib/imageMetadata";
+import {
+  getModalImageAspectRatio,
+  aspectRatioFromDimensions,
+  MODAL_ASPECT_DEFAULT,
+} from "@/lib/muralHeroAspect";
 import { ImageEditor } from "@/components/ImageEditor";
 import { MuralTimeline } from "@/components/MuralTimeline";
 import { ArtistCombobox, type ArtistComboboxValue } from "@/components/ArtistCombobox";
 import { useAuthStore } from "@/store/authStore";
 import { useCaptureStore } from "@/store/captureStore";
 import { haversineDistanceMeters } from "@/lib/geo";
-import { ensureTurnstileScript } from "@/lib/turnstile-loader";
+import { ensureTurnstileScript, executeTurnstileOrBypass } from "@/lib/turnstile-loader";
 import { ExternalLink, Loader2, Map, Minus, Pencil, Star, X } from "lucide-react";
 
 const MURAL_EDIT_TURNSTILE_ID = "mural-edit-turnstile";
@@ -56,19 +60,6 @@ const DRAWER_UP = {
   exit: { opacity: 0, y: "100%" },
 };
 
-const ASPECT_MIN = 9 / 16;
-const ASPECT_MAX = 2;
-const ASPECT_DEFAULT = 4 / 5;
-
-function getModalImageAspectRatio(mural: Mural): number {
-  const w = parsePx(mural.imageMetadata?.Width);
-  const h = parsePx(mural.imageMetadata?.Height);
-  if (w != null && h != null && h > 0) {
-    const ratio = w / h;
-    return Math.max(ASPECT_MIN, Math.min(ASPECT_MAX, ratio));
-  }
-  return ASPECT_DEFAULT;
-}
 
 /** Parse "2025:04:23 14:19:12" to "Apr 23, 2025". */
 function formatPhotoDate(dateTaken: string | undefined): string | null {
@@ -143,6 +134,7 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
   const [isImageLoaded, setIsImageLoaded] = useState(false);
   const [isEnlargedImageLoaded, setIsEnlargedImageLoaded] = useState(false);
   const [isEnlargedZoomed, setIsEnlargedZoomed] = useState(false);
+  const [measuredHeroAspect, setMeasuredHeroAspect] = useState<number | null>(null);
   const zoomableRef = useRef<ZoomableImageHandle>(null);
   const [isTransitioningToMap, setIsTransitioningToMap] = useState(false);
   const [isMinimapMinimized, setIsMinimapMinimized] = useState(false);
@@ -300,15 +292,10 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
       setEditError("Captcha is not configured. Please try again later.");
       return;
     }
-    const win = window as unknown as {
-      turnstile?: { execute: (container: string, params: object) => void };
-    };
-    if (!win.turnstile?.execute) {
-      setEditError("Still loading — give it a moment and try again.");
-      return;
-    }
     try {
-      win.turnstile.execute(MURAL_EDIT_TURNSTILE_SELECTOR, {});
+      executeTurnstileOrBypass(MURAL_EDIT_TURNSTILE_SELECTOR, (token) => {
+        submitEditWithTokenRef.current?.(token);
+      });
     } catch {
       setEditError("Something went wrong. Please try again.");
     }
@@ -610,6 +597,18 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
       setIsEditMode(false);
     }
   }, [activeMural]);
+
+  // Compute displayed hero image URL (same logic as Image src)
+  const heroDisplayUrl = activeMural
+    ? isEditMode && croppedPreviewUrl
+      ? croppedPreviewUrl
+      : getCaptureFor(activeMural.id)?.photoUrl ?? activeMural.imageUrl
+    : null;
+
+  // Reset measured aspect when displayed image or mural changes
+  useEffect(() => {
+    setMeasuredHeroAspect(null);
+  }, [heroDisplayUrl, activeMural?.id]);
 
   useEffect(() => {
     if (isImageExpanded) setIsMinimapMinimized(false);
@@ -1089,7 +1088,9 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
               <div
                 className={`relative w-full shrink-0 overflow-hidden ${getCaptureFor(activeMural.id)?.photoUrl ? "ring-2 ring-amber-400 ring-inset" : ""}`}
                 style={{
-                  aspectRatio: isEditMode && isCropMode && cropImageUrl ? undefined : getModalImageAspectRatio(activeMural),
+                  aspectRatio: isEditMode && isCropMode && cropImageUrl
+                    ? undefined
+                    : measuredHeroAspect ?? getModalImageAspectRatio(activeMural),
                   backgroundColor: activeMural.dominantColor,
                   minHeight: isEditMode && isCropMode && cropImageUrl ? "280px" : undefined,
                 }}
@@ -1110,6 +1111,16 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
                         aria-hidden
                       />
                     )}
+                    <Image
+                      src={isEditMode && croppedPreviewUrl
+                        ? croppedPreviewUrl
+                        : (getCaptureFor(activeMural.id)?.photoUrl ?? activeMural.imageUrl)}
+                      alt=""
+                      fill
+                      sizes="(max-width: 512px) 100vw, 512px"
+                      className="object-cover blur-xl scale-105"
+                      aria-hidden
+                    />
                     {getCaptureFor(activeMural.id)?.photoUrl && (
                       <span
                         className="absolute right-3 bottom-3 z-10 rounded bg-amber-400/95 px-2 py-1 text-xs font-medium text-amber-950 shadow-sm"
@@ -1133,7 +1144,17 @@ export function MuralModal({ onRequestAuth }: MuralModalProps = {}) {
                         fill
                         sizes="(max-width: 512px) 100vw, 512px"
                         className={`object-contain transition-opacity duration-300 ease-out ${isImageLoaded ? "opacity-100" : "opacity-0"}`}
-                        onLoad={() => setIsImageLoaded(true)}
+                        onLoad={(e) => {
+                          setIsImageLoaded(true);
+                          // Measure natural dimensions to override stale metadata aspect ratio
+                          const img = e.currentTarget;
+                          if (img && img.naturalWidth > 0 && img.naturalHeight > 0) {
+                            const aspect = aspectRatioFromDimensions(img.naturalWidth, img.naturalHeight);
+                            if (aspect != null) {
+                              setMeasuredHeroAspect(aspect);
+                            }
+                          }
+                        }}
                         onError={() => setIsImageLoaded(true)}
                       />
                     </button>

@@ -18,7 +18,7 @@ import { savePendingMuralDraft, getPendingMuralDraft, clearPendingMuralDraft, da
 import { ImageEditor } from "@/components/ImageEditor";
 import { LocationConfirm } from "@/components/LocationConfirm";
 import { ArtistCombobox, type ArtistComboboxValue } from "@/components/ArtistCombobox";
-import { ensureTurnstileScript } from "@/lib/turnstile-loader";
+import { ensureTurnstileScript, executeTurnstileOrBypass } from "@/lib/turnstile-loader";
 
 /**
  * Cosine similarity threshold: score >= this means "mural is in DB".
@@ -1023,19 +1023,16 @@ export function CheckMuralModal({
   }, [isOpen, turnstileSiteKey, phase, handleTurnstileError]);
 
   const executeTurnstile = useCallback(() => {
-    const w = (window as unknown as {
-      turnstile?: {
-        execute: (container: string, params: object) => void;
-        reset?: (container: string) => void;
-      };
-    }).turnstile;
-    if (!w?.execute) {
-      setSearchError("Still loading — give it a moment and tap again.");
-      setPhase("error");
-      return;
-    }
     try {
-      w.execute(TURNSTILE_CONTAINER_SELECTOR, {});
+      executeTurnstileOrBypass(TURNSTILE_CONTAINER_SELECTOR, (token) => {
+        const action = pendingTurnstileActionRef.current;
+        pendingTurnstileActionRef.current = null;
+        if (action === "submit") {
+          addToDbWithTokenRef.current?.(token);
+        } else if (action && "muralId" in action) {
+          submitDiscoveryCaptureRef.current?.(action.muralId, token);
+        }
+      });
     } catch {
       handleTurnstileError();
     }

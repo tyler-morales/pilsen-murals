@@ -130,6 +130,7 @@ export type MuralUpdateFields = Partial<{
   image_url: string;
   thumbnail_url: string | null;
   dominant_color: string;
+  image_metadata: Record<string, string> | null;
 }>;
 
 /**
@@ -159,6 +160,7 @@ export async function updateMural(
     image_url: "image_url",
     thumbnail_url: "thumbnail_url",
     dominant_color: "dominant_color",
+    image_metadata: "image_metadata",
   };
 
   const updates: Partial<MuralRow> = {};

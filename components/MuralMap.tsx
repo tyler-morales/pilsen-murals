@@ -25,7 +25,7 @@ import type { Mural } from "@/types/mural";
 import type { MapLightPreset } from "@/store/themeStore";
 import type { MapStyleKind } from "@/store/mapStore";
 import { ensureMapboxCSS, MAPBOX_STYLE_URLS } from "@/lib/mapbox";
-import { attachMapboxErrorHandler } from "@/lib/mapboxErrorHandler";
+import { attachMapboxErrorHandler, isMapboxTileAuthFailure } from "@/lib/mapboxErrorHandler";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
 
@@ -582,6 +582,7 @@ export function MuralMap({
   const mapStyleRef = useRef<MapStyleKind>(useMapStore.getState().mapStyle);
   const muralsCoordsRef = useRef<[number, number][]>([]);
   const [hoveredMuralId, setHoveredMuralId] = useState<string | null>(null);
+  const [tileAuthError, setTileAuthError] = useState(false);
   const setHoveredMuralIdRef = useRef(setHoveredMuralId);
   setHoveredMuralIdRef.current = setHoveredMuralId;
   const hoveredMuralIdRef = useRef<string | null>(null);
@@ -785,6 +786,11 @@ export function MuralMap({
         map.addControl(new (createHeatmapControl(hapticsToggleRef.current))(), "top-right");
 
         attachMapboxErrorHandler(map);
+        map.on("error", (e: { error: { status?: number; url?: string; message?: string } }) => {
+          if (isMapboxTileAuthFailure(e.error)) {
+            setTileAuthError(true);
+          }
+        });
 
         // Merge fit and style into the NavigationControl group; keep heatmap as its own stacked group (compass stays in nav).
         // top-right order: [nav, fit, style, heatmap] -> merge fit, style into nav; heatmap remains separate.
@@ -1391,6 +1397,36 @@ export function MuralMap({
   return (
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" aria-hidden />
+      {tileAuthError && (
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="fixed left-1/2 top-20 z-[45] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 shadow-lg"
+        >
+          <p className="text-center text-sm text-red-900">
+            Map tiles failed to load. Check your Mapbox token in <code className="rounded bg-red-100 px-1">.env.local</code> and verify URL restrictions in your{" "}
+            <a
+              href="https://account.mapbox.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 rounded"
+            >
+              Mapbox account
+            </a>
+            .
+          </p>
+          <div className="mt-2 flex justify-center">
+            <button
+              type="button"
+              onClick={() => setTileAuthError(false)}
+              className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-red-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2"
+              aria-label="Dismiss"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
       {/* Map loading overlay — full viewport so header is hidden; fades out when ready */}
       {MAPBOX_TOKEN && (
         <div
